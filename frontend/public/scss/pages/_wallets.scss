@@ -10,7 +10,17 @@
     background: $white;
     box-shadow: $shadow;
     border-radius: $radius;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+
+    &:hover,
+    &:focus {
+        background: lighten($primary, 42%);
+    }
 }
+
 
 .wallet-nav {
     background: $white;
@@ -24,6 +34,8 @@
     // border-bottom: 1px solid $border-color;
     box-shadow: $shadow;
     margin-bottom: 20px;
+    font: inherit;
+    color: inherit;
 
     &:hover,
     &:focus,

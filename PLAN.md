@@ -341,16 +341,24 @@ should get one more look once M3/M4 land real backends, since some of the "empty
 here will need to flip over to real data wiring at that point — tracked per-milestone above,
 not re-litigated here.
 
-**Follow-up scoped, not yet done**: the user pointed out mid-M3 that `/wallets` lost the
-original template's styled `.credit-card`/`.wallet-nav` visual chrome when M2 slice 4 rewrote it
-— that rewrite correctly stripped the forbidden fields the original template hardcoded (a fake
-full 16-digit card number, cardholder name, expiry date — none of which PRD §11.1 allows storing)
-but overcorrected by dropping the visual styling along with the data. Direction confirmed with
-the user: keep last-4-only manual entry (unchanged), reapply the original gradient
-credit-card/tabbed wallet-nav visual around real payment-method data (masked `•••• 1234` instead
-of a fake full number, alias name instead of a fake cardholder, no expiry field). Scheduled as
-the next governed slice after M3, per the user's explicit choice not to interrupt M3's in-flight
-critical-risk review to do it immediately.
+**Follow-up: Wallets visual restyle — DONE** (`BIW-INFRA-008`, decisions 35 → 36). The user
+pointed out mid-M3 that `/wallets` lost the original template's styled `.credit-card`/`.wallet-nav`
+visual chrome when M2 slice 4 rewrote it — that rewrite correctly stripped the forbidden fields
+the original template hardcoded (a fake full 16-digit card number, cardholder name, expiry date —
+none of which PRD §11.1 allows storing) but overcorrected by dropping the visual styling along
+with the data. Confirmed via `git show 7e37aa3:frontend/app/wallets/page.js` (the pre-M2
+original). Rebuilt `/wallets` after M3 finished (per the user's explicit choice not to interrupt
+M3's in-flight critical-risk review): left-column `.wallet-nav` list of real payment methods
+(click to select, real `<button>` with `aria-pressed`, not a div+role reimplementation), a
+toggleable "Add new wallet" panel reusing the unchanged create-form fields, and a right-column
+detail view showing the original `.credit-card` gradient visual for Credit Card/Debit Card types
+(masked `•••• •••• •••• 1234` instead of a fake full number, alias name instead of a fake
+cardholder, no expiry field, optional cashback rate) or a simpler balance card for Cash/Tracked
+Savings/Other. security-reviewer and react-reviewer both clean (one MEDIUM style note on
+h4/h5/h6 usage in the credit-card visual, intentionally left as-is since those are the exact
+selectors `_credit-card.scss` targets — changing them would break the template-matched visual).
+`npm run build` clean, Playwright-verified end-to-end (Cash + a newly-created Credit Card both
+render correctly, nav selection/active-state, create/delete cycle).
 
 ## Milestone 3 Detail (Transaction Core)
 
@@ -613,12 +621,14 @@ throughout), UUID enumeration (128-bit space, already low risk).
   any frontend path, and the host-side test-run recorder can't execute the
   Docker-wrapped pytest command. A human can update `testCommands`/`gatedGlobs`
   and run `harness reconcile-config` if tighter mechanical enforcement is wanted.
-- **M3 decisions awaiting human-ack**: decisions 31 (backend assess_risk+spec), 32
-  (backend review remediation — N+1 fix, category filter pushed into SQL, missing
-  index, 5 new tests), 33 (frontend assess_risk+spec), 34 (frontend review
-  remediation — SWR cache-key fix, stable line-item keys) are all `pending_approval`
-  under CONST-ARCH-001, same pattern as M1/M2. Required reviews (security-reviewer +
-  fastapi-reviewer for backend, security-reviewer + react-reviewer for frontend)
+- **M3 + Wallets-restyle decisions awaiting human-ack**: decisions 31 (backend
+  assess_risk+spec), 32 (backend review remediation — N+1 fix, category filter
+  pushed into SQL, missing index, 5 new tests), 33 (frontend assess_risk+spec), 34
+  (frontend review remediation — SWR cache-key fix, stable line-item keys), 35
+  (Wallets restyle assess_risk+spec), 36 (Wallets restyle review remediation — both
+  reviews clean) are all `pending_approval` under CONST-ARCH-001, same pattern as
+  M1/M2. Required reviews (security-reviewer + fastapi-reviewer for M3 backend,
+  security-reviewer + react-reviewer for M3 frontend and for the Wallets restyle)
   have already run and all findings are fixed and re-verified. Run
   `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each, or
   batch through them — M1 and M2's decisions were all approved this way already.
