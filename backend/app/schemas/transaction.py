@@ -32,6 +32,7 @@ class TransactionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     payment_method_id: uuid.UUID
+    goal_id: uuid.UUID | None = None
     date: date_type
     merchant: str = Field(min_length=1, max_length=200)
     description: str | None = None
@@ -45,6 +46,7 @@ class TransactionUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     payment_method_id: uuid.UUID | None = None
+    goal_id: uuid.UUID | None = None
     date: date_type | None = None
     merchant: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = None
@@ -59,6 +61,7 @@ class TransactionPublic(BaseModel):
 
     id: uuid.UUID
     payment_method_id: uuid.UUID
+    goal_id: uuid.UUID | None
     date: date_type
     merchant: str
     description: str | None

@@ -1,6 +1,6 @@
 import uuid
 from datetime import date as date_type
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import extract
@@ -10,64 +10,30 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.api.deps import require_owner
 from app.core.db import get_session
 from app.models._common import utcnow
-from app.models.category import Category, CategoryType
-from app.models.payment_method import PaymentMethod
+from app.models.goal import SavingsGoal
 from app.models.transaction import Transaction, TransactionLineItem, TransactionSource, TransactionType
 from app.models.user import User
 from app.schemas.transaction import TransactionCreate, TransactionPublic, TransactionUpdate
+from app.services.transaction_validation import validate_line_items, validate_payment_method
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
-_CENTS = Decimal("0.01")
-_EXPENSE_LIKE_TYPES = {TransactionType.EXPENSE, TransactionType.SAVING_EXPENSE}
+_GOAL_ELIGIBLE_TYPES = {TransactionType.SAVING_EXPENSE, TransactionType.ADJUSTMENT}
 
 
-def _quantize(amount: Decimal) -> Decimal:
-    return amount.quantize(_CENTS, rounding=ROUND_HALF_UP)
-
-
-async def _validate_payment_method(session: AsyncSession, user: User, payment_method_id: uuid.UUID) -> None:
-    payment_method = await session.get(PaymentMethod, payment_method_id)
-    if payment_method is None or payment_method.user_id != user.id or not payment_method.is_active:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid payment method")
-
-
-async def _validate_line_items(
-    session: AsyncSession,
-    user: User,
-    transaction_type: TransactionType,
-    total_amount: Decimal,
-    line_items: list,
+async def _validate_goal(
+    session: AsyncSession, user: User, transaction_type: TransactionType, goal_id: uuid.UUID | None
 ) -> None:
-    line_item_sum = sum((item.amount for item in line_items), Decimal("0"))
-    if _quantize(line_item_sum) != _quantize(total_amount):
+    if goal_id is None:
+        return
+    if transaction_type not in _GOAL_ELIGIBLE_TYPES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Line item amounts must sum to the transaction total",
+            detail="goal_id is only valid for Saving expense or Adjustment transactions",
         )
-
-    if transaction_type != TransactionType.ADJUSTMENT and total_amount < 0:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Only Adjustment transactions may have a negative amount",
-        )
-
-    expected_category_type = (
-        CategoryType.EXPENSE
-        if transaction_type in _EXPENSE_LIKE_TYPES
-        else CategoryType.INCOME
-        if transaction_type == TransactionType.INCOME
-        else None
-    )
-    for item in line_items:
-        category = await session.get(Category, item.category_id)
-        if category is None or category.user_id != user.id or not category.is_active:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid category")
-        if expected_category_type is not None and category.category_type != expected_category_type:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Category type must be {expected_category_type.value} for this transaction type",
-            )
+    goal = await session.get(SavingsGoal, goal_id)
+    if goal is None or goal.user_id != user.id or not goal.is_active:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid goal")
 
 
 async def _detect_duplicate(
@@ -110,6 +76,7 @@ async def _to_public(session: AsyncSession, transaction: Transaction, possible_d
     return TransactionPublic(
         id=transaction.id,
         payment_method_id=transaction.payment_method_id,
+        goal_id=transaction.goal_id,
         date=transaction.date,
         merchant=transaction.merchant,
         description=transaction.description,
@@ -174,6 +141,7 @@ async def list_transactions(
         TransactionPublic(
             id=t.id,
             payment_method_id=t.payment_method_id,
+            goal_id=t.goal_id,
             date=t.date,
             merchant=t.merchant,
             description=t.description,
@@ -194,8 +162,9 @@ async def create_transaction(
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
 ) -> TransactionPublic:
-    await _validate_payment_method(session, user, body.payment_method_id)
-    await _validate_line_items(session, user, body.transaction_type, body.total_amount, body.line_items)
+    await validate_payment_method(session, user, body.payment_method_id)
+    await validate_line_items(session, user, body.transaction_type, body.total_amount, body.line_items)
+    await _validate_goal(session, user, body.transaction_type, body.goal_id)
 
     possible_duplicate = await _detect_duplicate(
         session, user, body.merchant, body.date, body.total_amount, body.payment_method_id
@@ -204,6 +173,7 @@ async def create_transaction(
     transaction = Transaction(
         user_id=user.id,
         payment_method_id=body.payment_method_id,
+        goal_id=body.goal_id,
         date=body.date,
         merchant=body.merchant,
         description=body.description,
@@ -253,13 +223,16 @@ async def update_transaction(
     updates = body.model_dump(exclude_unset=True, exclude={"line_items"})
     payment_method_id = body.payment_method_id if body.payment_method_id is not None else transaction.payment_method_id
     if body.payment_method_id is not None:
-        await _validate_payment_method(session, user, body.payment_method_id)
+        await validate_payment_method(session, user, body.payment_method_id)
 
     transaction_type = body.transaction_type if body.transaction_type is not None else transaction.transaction_type
     total_amount = body.total_amount if body.total_amount is not None else transaction.total_amount
 
+    if "goal_id" in updates and updates["goal_id"] is not None:
+        await _validate_goal(session, user, transaction_type, updates["goal_id"])
+
     if body.line_items is not None:
-        await _validate_line_items(session, user, transaction_type, total_amount, body.line_items)
+        await validate_line_items(session, user, transaction_type, total_amount, body.line_items)
         existing_line_items = await _load_line_items(session, transaction.id)
         for item in existing_line_items:
             await session.delete(item)
@@ -277,7 +250,7 @@ async def update_transaction(
             )
     elif body.total_amount is not None or body.transaction_type is not None:
         existing_line_items = await _load_line_items(session, transaction.id)
-        await _validate_line_items(session, user, transaction_type, total_amount, existing_line_items)
+        await validate_line_items(session, user, transaction_type, total_amount, existing_line_items)
 
     for field, value in updates.items():
         setattr(transaction, field, value)

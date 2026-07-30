@@ -29,6 +29,7 @@ class Transaction(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(foreign_key="users.id", nullable=False, index=True)
     payment_method_id: uuid.UUID = Field(foreign_key="payment_methods.id", nullable=False)
+    goal_id: uuid.UUID | None = Field(default=None, foreign_key="savings_goals.id", index=True)
     date: date_type
     merchant: str
     description: str | None = None

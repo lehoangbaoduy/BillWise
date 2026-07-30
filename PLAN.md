@@ -29,7 +29,11 @@ aren't already obvious from the code or the PRD.
       frontend (Add/Edit Transaction, Transactions History) both built, tested,
       security- and code-reviewed across 2 governed slices — see "Milestone 3
       Detail" below. Formally `pending_approval` pending human-ack (decisions 31-34).
-- [ ] **M4: Dashboard, Budgets & Goals**
+- [~] **M4: Dashboard, Budgets & Goals** — backend slice 1 (Budgets + Savings Goals,
+      including the deferred `transactions.goal_id` and an add-funds money flow) DONE,
+      tested (100 passing backend tests), security- and fastapi-reviewed — see
+      "Milestone 4 Detail" below. Still to do: Dashboard aggregation endpoints, and
+      frontend for all three (Budgets, Goals, Dashboard).
 - [ ] **M5: OCR Flow**
 - [ ] **M6: Recurring Bills & Cashback**
 - [ ] **M7: Net Worth, AI Insights, Household & Exports**
@@ -432,6 +436,47 @@ render correctly, nav selection/active-state, create/delete cycle).
   throughout. `npm run build` clean, 50/50 routes, after fixing one build-blocking
   `react/no-unescaped-entities` lint error the build itself caught before review started.
 
+## Milestone 4 Detail (Dashboard, Budgets & Goals)
+
+### Backend slice 1 — Budgets + Savings Goals (`BIW-DATA-003`, `BIW-API-003`, decisions 37 → 38)
+- `budgets` table (per-category monthly amounts, unique on `user_id`+`category_id`+`month`+`year`)
+  and `savings_goals` table (name/target/target_date/icon/color/sharing/is_active), plus the
+  `transactions.goal_id` nullable FK deferred from M3 (§23.5's `savings_goals` table didn't exist
+  yet when the transactions schema was built).
+- Scope decisions documented up front in decision 37: (1) goal `current_amount` computed live via
+  `SUM(total_amount) WHERE goal_id = ...` rather than stored-and-synced, matching the schema's own
+  "derived from linked transactions" annotation and avoiding a cross-cutting sync mechanism across
+  every transaction write path. (2) `goal_id` only valid on Saving expense/Adjustment transactions
+  (PRD §12.1), enforced in `transactions.py`'s `_validate_goal`. (3) Goal delete is soft
+  (deactivate + null out `goal_id` on referencing transactions), matching PRD §27.4 verbatim.
+  (4) Budget rollover (PRD §14.4) implemented as an auto-copy-on-read side effect of `GET /budgets`
+  when the requested month is empty but an earlier month has rows — new independent rows, source
+  month untouched. (5) Budgets hard-deleted (no `is_active` in §23.7's schema, same signal used
+  for transactions in M3).
+- Real TDD: 100 passing backend tests (grew from an initial 95 after the fastapi-reviewer's
+  coverage-gap findings were closed).
+- security-reviewer: clean, no CRITICAL/HIGH — explicitly verified the add-funds money flow
+  validates payment_method/category against the *authenticated* user (not just any UUID), IDOR-safe
+  across all 11 new endpoints, goal-deactivation's bulk `goal_id`-nulling correctly scoped.
+- fastapi-reviewer: HIGH (budget rollover loaded the user's entire budget history unfiltered just
+  to find the most recent earlier month — fixed by pushing the earlier-period comparison into SQL),
+  2 MEDIUM (goals.py imported "private" underscore-prefixed validators directly from
+  transactions.py — fixed by promoting `validate_payment_method`/`validate_line_items`/`quantize`
+  to a new `app/services/transaction_validation.py` module both routers import publicly, per the
+  project's FastAPI rules on keeping routers thin; test coverage gaps — closed with 6 new tests
+  covering budget-delete/goal-update/goal-sharing 404s and rollover edge cases including a
+  Dec→Jan year boundary).
+- Live smoke-tested end-to-end via curl against the running backend both before and after the
+  refactor (goal create → add-funds → current_amount updates correctly; budget create → rollover
+  into the next month) — service hot-reloaded cleanly post-refactor with no import errors.
+
+### Still to do for M4
+- Backend: Dashboard aggregation endpoints (`GET /dashboard/monthly`, `/yearly`,
+  `/category-breakdown`, `/payment-method-breakdown`, `/cash-flow` — net worth and AI insights are
+  explicitly M7/M9, not built here).
+- Frontend: real data wiring for `/budgets` and `/goals` (currently M2 EmptyState placeholders),
+  and for the Dashboard (`/`, currently de-mocked to empty states in M2 slice 1).
+
 ## Milestone 1 Detail
 
 ### Specs registered
@@ -621,14 +666,15 @@ throughout), UUID enumeration (128-bit space, already low risk).
   any frontend path, and the host-side test-run recorder can't execute the
   Docker-wrapped pytest command. A human can update `testCommands`/`gatedGlobs`
   and run `harness reconcile-config` if tighter mechanical enforcement is wanted.
-- **M3 + Wallets-restyle decisions awaiting human-ack**: decisions 31 (backend
-  assess_risk+spec), 32 (backend review remediation — N+1 fix, category filter
-  pushed into SQL, missing index, 5 new tests), 33 (frontend assess_risk+spec), 34
-  (frontend review remediation — SWR cache-key fix, stable line-item keys), 35
-  (Wallets restyle assess_risk+spec), 36 (Wallets restyle review remediation — both
-  reviews clean) are all `pending_approval` under CONST-ARCH-001, same pattern as
-  M1/M2. Required reviews (security-reviewer + fastapi-reviewer for M3 backend,
-  security-reviewer + react-reviewer for M3 frontend and for the Wallets restyle)
-  have already run and all findings are fixed and re-verified. Run
+- **M3 + Wallets-restyle + M4-slice-1 decisions awaiting human-ack**: decisions 31
+  (M3 backend assess_risk+spec), 32 (M3 backend review remediation — N+1 fix,
+  category filter pushed into SQL, missing index, 5 new tests), 33 (M3 frontend
+  assess_risk+spec), 34 (M3 frontend review remediation — SWR cache-key fix, stable
+  line-item keys), 35 (Wallets restyle assess_risk+spec), 36 (Wallets restyle review
+  remediation — both reviews clean), 37 (M4 Budgets+Goals backend assess_risk+spec),
+  38 (M4 Budgets+Goals backend review remediation — rollover query fix, shared
+  validators promoted to a services module, 6 new tests) are all `pending_approval`
+  under CONST-ARCH-001, same pattern as M1/M2. Required reviews have already run for
+  every one of these and all findings are fixed and re-verified. Run
   `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each, or
   batch through them — M1 and M2's decisions were all approved this way already.
