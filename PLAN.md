@@ -18,8 +18,14 @@ aren't already obvious from the code or the PRD.
       real Chrome browser via Playwright (register → verify → login → dashboard).
       Formally still `pending_approval` on harness-os (CONST-ARCH-001 requires a
       human ack for critical-risk changes) — see "Outstanding human actions".
-- [ ] **M2: Template Integration** — port Ekash template, strip mock data, rebrand,
-      remove §9.5 screens
+- [x] **M2: Template Integration** — port Ekash template, strip mock data, rebrand,
+      remove §9.5 screens. DONE for everything with a real backend or a defined
+      empty-state target (§9.1, §9.2, §9.5, §9.6 — see "Milestone 2 Detail" below).
+      §9.3 net-new screens deliberately deferred to their owning backend milestones
+      (M3/M4/M6/M7) rather than built against nonexistent APIs — documented scoping
+      decision, not a gap. Security- and React-reviewed across 5 slices, all
+      Playwright-verified. Formally `pending_approval` on harness-os pending
+      human-ack, same as M1.
 - [ ] **M3: Transaction Core** — manual transaction CRUD, line items, filters
 - [ ] **M4: Dashboard, Budgets & Goals**
 - [ ] **M5: OCR Flow**
@@ -529,3 +535,10 @@ throughout), UUID enumeration (128-bit space, already low risk).
   any frontend path, and the host-side test-run recorder can't execute the
   Docker-wrapped pytest command. A human can update `testCommands`/`gatedGlobs`
   and run `harness reconcile-config` if tighter mechanical enforcement is wanted.
+- **M2 decisions awaiting human-ack**: decisions 9, 11, 13, 14, 15, 16, 17, 18, 19,
+  20 (spec assessments and review-remediation records for all 5 M2 slices) are all
+  `pending_approval`, same CONST-ARCH-001 requirement as M1. Run
+  `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each, or
+  batch through them — none are blocked on anything else, all required reviews
+  (security-reviewer + react-reviewer) have already run and their findings are
+  fixed and verified.
