@@ -16,17 +16,19 @@ aren't already obvious from the code or the PRD.
 - [x] **M1: Foundation** — backend (auth, payment methods, categories) DONE,
       security-reviewed, verified end-to-end against real Postgres AND through a
       real Chrome browser via Playwright (register → verify → login → dashboard).
-      Formally still `pending_approval` on harness-os (CONST-ARCH-001 requires a
-      human ack for critical-risk changes) — see "Outstanding human actions".
+      All decisions human-acked via `harness approve`.
 - [x] **M2: Template Integration** — port Ekash template, strip mock data, rebrand,
       remove §9.5 screens. DONE for everything with a real backend or a defined
       empty-state target (§9.1, §9.2, §9.5, §9.6 — see "Milestone 2 Detail" below).
       §9.3 net-new screens deliberately deferred to their owning backend milestones
       (M3/M4/M6/M7) rather than built against nonexistent APIs — documented scoping
       decision, not a gap. Security- and React-reviewed across 5 slices, all
-      Playwright-verified. Formally `pending_approval` on harness-os pending
-      human-ack, same as M1.
-- [ ] **M3: Transaction Core** — manual transaction CRUD, line items, filters
+      Playwright-verified. All decisions human-acked via `harness approve`.
+- [x] **M3: Transaction Core** — manual transaction CRUD, line items, filters. Backend
+      (transactions + transaction_line_items, full CRUD, history filters) and
+      frontend (Add/Edit Transaction, Transactions History) both built, tested,
+      security- and code-reviewed across 2 governed slices — see "Milestone 3
+      Detail" below. Formally `pending_approval` pending human-ack (decisions 31-34).
 - [ ] **M4: Dashboard, Budgets & Goals**
 - [ ] **M5: OCR Flow**
 - [ ] **M6: Recurring Bills & Cashback**
@@ -339,6 +341,89 @@ should get one more look once M3/M4 land real backends, since some of the "empty
 here will need to flip over to real data wiring at that point — tracked per-milestone above,
 not re-litigated here.
 
+**Follow-up scoped, not yet done**: the user pointed out mid-M3 that `/wallets` lost the
+original template's styled `.credit-card`/`.wallet-nav` visual chrome when M2 slice 4 rewrote it
+— that rewrite correctly stripped the forbidden fields the original template hardcoded (a fake
+full 16-digit card number, cardholder name, expiry date — none of which PRD §11.1 allows storing)
+but overcorrected by dropping the visual styling along with the data. Direction confirmed with
+the user: keep last-4-only manual entry (unchanged), reapply the original gradient
+credit-card/tabbed wallet-nav visual around real payment-method data (masked `•••• 1234` instead
+of a fake full number, alias name instead of a fake cardholder, no expiry field). Scheduled as
+the next governed slice after M3, per the user's explicit choice not to interrupt M3's in-flight
+critical-risk review to do it immediately.
+
+## Milestone 3 Detail (Transaction Core)
+
+### Scope decisions (documented up front, per harness-os decision 31/33 rationale)
+- **`goal_id`, tags, recurring-flag, cashback-eligible-flag** — PRD §12.1 lists these as
+  manual-entry fields, but §23.5's actual DB schema for `transactions` has none of them (no
+  other section references them either). Deferred to their owning milestones: `goal_id` to M4
+  (the `goals` table doesn't exist yet — nothing to foreign-key against), tags/recurring/cashback
+  to M6. Schema-is-authoritative precedent, same as M1/M2.
+- **Every line item requires `category_id`** (no type-conditional required/optional split) —
+  matches §23.6's schema (no nullable marker), naturally satisfies §12.4's "category required for
+  expenses" without extra logic.
+- **Hard delete, no soft-delete/`is_active`** — §23.5's `transactions` table has no `is_active`
+  column (unlike `payment_methods`/`categories`, which do and are soft-deleted) — schema signal
+  followed directly.
+- **"Export filtered data"** (§24.6) deferred to M7, which already owns CSV/Excel/PDF export as a
+  milestone deliverable.
+- **Receipt scan / statement import** (§24.4) not built — both require the OCR pipeline, which is
+  M5. Only manual entry is in scope for M3, consistent with the milestone's own PRD description
+  ("manual transaction CRUD").
+
+### Backend (`BIW-DATA-002`, `BIW-API-002`, decisions 31 → 32)
+- `transactions` + `transaction_line_items` tables (SQLModel), full CRUD router
+  (`GET/POST /transactions`, `GET/PATCH/DELETE /transactions/{id}`), filters on the list endpoint
+  (month, category_id, payment_method_id, amount_min/max, free-text search).
+- Server-side validation: line-item amounts must sum to the transaction total (Decimal, quantized
+  to cents, `ROUND_HALF_UP`); amount sign enforced per PRD §12.4 (only `Adjustment` may be
+  negative); payment method and category ownership + active-status checked on every write;
+  non-blocking duplicate-transaction detection (same merchant/date/amount/payment method) surfaced
+  as a `possible_duplicate` flag on the create response, never blocking the write.
+- Real TDD: wrote `tests/test_transactions.py` alongside the implementation, ran against the live
+  docker-compose Postgres via `docker compose run --rm backend pytest`; 62 passing initially, grew
+  to **67 passing** after the fastapi-reviewer's test-gap findings were closed (inactive
+  payment-method/category rejection, explicit `quantity`, PATCH revalidation when only
+  `total_amount`/`transaction_type` changes without new line items, DB-level cascade-delete
+  verification).
+- security-reviewer: clean, no findings (IDOR-proof ownership checks, no SQL injection, mass
+  assignment blocked by `extra="forbid"`, correct Decimal rounding, no data leakage in errors).
+- fastapi-reviewer: 2 HIGH (N+1 query in `list_transactions` — fixed by batch-loading all line
+  items for the fetched transaction_ids in one query instead of one query per transaction; the
+  `category_id` filter was filtering an already-fetched Python list in memory instead of pushing
+  into SQL — fixed with an `id.in_(select(...))` subquery condition), 2 MEDIUM (missing index on
+  `transaction_line_items.category_id` — added; test coverage gaps — closed, see above).
+- Live smoke-tested end-to-end via curl against the running backend (register → verify via direct
+  DB flip, since dev has no SMTP → login → create payment method/category/transaction → filter by
+  category) before and after the review fixes.
+
+### Frontend (`BIW-INFRA-007`, decision 33 → 34)
+- `transactionsApi` added to `lib/api.js` (list with query-param filters, create, get, update,
+  remove), following the established per-domain API-object pattern.
+- `/add-transaction` (net-new route, deferred out of M2 §9.3 specifically until this backend
+  existed): manual entry form with dynamic multi-category line-item splitting (PRD §12.3's
+  Costco-across-Grocery/Shopping example), reused for edit via `?edit=<id>` (loads via
+  `transactionsApi.get`, PATCHes instead of POSTs) rather than a separate edit implementation.
+- `/analytics-transaction-history` rewritten from its M2 EmptyState placeholder to a real
+  filterable/searchable table (month/category/payment-method/amount-range/search) with inline
+  edit/delete; shows a non-blocking duplicate-warning banner (`?duplicate=1` redirect flag) rather
+  than blocking the Add form, since by the time `possible_duplicate` is known the transaction is
+  already saved — blocking there would risk a real double-submit on resubmit.
+- Sidebar gained a "Transactions" entry (deliberately left out in M2 since no transaction backend
+  existed yet).
+- security-reviewer: clean, no findings.
+- react-reviewer: 2 HIGH (SWR cache key was a freshly-constructed object every render on the
+  History page, defeating dedup/caching — fixed with a `JSON.stringify(filters)` stable key; line
+  items used array index as React key while supporting removal from any row, risking state
+  misattachment on a middle-row removal — fixed with a `crypto.randomUUID()`-based stable key per
+  line item), 1 MEDIUM (an awkwardly-worded but harmless `useEffect` guard condition — tightened).
+- Full interactive Playwright pass (both before and after the review-fix round): single-category
+  create, two-category split create, edit with pre-filled multi-line-item state, search filter,
+  delete with `window.confirm`, and the duplicate-warning banner end-to-end — zero console errors
+  throughout. `npm run build` clean, 50/50 routes, after fixing one build-blocking
+  `react/no-unescaped-entities` lint error the build itself caught before review started.
+
 ## Milestone 1 Detail
 
 ### Specs registered
@@ -523,22 +608,17 @@ correct — reviewer confirmed), SQL injection (parameterized via SQLAlchemy
 throughout), UUID enumeration (128-bit space, already low risk).
 
 ### Outstanding human actions
-- **CONST-ARCH-001 human-ack required**: `assess_risk` classified Milestone 1
-  Critical (keyword match on "payment" in payment_methods, not actual money
-  movement — see Design Decisions). Decision id 1 is `pending_approval`. A human
-  should review and run `harness approve` (or equivalent) before this is
-  considered gated-complete. Also recommended: a **security-reviewer** pass per
-  the constitution's required-gates list (`spec, tests, review:security,
-  human-ack`) before this ships past dev.
 - **`harness.config.json` reconciliation** (optional): see Environment Notes — the
   mechanical CONST-CORE-001/002 gate doesn't currently cover `backend/**/*.py` or
   any frontend path, and the host-side test-run recorder can't execute the
   Docker-wrapped pytest command. A human can update `testCommands`/`gatedGlobs`
   and run `harness reconcile-config` if tighter mechanical enforcement is wanted.
-- **M2 decisions awaiting human-ack**: decisions 9, 11, 13, 14, 15, 16, 17, 18, 19,
-  20 (spec assessments and review-remediation records for all 5 M2 slices) are all
-  `pending_approval`, same CONST-ARCH-001 requirement as M1. Run
+- **M3 decisions awaiting human-ack**: decisions 31 (backend assess_risk+spec), 32
+  (backend review remediation — N+1 fix, category filter pushed into SQL, missing
+  index, 5 new tests), 33 (frontend assess_risk+spec), 34 (frontend review
+  remediation — SWR cache-key fix, stable line-item keys) are all `pending_approval`
+  under CONST-ARCH-001, same pattern as M1/M2. Required reviews (security-reviewer +
+  fastapi-reviewer for backend, security-reviewer + react-reviewer for frontend)
+  have already run and all findings are fixed and re-verified. Run
   `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each, or
-  batch through them — none are blocked on anything else, all required reviews
-  (security-reviewer + react-reviewer) have already run and their findings are
-  fixed and verified.
+  batch through them — M1 and M2's decisions were all approved this way already.
