@@ -1,6 +1,7 @@
 
 'use client'
 import { useEffect, useState } from "react"
+import AuthGuard from "@/components/auth/AuthGuard"
 import Breadcrumb from './Breadcrumb'
 import PageHead from './PageHead'
 import Sidebar from "./Sidebar"
@@ -20,15 +21,14 @@ export default function Layout({ headerStyle, footerStyle, headTitle, breadcrumb
         })
         window.wow.init()
 
-        document.addEventListener("scroll", () => {
-            const scrollCheck = window.scrollY > 100
-            if (scrollCheck !== scroll) {
-                setScroll(scrollCheck)
-            }
-        })
+        const handleScroll = () => {
+            setScroll(window.scrollY > 100)
+        }
+        document.addEventListener("scroll", handleScroll)
+        return () => document.removeEventListener("scroll", handleScroll)
     }, [])
     return (
-        <>
+        <AuthGuard>
             <PageHead headTitle={headTitle} />
             <div id="main-wrapper">
                 <Header1 scroll={scroll} isMobileMenu={isMobileMenu} handleMobileMenu={handleMobileMenu} />
@@ -41,8 +41,8 @@ export default function Layout({ headerStyle, footerStyle, headTitle, breadcrumb
                         {children}
                     </div>
                 </div>
-                < Footer1 />
+                <Footer1 />
             </div>
-        </>
+        </AuthGuard>
     )
 }

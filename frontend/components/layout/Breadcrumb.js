@@ -10,13 +10,13 @@ export default function Breadcrumb({ breadcrumbTitle }) {
                             <div className="col-xl-4">
                                 <div className="page-title-content">
                                     <h3>{breadcrumbTitle}</h3>
-                                    <p className="mb-2">Welcome Ekash Finance Management</p>
+                                    <p className="mb-2">Welcome to BillWise</p>
                                 </div>
                             </div>
                             <div className="col-auto">
-                                <div className="breadcrumbs"><Link href="#">Home </Link>
+                                <div className="breadcrumbs"><Link href="/">Home </Link>
                                     <span><i className="fi fi-rr-angle-small-right" /></span>
-                                    <Link href="#">{breadcrumbTitle}</Link>
+                                    <span aria-current="page">{breadcrumbTitle}</span>
                                 </div>
                             </div>
                         </div>

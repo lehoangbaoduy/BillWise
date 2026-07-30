@@ -1,10 +1,26 @@
 import { Menu } from '@headlessui/react'
 import dynamic from 'next/dynamic'
 import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { useAuth } from "@/hooks/useAuth"
+import { authApi } from "@/lib/api"
 const ThemeSwitch = dynamic(() => import('@/components/elements/ThemeSwitch'), {
     ssr: false
 })
 export default function Header1({ isMobileMenu, handleMobileMenu }) {
+    const router = useRouter()
+    const { user } = useAuth()
+
+    async function handleLogout() {
+        try {
+            await authApi.logout()
+        } catch (error) {
+            console.error("Logout request failed; session cookie may still be valid.", error)
+        } finally {
+            router.push("/signin")
+        }
+    }
+
     return (
         <>
             <div className="header">
@@ -17,7 +33,7 @@ export default function Header1({ isMobileMenu, handleMobileMenu }) {
                                     <div className="search">
                                         <form action="#">
                                             <div className="input-group">
-                                                <input type="text" className="form-control" placeholder="Search Here" />
+                                                <input type="text" className="form-control" placeholder="Search Here" aria-label="Search" />
                                                 <span className="input-group-text"><i className="fi fi-br-search" /></span>
                                             </div>
                                         </form>
@@ -34,42 +50,7 @@ export default function Header1({ isMobileMenu, handleMobileMenu }) {
                                         <Menu.Items as="div" tabIndex={-1} role="menu" aria-hidden="true" className="dropdown-menu dropdown-menu-end show">
                                             <h4>Recent Notification</h4>
                                             <div className="lists">
-                                                <Link href="#">
-                                                    <div className="d-flex align-items-center">
-                                                        <span className="me-3 icon success"><i className="fi fi-bs-check" /></span>
-                                                        <div>
-                                                            <p>Account created successfully</p>
-                                                            <span>2024-11-04 12:00:23</span>
-                                                        </div>
-                                                    </div>
-                                                </Link>
-                                                <Link href="#">
-                                                    <div className="d-flex align-items-center">
-                                                        <span className="me-3 icon fail"><i className="fi fi-sr-cross-small" /></span>
-                                                        <div>
-                                                            <p>2FA verification failed</p>
-                                                            <span>2024-11-04 12:00:23</span>
-                                                        </div>
-                                                    </div>
-                                                </Link>
-                                                <Link href="#">
-                                                    <div className="d-flex align-items-center">
-                                                        <span className="me-3 icon success"><i className="fi fi-bs-check" /></span>
-                                                        <div>
-                                                            <p>Device confirmation completed</p>
-                                                            <span>2024-11-04 12:00:23</span>
-                                                        </div>
-                                                    </div>
-                                                </Link>
-                                                <Link href="#">
-                                                    <div className="d-flex align-items-center">
-                                                        <span className="me-3 icon pending"><i className="fi fi-rr-triangle-warning" /></span>
-                                                        <div>
-                                                            <p>Phone verification pending</p>
-                                                            <span>2024-11-04 12:00:23</span>
-                                                        </div>
-                                                    </div>
-                                                </Link>
+                                                <p className="text-center p-3 mb-0">No new notifications</p>
                                             </div>
                                             <div className="more">
                                                 <Link href="/notifications">More<i className="fi fi-bs-angle-right" /></Link>
@@ -83,10 +64,10 @@ export default function Header1({ isMobileMenu, handleMobileMenu }) {
                                         <Menu.Items as="div" tabIndex={-1} role="menu" aria-hidden="true" className="dropdown-menu dropdown-menu dropdown-menu-end show">
                                             <div className="user-email">
                                                 <div className="user">
-                                                    <span className="thumb"><img className="rounded-full" src="./images/avatar/3.jpg" alt="" /></span>
+                                                    <span className="thumb"><i className="fi fi-rr-user" /></span>
                                                     <div className="user-info">
-                                                        <h5>Hafsa Humaira</h5>
-                                                        <span>hello@email.com</span>
+                                                        <h5>{user?.display_name || " "}</h5>
+                                                        <span>{user?.email || " "}</span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -102,10 +83,10 @@ export default function Header1({ isMobileMenu, handleMobileMenu }) {
                                                 <span><i className="fi fi-rr-settings" /></span>
                                                 Settings
                                             </Link>
-                                            <Link className="dropdown-item logout" href="/signin">
+                                            <button type="button" className="dropdown-item logout" onClick={handleLogout}>
                                                 <span><i className="fi fi-bs-sign-out-alt" /></span>
                                                 Logout
-                                            </Link>
+                                            </button>
                                         </Menu.Items>
                                     </Menu>
                                 </div>

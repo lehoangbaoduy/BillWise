@@ -1,5 +1,5 @@
 {
-    "name": "start-app-dir",
+    "name": "billwise-frontend",
     "version": "0.1.0",
     "private": true,
     "scripts": {
@@ -20,6 +20,7 @@
         "react-dom": "18.2.0",
         "react-perfect-scrollbar": "^1.5.8",
         "sass": "^1.69.5",
+        "swr": "^2.2.5",
         "wowjs": "^1.1.3"
     }
 }

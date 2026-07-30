@@ -90,18 +90,93 @@ aren't already obvious from the code or the PRD.
 - **2026-07-30**: Stale Docker containers removed (see Environment Notes) after user
   confirmation.
 
-## Milestone 2 Detail (not started — checklist from PRD §9)
+## Process Note: harness-os discipline gap on M2 (caught by user, corrected)
+
+Started M2 (auth guard + shared-chrome de-mock) by implementing directly —
+no `create_spec`/`assess_risk` before writing code, breaking the
+Constitution→Spec→Test→Code→Review discipline that M1 followed throughout.
+User caught this mid-session and asked that harness-os be used consistently
+for the rest of the project, not just M1. Corrected by:
+1. Registering `BIW-INFRA-002` (retroactively, describing the already-written
+   components — not ideal, but honest about the ordering).
+2. Running `assess_risk` (Critical again — keyword match on "financial" this
+   time) and `record_decision`.
+3. Running both required/relevant reviews (`security-reviewer` per the
+   harness's required-gates list, `react-reviewer` per this codebase's own
+   standing rule for React changes) before doing any further M2 work.
+
+**Going forward for the rest of M2 (and M3-M9): spec → risk → tests → code →
+review happens in that order, every slice, not after the fact.** Sliced by
+logical unit of work (e.g. "the Payment Methods screen rework," not "all of
+M2") so the spec stays meaningful and reviewable rather than one giant
+after-the-fact umbrella covering 40+ screens.
+
+### M2 slice 1 review outcome (`BIW-INFRA-002`, decision 9 → remediation decision 11)
+
+Both required reviews (`security-reviewer`, `react-reviewer`) completed
+against `useAuth.js`, `AuthGuard.js`, `Layout.js`, `Header1.js`,
+`Breadcrumb.js`, `app/page.js`. react-reviewer's verdict: *"Approve? No.
+CRITICAL memory leak in Layout.js must be fixed before merge."* All findings
+fixed except one backlogged infra item:
+
+- **CRITICAL** (`Layout.js`): scroll `useEffect` added a
+  `document.addEventListener("scroll", ...)` with no cleanup — leaked a new
+  listener on every client-side navigation across the app's 40+ routes.
+  Pre-existing in the Ekash template, surfaced because this slice's
+  `AuthGuard` wrap touched the file. **Fixed**: named `handleScroll` +
+  `removeEventListener` cleanup on unmount.
+- **HIGH** (`Layout.js`): the same handler's `scrollCheck !== scroll` compared
+  against the effect's stale, mount-time `scroll` value (worse, a boolean vs.
+  the initial numeric `0` — never strictly equal), so `setScroll` fired on
+  every scroll tick instead of only threshold crossings. **Fixed**: direct
+  `setScroll(window.scrollY > 100)`, letting React dedupe re-renders.
+- **HIGH** (`Header1.js`): search input had no `aria-label`. **Fixed.**
+- **HIGH**: no ESLint config with `eslint-plugin-react-hooks` to catch
+  hook-cleanup bugs like the above mechanically. **Backlogged, not fixed** —
+  installing `eslint`/`eslint-config-next` is a separate infra change
+  (new devDependencies + config), out of scope for a review-fix slice.
+- **MEDIUM** (security-reviewer, `Header1.js`): `handleLogout` silently
+  swallowed `authApi.logout()` errors while always redirecting — risked a
+  stale session cookie with no signal. **Fixed**: catch + `console.error`,
+  still redirects in `finally` (losing the redirect on failure would strand
+  the user in an authenticated-looking UI with a possibly-dead session,
+  judged worse than a logged-but-silent failure).
+- **MEDIUM** (`Header1.js`): redundant `href="/signin"` alongside an
+  `onClick` handler. **Fixed**: converted to a semantic `<button type="button">`.
+- **MEDIUM** (`app/page.js`): unnecessary `<>...</>` Fragment wrapper around
+  the single `<Layout>` child. **Fixed.**
+- **MEDIUM** (`Layout.js`): stray-space typo `< Footer1 />`. **Fixed.**
+- **LOW** (`Breadcrumb.js`): current-page crumb used a dead `href="#"`.
+  **Fixed**: `<span aria-current="page">`.
+
+Re-verified via Playwright against the live stack (docker compose
+backend+db, native `npm run dev` frontend): registered a fresh user,
+verified email (confirmed the `verify-email` `useRef` double-invoke fix
+from M1 groundwork still holds), logged in, confirmed the dashboard renders
+its de-mocked empty states with zero console errors, confirmed the search
+input's `aria-label`, scrolled and navigated across pages with zero console
+errors, clicked the new logout `<button>` and confirmed correct sign-out +
+redirect to `/signin`, confirmed `AuthGuard` still blocks direct dashboard
+access post-logout. `npm run build` (production) completes cleanly — all 48
+routes generated, zero compile errors. Recorded as harness-os decision 11
+(linked to decision 9, still `pending_approval` — critical risk per
+CONST-ARCH-001's keyword match, needs human-ack via `harness approve`
+before this slice is gate-complete).
+
+## Milestone 2 Detail (checklist from PRD §9)
 
 ### Prerequisite (blocking, do first)
-- [ ] Frontend auth guard: any authenticated-area page must check
+- [x] Frontend auth guard: any authenticated-area page must check
       `GET /auth/me` and redirect to `/signin` on 401, before real user data
-      gets wired into any of these screens. Currently `/` has no guard at all
-      (verified via Playwright + curl — see Milestone 1 Verification section).
+      gets wired into any of these screens. Implemented via
+      `hooks/useAuth.js` (SWR-backed) + `components/auth/AuthGuard.js`,
+      wired into the shared `Layout.js` so every screen using `Layout` is
+      guarded from one place. Verified via Playwright.
 
 ### 9.1 Direct reskin (de-mock, keep structure)
 - [x] Sign in / Sign up (OTP step removed) — done in M1 groundwork
 - [x] Email verification (link-based) — done in M1 groundwork
-- [ ] Dashboard (`/`)
+- [x] Dashboard (`/`) — de-mocked, real empty states, reviewed and fixed per above
 - [ ] Yearly/Monthly Analytics (`/analytics*`)
 - [ ] Transactions History (`/analytics-transaction-history` + search/filter/edit/delete additions)
 - [ ] Budgets (`/budgets`)
