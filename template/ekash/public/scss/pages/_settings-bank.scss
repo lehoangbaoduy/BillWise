@@ -1,0 +1,25 @@
+.verify-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    @include respond("sm") {
+        display: block;
+
+        .btn {
+            margin-left: 65px;
+            margin-top: 15px;
+        }
+    }
+}
+
+.icon-circle {
+    height: 50px;
+    width: 50px;
+    min-width: 50px;
+    font-size: 22px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-radius: 50px;
+}

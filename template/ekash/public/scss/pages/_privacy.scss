@@ -1,0 +1,28 @@
+.privacy-content {
+    margin-bottom: 30px;
+
+    h3 {
+        font-size: 24px;
+        font-weight: 700;
+        margin-bottom: 30px;
+    }
+
+    p {
+        font-size: 16px;
+        line-height: 30px;
+        display: inline-block;
+        // color: #2E4577;
+    }
+
+    li {
+        display: flex;
+
+        i {
+            line-height: 30px;
+            margin-right: 15px;
+            font-size: 13px;
+            color: #AEAED5;
+        }
+    }
+
+}

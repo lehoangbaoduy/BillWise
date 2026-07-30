@@ -1,0 +1,120 @@
+// .wallet-tab {
+//     background: #ddd;
+// }
+
+.add-card-link {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background: $white;
+    box-shadow: $shadow;
+    border-radius: $radius;
+}
+
+.wallet-nav {
+    background: $white;
+    padding: 20px;
+    cursor: pointer;
+    border-radius: $radius;
+    // margin: 15px 0px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    // border-bottom: 1px solid $border-color;
+    box-shadow: $shadow;
+    margin-bottom: 20px;
+
+    &:hover,
+    &:focus,
+    &.active {
+        background: $primary;
+
+        .wallet-nav-icon {
+            background: darken($primary, 10%);
+            color: $white;
+        }
+
+        .wallet-nav-text {
+
+            h3,
+            p {
+                color: $white;
+            }
+        }
+    }
+
+    .wallet-nav-icon {
+        background: lighten($primary, 42%);
+        width: 50px;
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 100%;
+        font-size: 20px;
+        color: $primary;
+        margin-right: 12px;
+
+        i {
+            line-height: 0px;
+        }
+    }
+
+    .wallet-nav-text {
+        p {
+            color: $body-color;
+            opacity: 0.85;
+            font-size: 14px;
+            font-weight: 400;
+            margin-bottom: 0px;
+        }
+
+        h3 {
+            font-size: 18px;
+            margin-bottom: 0px;
+        }
+    }
+
+
+}
+
+.wallet-tab-content {
+    // background: $body-bg;
+    padding-left: 30px;
+
+    // border-bottom: 1px solid $border-color;
+    @include respond("lg") {
+        padding-top: 30px;
+        padding-left: 0px;
+    }
+
+    .wallet-tab-title {
+        padding: 16px 20px;
+        background: $white;
+        margin-bottom: 30px;
+        border-radius: $radius;
+        box-shadow: $shadow;
+
+        h3 {
+            font-size: 20px;
+            margin-bottom: 0px;
+        }
+    }
+}
+
+.funds-credit {
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px solid $border-color;
+    padding: 10px 0px;
+
+    &:last-child {
+        padding-bottom: 0px;
+        border: 0px;
+    }
+
+    h5 {
+        margin-bottom: 0px;
+    }
+}

@@ -1,0 +1,62 @@
+.id-card-img {
+    background-color: $primary;
+    padding: 10px;
+    max-width: 400px;
+    border-radius: 12px;
+    margin-bottom: 30px;
+
+    img {
+        padding: 30px;
+        background-color: lighten($color: $primary, $amount: 25);
+        border-radius: 12px;
+    }
+}
+
+.email-verification,
+.phone-verification,
+.id-info {
+    li {
+        margin-bottom: 24px;
+
+        // &:last-child {
+        //     margin-bottom: 0px;
+        // }
+    }
+
+    .d-flex {
+        align-items: center;
+    }
+
+    .round-icon {
+        height: 50px;
+        width: 50px;
+        font-size: 18px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        border-radius: 50px;
+        background: lighten($primary,42%);
+        color: $primary;
+        margin-right: 10px;
+
+        i {
+            line-height: 0px;
+        }
+    }
+
+    h5 {
+        margin-bottom: 2px;
+    }
+
+    p {
+        margin-bottom: 0px;
+
+        span {
+            color: $success;
+            margin-right: 5px;
+            font-size: 18px;
+            position: relative;
+            top: 3px;
+        }
+    }
+}

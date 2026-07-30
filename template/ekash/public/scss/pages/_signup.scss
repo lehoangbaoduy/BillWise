@@ -1,0 +1,120 @@
+.authincation {
+    height: 100vh;
+
+    &>.container {
+        height: 100vh;
+
+        &>.row {
+            height: 100vh;
+        }
+    }
+
+}
+
+
+
+.welcome-content {
+    background: url('/images/1.jpg');
+    background-size: cover;
+    background-position: center;
+    height: 100%;
+    position: relative;
+    // top                         : 20vh;
+    z-index: 1;
+    // border-radius: $radius;
+    border-top-left-radius: 5px;
+    border-bottom-left-radius: 5px;
+    min-height: 160px;
+    // margin-top                     : 20vh;
+    margin-bottom: 100px;
+
+    &::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        background: $primary;
+        opacity: 0.75;
+        z-index: -1;
+        // border-radius: $radius;
+        border-top-left-radius: 5px;
+        border-bottom-left-radius: 5px;
+    }
+
+    .welcome-title {
+        padding-left: 30px;
+        padding-top: 30px;
+
+        h3 {
+
+            color: $white;
+            // font-weight: 500;
+            font-size: 18px;
+            margin-top: 20px;
+        }
+    }
+
+    .privacy-social {
+        position: absolute;
+        bottom: 0;
+        bottom: 30px;
+        left: 30px;
+        display: flex;
+        flex-direction: column-reverse;
+
+        // @include respond("sm") {
+        //     display: none;
+        // }
+    }
+
+    .privacy-link {
+        a {
+            color: $white;
+            font-size: 12px;
+            line-height: 0;
+        }
+    }
+
+
+
+    .intro-social {
+        // position: absolute;
+        margin-bottom: 20px;
+
+        ul {
+            margin-bottom: 0;
+
+            li {
+                display: inline-block;
+
+                a {
+                    color: $white;
+                    font-size: 14px;
+                    padding-right: 15px;
+                }
+            }
+        }
+    }
+}
+
+
+.auth-form {
+    padding: 30px 20px;
+    // border-top-left-radius: 0px;
+    // border-bottom-left-radius: 0px;
+    border-top-right-radius: $radius;
+    border-bottom-right-radius: $radius;
+    background: $white;
+    min-height: 260px;
+}
+
+.privacy-link {
+    a {
+        display: inline-block;
+        font-size: 14px;
+        line-height: 28px;
+        color: $dark;
+    }
+}

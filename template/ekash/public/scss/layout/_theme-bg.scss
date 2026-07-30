@@ -1,0 +1,404 @@
+$dbg : #131129;
+$dcolor : lighten($primary, 30%);
+$dcard : #1D1933;
+$dborder : rgba(255, 255, 255, 0.08);
+// $dborder: darken($primary, 37%);
+
+.dark-theme {
+
+    h1,
+    .h1,
+    h2,
+    .h2,
+    h3,
+    .h3,
+    h4,
+    .h4,
+    h5,
+    .h5,
+    h6,
+    .h6 {
+        color: $white;
+    }
+
+    b,
+    strong {
+        color: $white;
+    }
+
+
+    background-color: $dbg;
+    // color : $dcolor;
+
+
+
+    // Header
+    .header,
+    .demo {
+        background-color: $dbg;
+
+        &.landing {
+            border-bottom: 1px solid $dborder;
+            box-shadow: none;
+        }
+
+    }
+
+    .dropdown-menu {
+        background-color: $dcard;
+
+        h4 {
+            border-color: $dborder;
+        }
+
+        p {
+            color: $white !important;
+        }
+
+        a {
+            border-color: $dborder;
+
+
+
+            span {
+                color: $dcolor !important;
+
+                i {
+                    color: $white;
+                }
+            }
+        }
+    }
+
+    .notification .notify-bell i {
+        color: $white;
+    }
+
+    .notification .dropdown-menu a:last-child {
+        color: $white;
+    }
+
+    .profile_log .dropdown-menu .dropdown-item {
+        border-top: 1px solid $dborder;
+        color: $dcolor;
+    }
+
+    .user-info,
+    .user-balance {
+        span {
+            color: $dcolor;
+        }
+    }
+
+    // Card
+    .card {
+        border: 1px solid $dborder;
+        background-color: $dcard;
+        box-shadow: none;
+
+        .card-header {
+            // border-bottom: 1px solid $dborder;
+            background-color: $dcard;
+
+            .card-title {
+                color: $white;
+            }
+        }
+
+        .card-body {
+            background-color: $dcard;
+        }
+    }
+
+    // Form
+    .form-control,
+    .form-select {
+        background: $dbg;
+        border-color: $dborder;
+        color: $dcolor;
+
+        &::-webkit-input-placeholder {
+            color: $dcolor;
+        }
+
+        &:-ms-input-placeholder {
+            color: $dcolor;
+        }
+
+        &::placeholder {
+            color: $dcolor;
+        }
+
+        &:hover {
+            border-color: $dborder;
+            color: $dcolor;
+            background: $dbg;
+        }
+
+        &:focus,
+        &:active,
+        &.active {
+            border-color: $dborder;
+            color: $dcolor;
+            background: $dbg;
+        }
+    }
+
+    .form-file-text {
+        background-color: $dbg;
+        border-color: $dborder;
+        color: $dcolor;
+    }
+
+    .form-file-button {
+        border-color: $dborder;
+        background: $primary;
+        color: $white;
+    }
+
+    .input-group-text {
+        background: $dcard;
+        color: $white;
+        border-color: $dborder;
+    }
+
+    // Button
+    .btn-outline-primary,
+    .btn-outline-secondary,
+    .btn-outline-success,
+    .btn-outline-info,
+    .btn-outline-warning,
+    .btn-outline-danger,
+    .btn-outline-light {
+        color: $white;
+    }
+
+
+    // Table
+    .table {
+        color: $dcolor;
+
+        th {
+            color: $white;
+            border-bottom: 1px solid $dborder !important;
+        }
+
+        td {
+            border-color: $dborder;
+        }
+    }
+
+    .table-striped>tbody>tr:nth-of-type(odd) {
+        --bs-table-accent-bg: $dbg;
+        background-color: $dbg;
+        color: $dcolor;
+    }
+
+    // Dashboard
+    .stat-widget {
+        background: $dcard;
+        box-shadow: none;
+        border: 1px solid $dborder;
+    }
+
+    .stat-widget-1 {
+        background: $dcard;
+        box-shadow: none;
+        border: 1px solid $dborder;
+
+        p {
+            border-color: $dborder;
+        }
+    }
+
+    .list-1 {
+        ul {
+            li {
+                border-color: $dborder;
+            }
+        }
+    }
+
+    .invoice-content {
+        li {
+            border-color: $dborder;
+        }
+
+    }
+
+    .analytics-widget {
+        background: $dcard;
+        box-shadow: none;
+        border: 1px solid $dborder;
+    }
+
+    // Wallet
+    .wallet-nav,
+    .add-card-link {
+        background: $dcard;
+        box-shadow: none;
+        border: 1px solid $dborder;
+    }
+
+    .wallet-tab-content {
+        .wallet-tab-title {
+            background: $dcard;
+            box-shadow: none;
+            border: 1px solid $dborder;
+        }
+    }
+
+    .funds-credit {
+        border-color: $dborder;
+    }
+
+    // budget
+    .budgets-nav,
+    .add-budgets-link {
+        background: $dcard;
+        box-shadow: none;
+        border: 1px solid $dborder;
+    }
+
+    .budgets-tab-content {
+        .budgets-tab-title {
+            background: $dcard;
+            box-shadow: none;
+            border: 1px solid $dborder;
+        }
+    }
+
+    // goal
+    .goals-nav,
+    .add-goals-link {
+        background: $dcard;
+        box-shadow: none;
+        border: 1px solid $dborder;
+    }
+
+    .goals-tab-content {
+        .goals-tab-title {
+            background: $dcard;
+            box-shadow: none;
+            border: 1px solid $dborder;
+        }
+    }
+
+    //Affiliate
+    .credit-content {
+        .invited {
+            border-color: $dborder;
+        }
+    }
+
+
+
+    .credit-card.payoneer {
+        background: $dcard;
+    }
+
+    .credit-card.payoneer .cc-number h6,
+    .credit-card.payoneer .cc-number .h6 {
+        color: #fff;
+    }
+
+    .credit-card.payoneer .cc-holder-exp h5,
+    .credit-card.payoneer .cc-holder-exp .h5 {
+        color: #fff;
+    }
+
+    .credit-card.payoneer .cc-holder-exp .exp strong {
+        color: #fff;
+    }
+
+
+    // Account
+    .welcome-profile ul li {
+        border-color: $dborder;
+    }
+
+
+
+
+
+
+
+    // Settings
+    .settings-menu {
+        a {
+            color: $dcolor;
+
+            &:hover,
+            &:focus,
+            &:active,
+            &.active {
+                color: $white;
+                // opacity: 1;
+            }
+        }
+    }
+
+
+    // category
+    .category-type ul li {
+        border-color: $dborder;
+    }
+
+    // Currencies
+    .stat-widget-2 {
+        background: $dcard;
+        border: 1px solid $dborder;
+        box-shadow: none;
+    }
+
+    // Support
+    .ticket-list a {
+        border-color: $dborder;
+    }
+
+    // Demo
+    .navigation .navbar ul>li {
+        border-color: $dborder;
+
+        &>a {
+            color: $white
+        }
+    }
+
+    .intro-card {
+        background: $dcard;
+        border-color: $dcard;
+    }
+
+    .features-content {
+        background: $dcard;
+        box-shadow: none;
+        border: 1px solid $dborder;
+    }
+
+    .customer-support-content {
+        background: $dcard;
+        box-shadow: none;
+    }
+
+    .widgets-masonary {
+        background-color: $dbg;
+
+        img {
+            border-color: $dborder;
+        }
+    }
+
+    // Footer
+    .footer {
+        background: $dbg;
+    }
+
+    .footer-social {
+        li {
+            a {
+                color: $dcolor;
+            }
+        }
+    }
+}

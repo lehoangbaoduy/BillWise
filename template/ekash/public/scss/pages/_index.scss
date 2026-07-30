@@ -1,0 +1,256 @@
+// .stat-widget {
+//     background: #f5f6fa;
+//     padding: 20px;
+//     border-radius: $radius;
+//     margin: 15px 0px;
+//     position: relative;
+
+//     // &::before {
+//     //     content       : "";
+//     //     position      : absolute;
+//     //     top           : 22px;
+//     //     left          : 18px;
+//     //     right         : 18px;
+//     //     bottom        : -40px;
+//     //     z-index       : -2;
+//     //     background    : #E3E6EC;
+//     //     opacity       : 0.91;
+//     //     -webkit-filter: blur(86.985px);
+//     //     filter        : blur(86.985px);
+//     //     border-radius : 24px;
+//     // }
+
+//     .widget-icon {
+//         // background     : rgba(0, 0, 0, 0.15);
+//         width: 50px;
+//         height: 50px;
+//         display: flex;
+//         align-items: center;
+//         justify-content: center;
+//         border-radius: 100%;
+//         font-size: 20px;
+//         color: $white;
+
+//         i {
+//             line-height: 0px;
+//         }
+//     }
+
+//     .widget-content {
+//         // text-align: right;
+
+//         p {
+//             color: $body-color;
+//             opacity: 0.85;
+//             font-size: 14px;
+//             font-weight: 400;
+//             margin-bottom: 0px;
+//         }
+
+//         h3 {
+//             // color: $dark;
+//             font-size: 20px;
+//             margin-bottom: 0px;
+//         }
+
+//         // p {
+//         //     // background   : $dark;
+//         //     display      : inline-block;
+//         //     padding      : 3px 7px;
+//         //     border-radius: $radius - 16px;
+//         // }
+//     }
+
+
+// }
+
+
+
+// invoice-content
+
+.invoice-content {
+
+    li {
+        margin-bottom: 7px;
+        display: block;
+        padding: 12px 0px;
+        // border-radius: $radius;
+        position: relative;
+        border-bottom: 1px solid $border-color;
+
+        // &:hover,
+        // &:focus,
+        // &.active {
+        //     background: $primary;
+
+        //     h5 {
+        //         color: $white;
+        //     }
+
+        //     p {
+        //         color  : $white;
+        //         opacity: 0.75;
+        //     }
+
+
+        // }
+
+        &:last-child {
+            // margin-bottom: 0px;
+            border: 0px;
+        }
+
+
+        span {
+            // position     : absolute;
+            right: 15px;
+            display: block;
+            font-size: 12px;
+            background: $white;
+            padding: 2px 10px;
+            border-radius: 16px;
+            display: inline-block;
+
+        }
+    }
+
+    .invoice-user-img {
+        img {
+            border-radius: $radius + 50px;
+        }
+    }
+
+    .invoice-info {
+        position: relative;
+        display: block;
+
+
+
+        p {
+            margin-bottom: 5px;
+            // font-weight  : 600;
+            // color           : $body-color;
+            // font-size    : 18px;
+
+
+        }
+    }
+}
+
+#most-selling-items {
+    height: 295px !important;
+}
+
+
+#profileWallet,
+#profileWallet2,
+#profileWallet3,
+#profileWallet4 {
+    height: 245px !important;
+}
+
+#chartjsIncomeVsExpense {
+    height: 295px !important;
+}
+
+#chartjsWeeklyExpenses {
+    height: 295px !important;
+}
+#chartjsTotalBalance {
+    height: 295px !important;
+}
+
+#chartjsBalanceOvertime,
+#chartjsBalanceOvertime2,
+#chartjsBalanceOvertime3,
+#chartjsBalanceOvertime4 {
+    height: 245px !important;
+}
+
+
+#chartjsBudgetPeriod,
+#chartjsBudgetPeriod2,
+#chartjsBudgetPeriod3,
+#chartjsBudgetPeriod4 {
+    height: 245px !important;
+}
+
+// #user-activity {
+//     .btn {
+//         padding: 5px 15px;
+
+//         @include respond("sm") {
+//             margin-top: 10px;
+//         }
+//     }
+// }
+
+
+.budget-content {
+    li {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 20px;
+
+        h5 {
+            font-size: 15px;
+
+            i {
+                display: inline-block;
+                // padding: 0px 7px;
+                line-height: 0px;
+                margin-right: 10px;
+                // background: lighten($primary, 30%);
+                height: 30px;
+                width: 30px;
+                color: $white;
+                padding: 6px 8px;
+                border-radius: 100px;
+                // font-size: 16px;
+                position: relative;
+                top: 8px;
+
+            }
+        }
+
+        .progress {
+            height: 8px;
+            background: lighten($primary, 44%);
+            margin-left: 40px;
+        }
+
+        &:last-child {
+            margin-bottom: 0px;
+        }
+    }
+}
+
+.invoice-content,
+.budget-content {
+    position: relative;
+    height: 295px;
+}
+
+.table-category-icon {
+    display: flex;
+    align-items: center;
+    font-size: 15px;
+
+    i {
+        display: inline-block;
+        // padding: 0px 7px;
+        line-height: 0px;
+        margin-right: 10px;
+        // background: lighten($primary, 30%);
+        height: 35px;
+        width: 35px;
+        color: $white;
+        padding: 9px 10px;
+        border-radius: 100px;
+        font-size: 16px;
+        // display: flex;
+        // align-items: center;
+        // justify-content: center;
+    }
+}

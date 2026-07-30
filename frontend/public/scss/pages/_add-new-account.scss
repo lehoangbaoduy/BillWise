@@ -1,0 +1,9 @@
+.add-bank-card {
+    a {
+        color: $body-color;
+
+        &:hover {
+            color: $primary;
+        }
+    }
+}

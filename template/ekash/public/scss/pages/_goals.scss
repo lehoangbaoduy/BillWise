@@ -1,0 +1,163 @@
+// .goals-tab {
+//     background: #ddd;
+// }
+
+.add-goals-link {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background: $white;
+    box-shadow: $shadow;
+    border-radius: $radius;
+}
+
+.goals-nav {
+    background: $white;
+    padding: 20px;
+    cursor: pointer;
+    border-radius: $radius;
+    // margin: 15px 0px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    // border-bottom: 1px solid $border-color;
+    box-shadow: $shadow;
+    margin-bottom: 20px;
+
+    &.active {
+        background: $primary;
+
+        .goals-nav-text {
+
+            h3,
+            p,
+
+            strong {
+                color: $white;
+            }
+        }
+
+        .goals-nav-circle {
+            span {
+                color: $white;
+            }
+        }
+    }
+
+    .goals-nav-circle {
+        margin-right: 12px;
+        position: relative;
+
+        span {
+            position: absolute;
+            left: 15px;
+            top: 15px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+    }
+
+    .goals-nav-text {
+        p {
+            color: $body-color;
+            opacity: 0.85;
+            font-size: 14px;
+            font-weight: 400;
+            margin-bottom: 0px;
+        }
+
+        h3 {
+            font-size: 18px;
+            margin-bottom: 0px;
+        }
+    }
+
+
+}
+
+.goals-tab-content {
+    // background: $body-bg;
+    padding-left: 30px;
+    // border-bottom: 1px solid $border-color;
+    @include respond("lg") {
+        padding-top: 30px;
+        padding-left: 0px;
+    }
+
+    .goals-tab-title {
+        padding: 16px 20px;
+        background: $white;
+        margin-bottom: 30px;
+        box-shadow: $shadow;
+        border-radius: $radius;
+
+        h3 {
+            font-size: 20px;
+            margin-bottom: 0px;
+        }
+    }
+}
+
+
+#circle5,
+#circle6,
+#circle7,
+#circle8 {
+    position: relative;
+    display: inline-block;
+
+    // justify-content: center;
+    // align-items: center;
+    span {
+        position: absolute;
+        left: 40px;
+        top: 40px;
+    }
+}
+
+.available-wallet {
+    .goals-wallet-progress {
+        margin-bottom: 30px;
+
+        .progress {
+            height: 8px;
+            background: lighten($primary, 42%);
+        }
+    }
+
+    .goals-icon {
+        span {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 0;
+            margin-right: 20px;
+            height: 45px;
+            width: 45px;
+            color: $white;
+            // padding: 9px 10px;
+            border-radius: 100px;
+            font-size: 16px;
+
+        }
+    }
+
+    .goals-info {
+        p {
+            font-weight: 500;
+            color: $headings-color;
+        }
+    }
+}
+
+.goals-history-table {
+    span {
+        i {
+            font-size: 18px;
+            position: relative;
+            top: 4px;
+            margin-right: 5px;
+        }
+    }
+}

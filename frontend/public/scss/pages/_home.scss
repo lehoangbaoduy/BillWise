@@ -1,0 +1,131 @@
+.stat-widget-1 {
+    background: $white;
+    padding: 20px;
+    border-radius: $radius;
+    position: relative;
+    margin-bottom: 30px;
+    box-shadow: $shadow;
+
+    h6 {
+        margin-bottom: 0px;
+        font-size: 14px;
+    }
+
+    h3 {
+        font-size: 28px;
+        margin: 10px 0px;
+    }
+
+    p {
+        border-top: 1px solid $border-color;
+        padding-top: 10px;
+        color: $body-color;
+        font-size: 14px;
+        font-weight: 400;
+        margin-bottom: 0px;
+
+        span {
+            i {
+                font-size: 18px;
+                line-height: 0;
+                margin-right: 5px;
+                position: relative;
+                top: 3px;
+            }
+        }
+
+        strong {
+            color: $body-color;
+            font-weight: 500;
+        }
+    }
+}
+
+.balance-trend {
+    margin-bottom: 20px;
+
+    h4 {
+        span {
+            display: inline-block;
+            font-size: 32px;
+            margin-top: 5px;
+        }
+    }
+
+    .trend-stats {
+        span {
+            font-size: 16px;
+
+            i {
+                line-height: 0px;
+                position: relative;
+                top: 2px;
+                margin-right: 4px;
+            }
+        }
+    }
+}
+
+.list-1 {
+    ul {
+        li {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0px;
+            border-bottom: 1px solid $border-color;
+
+            &:last-child {
+                border: 0px;
+                padding-bottom: 0px;
+            }
+
+            p {
+                font-weight: 500;
+
+                i {
+                    margin-right: 8px;
+                    line-height: 0px;
+                    position: relative;
+                    top: 2px;
+                }
+            }
+
+            h5 {
+                span {
+                    margin-right: 10px;
+                    color: $body-color;
+                    font-weight: 400;
+                }
+            }
+        }
+    }
+}
+
+.circle-progress-content {
+    text-align: center;
+    margin: 10px 0px;
+
+    span {
+        font-weight: 500;
+    }
+
+    h6 {
+        margin-top: 10px;
+    }
+}
+
+#circle1,
+#circle2,
+#circle3,
+#circle4 {
+    position: relative;
+    display: inline-block;
+
+    // justify-content: center;
+    // align-items: center;
+    span {
+        position: absolute;
+        left: 40px;
+        top: 40px;
+    }
+}
