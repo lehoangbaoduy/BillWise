@@ -61,7 +61,7 @@ function VerifyEmailContent() {
 
 export default function VerifyEmail() {
     return (
-        <Suspense>
+        <Suspense fallback={null}>
             <VerifyEmailContent />
         </Suspense>
     )

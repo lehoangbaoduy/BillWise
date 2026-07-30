@@ -88,7 +88,7 @@ export default function SignIn() {
                                                 </button>
                                             </div>
                                         </form>
-                                        <p className="mt-3 mb-0 undefined">Don't have an account?<Link className="text-primary" href="/signup"> Sign up</Link></p>
+                                        <p className="mt-3 mb-0 undefined">Don&apos;t have an account?<Link className="text-primary" href="/signup"> Sign up</Link></p>
                                     </div>
                                 </div>
                             </div>

@@ -58,22 +58,6 @@ export default function Sidebar() {
                                 <span className="nav-text">Analytics</span>
                             </Link>
                         </li>
-                        <li className={pathname == "/support" ? "active" : ""}>
-                            <Link href="/support">
-                                <span>
-                                    <i className="fi fi-rr-user-headset" />
-                                </span>
-                                <span className="nav-text">Support</span>
-                            </Link>
-                        </li>
-                        <li className={pathname == "/affiliates" ? "active" : ""}>
-                            <Link href="/affiliates">
-                                <span>
-                                    <i className="fi fi-rs-link-alt" />
-                                </span>
-                                <span className="nav-text">Affiliates</span>
-                            </Link>
-                        </li>
                         <li className={pathname == "/settings" ? "active" : ""}>
                             <Link href="/settings">
                                 <span>

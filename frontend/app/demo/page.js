@@ -56,8 +56,8 @@ export default function Demo() {
                             <div className="col-xl-6 col-md-6 my-5">
                                 <div className="demo-intro-content">
                                     <h1>Ekash - Personal Finance Management Admin Dashboard Nextjs Template</h1>
-                                    <p>Personal Finance Management refers to the process of managing an individual's or a
-                                        household's financial resources with the goal of achieving financial stability and meeting
+                                    <p>Personal Finance Management refers to the process of managing an individual&apos;s or a
+                                        household&apos;s financial resources with the goal of achieving financial stability and meeting
                                         both short-term and long-term financial objectives. </p>
                                 </div>
                                 <div className="demo-intro-counter">
@@ -988,7 +988,7 @@ export default function Demo() {
                                                     </div>
                                                 </div>
                                             </div>
-                                            <p>Amazing design and even though i purchased it by mistake as i didn't see that is
+                                            <p>Amazing design and even though i purchased it by mistake as i didn&apos;t see that is
                                                 react, the owner immediately respond to me and provide me the desired Nextjs Template.
                                             </p>
                                         </div>
@@ -1004,7 +1004,7 @@ export default function Demo() {
                             <div className="col-xl-7">
                                 <div className="section-title text-center">
                                     <span>Problem?</span>
-                                    <h2>Don't Worry, I am waiting your question</h2>
+                                    <h2>Don&apos;t Worry, I am waiting your question</h2>
                                     <p>Refreshing my inbox, waiting for your mail </p>
                                 </div>
                             </div>

@@ -49,4 +49,25 @@ export const authApi = {
     request("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   logout: () => request("/auth/logout", { method: "POST" }),
   me: () => request("/auth/me"),
+  requestPasswordReset: (email) =>
+    request("/auth/password-reset/request", { method: "POST", body: JSON.stringify({ email }) }),
+  confirmPasswordReset: (token, newPassword) =>
+    request("/auth/password-reset/confirm", {
+      method: "POST",
+      body: JSON.stringify({ token, new_password: newPassword }),
+    }),
+}
+
+export const categoriesApi = {
+  list: () => request("/categories"),
+  create: (data) => request("/categories", { method: "POST", body: JSON.stringify(data) }),
+  update: (id, data) => request(`/categories/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  remove: (id) => request(`/categories/${id}`, { method: "DELETE" }),
+}
+
+export const paymentMethodsApi = {
+  list: () => request("/payment-methods"),
+  create: (data) => request("/payment-methods", { method: "POST", body: JSON.stringify(data) }),
+  update: (id, data) => request(`/payment-methods/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  remove: (id) => request(`/payment-methods/${id}`, { method: "DELETE" }),
 }

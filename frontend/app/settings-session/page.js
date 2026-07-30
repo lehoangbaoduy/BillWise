@@ -17,7 +17,7 @@ export default function SettingsSession() {
                                     <div className="card-body">
                                         <div className="d-flex align-items-center"><span className="me-3 icon-circle bg-warning text-white"><i className="fi fi-rs-messages-question" /></span>
                                             <div>
-                                                <h5 className="mb-0">You haven't authorized any applications yet.</h5>
+                                                <h5 className="mb-0">You haven&apos;t authorized any applications yet.</h5>
                                                 <p>After connecting an application with your account, you can manage or
                                                     revoke its
                                                     access here.</p><Link href="#" className="btn btn-primary">Authorize now</Link>

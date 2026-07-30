@@ -1,929 +1,209 @@
 'use client'
-import ChartjsBalanceOvertime from "@/components/chart/ChartjsBalanceOvertime"
-import ChartjsBalanceOvertime2 from "@/components/chart/ChartjsBalanceOvertime2"
-import ChartjsBalanceOvertime3 from "@/components/chart/ChartjsBalanceOvertime3"
-import ChartjsBalanceOvertime4 from "@/components/chart/ChartjsBalanceOvertime4"
-import Layout from "@/components/layout/Layout"
-import Link from "next/link"
 import { useState } from "react"
-export default function Wallets() {
-    const [activeIndex, setActiveIndex] = useState(1)
-    const handleOnClick = (index) => {
-        setActiveIndex(index)
-    }
+import useSWR from "swr"
+import Layout from "@/components/layout/Layout"
+import EmptyState from "@/components/elements/EmptyState"
+import { paymentMethodsApi } from "@/lib/api"
+
+const TYPE_OPTIONS = ["Credit Card", "Debit Card", "Cash", "Tracked Savings", "Other"]
+
+const TYPE_ICONS = {
+    "Credit Card": "fi fi-rr-credit-card",
+    "Debit Card": "fi fi-rr-credit-card",
+    "Cash": "fi fi-rr-money-bill-wave-alt",
+    "Tracked Savings": "fi fi-rr-piggy-bank",
+    "Other": "fi fi-rr-wallet",
+}
+
+function formatCurrency(value) {
+    if (value === null || value === undefined) return null
+    return `$${Number(value).toFixed(2)}`
+}
+
+function PaymentMethodCard({ method, onDelete, isDeleting }) {
     return (
-        <>
-            <Layout breadcrumbTitle="Wallets">
-                <div className="wallet-tab">
-                    <div className="row g-0">
-                        <div className="col-xl-3">
-                            <div className="nav d-block">
-                                <div className="row">
-                                    <div className="col-xl-12 col-md-6">
-                                        <div onClick={() => handleOnClick(1)} className={activeIndex === 1 ? "wallet-nav active" : "wallet-nav"}>
-                                            <div className="wallet-nav-icon">
-                                                <span><i className="fi fi-rr-bank" /></span>
-                                            </div>
-                                            <div className="wallet-nav-text">
-                                                <h3>City Bank</h3>
-                                                <p>$221,478</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="col-xl-12 col-md-6">
-                                        <div onClick={() => handleOnClick(2)} className={activeIndex === 2 ? "wallet-nav active" : "wallet-nav"}>
-                                            <div className="wallet-nav-icon">
-                                                <span><i className="fi fi-rr-credit-card" /></span>
-                                            </div>
-                                            <div className="wallet-nav-text">
-                                                <h3>Debit Card</h3>
-                                                <p>$221,478</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="col-xl-12 col-md-6">
-                                        <div onClick={() => handleOnClick(3)} className={activeIndex === 3 ? "wallet-nav active" : "wallet-nav"}>
-                                            <div className="wallet-nav-icon">
-                                                <span><i className="fi fi-brands-visa" /></span>
-                                            </div>
-                                            <div className="wallet-nav-text">
-                                                <h3>Visa Card</h3>
-                                                <p>$221,478</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="col-xl-12 col-md-6">
-                                        <div onClick={() => handleOnClick(4)} className={activeIndex === 4 ? "wallet-nav active" : "wallet-nav"}>
-                                            <div className="wallet-nav-icon">
-                                                <span><i className="fi fi-rr-money-bill-wave-alt" /></span>
-                                            </div>
-                                            <div className="wallet-nav-text">
-                                                <h3>Cash</h3>
-                                                <p>$221,478</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="add-card-link">
-                                <h5 className="mb-0">Add new wallet</h5>
-                                <Link href="/add-new-account">
-                                    <i className="fi fi-rr-square-plus" />
-                                </Link>
+        <div className="col-xl-4 col-lg-6 col-md-6">
+            <div className="card">
+                <div className="card-body">
+                    <div className="d-flex justify-content-between align-items-start">
+                        <div className="d-flex align-items-center">
+                            <span className="me-3"><i className={TYPE_ICONS[method.type] || "fi fi-rr-wallet"} /></span>
+                            <div>
+                                <h5 className="mb-0">{method.name}</h5>
+                                <span className="text-muted">{method.type}</span>
                             </div>
                         </div>
-                        <div className="col-xl-9">
-                            <div className="tab-content wallet-tab-content">
-                                <div className={activeIndex == 1 ? "tab-pane fade show active" : "tab-pane fade"}>
-                                    <div className="wallet-tab-title">
-                                        <h3>City Bank</h3>
-                                    </div>
-                                    <div className="row">
-                                        <div className="col-xxl-6 col-xl-6 col-lg-6">
-                                            <div className="card">
-                                                <div className="card-body">
-                                                    <div className="wallet-total-balance">
-                                                        <p className="mb-0">Total Balance</p>
-                                                        <h2>$221,478</h2>
-                                                    </div>
-                                                    <div className="funds-credit">
-                                                        <p className="mb-0">Personal Funds</p>
-                                                        <h5>$32,500.28</h5>
-                                                    </div>
-                                                    <div className="funds-credit">
-                                                        <p className="mb-0">Credit Limits</p>
-                                                        <h5>$2500.00</h5>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="col-xxl-6 col-xl-6 col-lg-6">
-                                            <div className="credit-card visa">
-                                                <div className="type-brand">
-                                                    <h4>Debit Card</h4>
-                                                    <img src="./images/cc/visa.png" alt="" />
-                                                </div>
-                                                <div className="cc-number">
-                                                    <h6>1234</h6>
-                                                    <h6>5678</h6>
-                                                    <h6>7890</h6>
-                                                    <h6>9875</h6>
-                                                </div>
-                                                <div className="cc-holder-exp">
-                                                    <h5>Saiful Islam</h5>
-                                                    <div className="exp"><span>EXP:</span><strong>12/21</strong></div>
-                                                </div>
-                                                <div className="cc-info">
-                                                    <div className="row justify-content-between align-items-center">
-                                                        <div className="col-5">
-                                                            <div className="d-flex">
-                                                                <p className="me-3">Status</p>
-                                                                <p><strong>Active</strong></p>
-                                                            </div>
-                                                            <div className="d-flex">
-                                                                <p className="me-3">Currency</p>
-                                                                <p><strong>USD</strong></p>
-                                                            </div>
-                                                        </div>
-                                                        <div className="col-xl-7">
-                                                            <div className="d-flex justify-content-between">
-                                                                <div className="ms-3">
-                                                                    <p>Credit Limit</p>
-                                                                    <p><strong>2000 USD</strong></p>
-                                                                </div>
-                                                                <div id="circle1" />
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="col-xl-6 col-lg-6 col-md-6 col-sm-6">
-                                            <div className="stat-widget-1">
-                                                <h6>Total Balance</h6>
-                                                <h3>$ 432568</h3>
-                                                <p>
-                                                    <span className="text-success"><i className="fi fi-rr-arrow-trend-up" />2.47%</span>
-                                                    Last month <strong>$24,478</strong>
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="col-xl-6 col-lg-6 col-md-6 col-sm-6">
-                                            <div className="stat-widget-1">
-                                                <h6>Monthly Expenses</h6>
-                                                <h3>$ 432568</h3>
-                                                <p>
-                                                    <span className="text-success"><i className="fi fi-rr-arrow-trend-up" />2.47%</span>
-                                                    Last month <strong>$24,478</strong>
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="col-xxl-12">
-                                            <div className="card">
-                                                <div className="card-header">
-                                                    <h4 className="card-title">Balance Overtime</h4>
-                                                </div>
-                                                <div className="card-body">
-                                                    <div className="chartjs-size-monitor">
-                                                        <div className="chartjs-size-monitor-expand">
-                                                            <div />
-                                                        </div>
-                                                        <div className="chartjs-size-monitor-shrink">
-                                                            <div />
-                                                        </div>
-                                                    </div>
-                                                    <ChartjsBalanceOvertime />
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="col-xl-12">
-                                            <div className="card">
-                                                <div className="card-header">
-                                                    <h4 className="card-title">Transaction History</h4>
-                                                </div>
-                                                <div className="card-body">
-                                                    <div className="transaction-table">
-                                                        <div className="table-responsive">
-                                                            <table className="table mb-0 table-responsive-sm">
-                                                                <thead>
-                                                                    <tr>
-                                                                        <th>Category</th>
-                                                                        <th>Date</th>
-                                                                        <th>Description</th>
-                                                                        <th>Amount</th>
-                                                                        <th>Currency</th>
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-emerald-500 fi fi-rr-barber-shop" />
-                                                                                Beauty</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-teal-500 fi fi-rr-receipt" />
-                                                                                Bills &amp;
-                                                                                Fees</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-cyan-500 fi fi-rr-car-side" />
-                                                                                Car</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-sky-500 fi fi-rr-graduation-cap" />
-                                                                                Education</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-blue-500 fi fi-rr-clapperboard-play" />
-                                                                                Entertainment</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                </tbody>
-                                                            </table>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                        <button
+                            type="button"
+                            className="btn btn-sm btn-outline-danger"
+                            aria-label={`Delete ${method.name}`}
+                            disabled={isDeleting}
+                            onClick={() => onDelete(method)}
+                        >
+                            <i className="fi fi-rr-trash" />
+                        </button>
+                    </div>
+                    <div className="mt-3">
+                        {method.issuer && <p className="mb-1">{method.issuer}</p>}
+                        {method.last_four_optional && <p className="mb-1">•••• {method.last_four_optional}</p>}
+                        {formatCurrency(method.current_balance) && <p className="mb-1">Balance: {formatCurrency(method.current_balance)}</p>}
+                        {method.default_cashback_rate !== null && method.default_cashback_rate !== undefined && (
+                            <p className="mb-1">Cashback: {method.default_cashback_rate}%</p>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+export default function Wallets() {
+    const { data: methods, mutate } = useSWR("/payment-methods", () => paymentMethodsApi.list())
+
+    const [name, setName] = useState("")
+    const [type, setType] = useState(TYPE_OPTIONS[0])
+    const [issuer, setIssuer] = useState("")
+    const [lastFour, setLastFour] = useState("")
+    const [currentBalance, setCurrentBalance] = useState("")
+    const [isSubmitting, setIsSubmitting] = useState(false)
+    const [formError, setFormError] = useState(null)
+    const [deletingId, setDeletingId] = useState(null)
+
+    async function handleCreate(event) {
+        event.preventDefault()
+        if (!name.trim()) {
+            setFormError("Name is required.")
+            return
+        }
+        if (lastFour && lastFour.length !== 4) {
+            setFormError("Last four digits must be exactly 4 digits.")
+            return
+        }
+        setIsSubmitting(true)
+        setFormError(null)
+        try {
+            await paymentMethodsApi.create({
+                name: name.trim(),
+                type,
+                issuer: issuer.trim() || null,
+                last_four_optional: lastFour || null,
+                current_balance: currentBalance === "" ? null : Number(currentBalance),
+            })
+            await mutate()
+            setName("")
+            setType(TYPE_OPTIONS[0])
+            setIssuer("")
+            setLastFour("")
+            setCurrentBalance("")
+        } catch (error) {
+            setFormError(error.message)
+        } finally {
+            setIsSubmitting(false)
+        }
+    }
+
+    async function handleDelete(method) {
+        if (!window.confirm(`Delete "${method.name}"?`)) return
+        setDeletingId(method.id)
+        try {
+            await paymentMethodsApi.remove(method.id)
+            await mutate()
+            setFormError(null)
+        } catch (error) {
+            setFormError(error.message)
+        } finally {
+            setDeletingId(null)
+        }
+    }
+
+    return (
+        <Layout breadcrumbTitle="Wallets">
+            <div className="row">
+                <div className="col-xl-4 col-lg-5">
+                    <div className="card">
+                        <div className="card-header">
+                            <h4 className="card-title">Add a payment method</h4>
+                        </div>
+                        <div className="card-body">
+                            <form onSubmit={handleCreate}>
+                                <div className="mb-3">
+                                    <label className="form-label" htmlFor="payment-method-name">Name</label>
+                                    <input
+                                        id="payment-method-name"
+                                        type="text"
+                                        className="form-control"
+                                        placeholder="e.g. Everyday Visa"
+                                        value={name}
+                                        onChange={(event) => setName(event.target.value)}
+                                    />
                                 </div>
-                                <div className={activeIndex == 2 ? "tab-pane fade show active" : "tab-pane fade"}>
-                                    <div className="wallet-tab-title">
-                                        <h3>Debit Card</h3>
-                                    </div>
-                                    <div className="row">
-                                        <div className="col-xxl-6 col-xl-6 col-lg-6">
-                                            <div className="card">
-                                                <div className="card-body">
-                                                    <div className="wallet-total-balance">
-                                                        <p className="mb-0">Total Balance</p>
-                                                        <h2>$221,478</h2>
-                                                    </div>
-                                                    <div className="funds-credit">
-                                                        <p className="mb-0">Personal Funds</p>
-                                                        <h5>$32,500.28</h5>
-                                                    </div>
-                                                    <div className="funds-credit">
-                                                        <p className="mb-0">Credit Limits</p>
-                                                        <h5>$2500.00</h5>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="col-xxl-6 col-xl-6 col-lg-6">
-                                            <div className="credit-card visa">
-                                                <div className="type-brand">
-                                                    <h4>Debit Card</h4>
-                                                    <img src="./images/cc/visa.png" alt="" />
-                                                </div>
-                                                <div className="cc-number">
-                                                    <h6>1234</h6>
-                                                    <h6>5678</h6>
-                                                    <h6>7890</h6>
-                                                    <h6>9875</h6>
-                                                </div>
-                                                <div className="cc-holder-exp">
-                                                    <h5>Saiful Islam</h5>
-                                                    <div className="exp"><span>EXP:</span><strong>12/21</strong></div>
-                                                </div>
-                                                <div className="cc-info">
-                                                    <div className="row justify-content-between align-items-center">
-                                                        <div className="col-5">
-                                                            <div className="d-flex">
-                                                                <p className="me-3">Status</p>
-                                                                <p><strong>Active</strong></p>
-                                                            </div>
-                                                            <div className="d-flex">
-                                                                <p className="me-3">Currency</p>
-                                                                <p><strong>USD</strong></p>
-                                                            </div>
-                                                        </div>
-                                                        <div className="col-xl-7">
-                                                            <div className="d-flex justify-content-between">
-                                                                <div className="ms-3">
-                                                                    <p>Credit Limit</p>
-                                                                    <p><strong>2000 USD</strong></p>
-                                                                </div>
-                                                                <div id="circle1" />
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="col-xl-6 col-lg-6 col-md-6 col-sm-6">
-                                            <div className="stat-widget-1">
-                                                <h6>Total Balance</h6>
-                                                <h3>$ 432568</h3>
-                                                <p>
-                                                    <span className="text-success"><i className="fi fi-rr-arrow-trend-up" />2.47%</span>
-                                                    Last month <strong>$24,478</strong>
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="col-xl-6 col-lg-6 col-md-6 col-sm-6">
-                                            <div className="stat-widget-1">
-                                                <h6>Monthly Expenses</h6>
-                                                <h3>$ 432568</h3>
-                                                <p>
-                                                    <span className="text-success"><i className="fi fi-rr-arrow-trend-up" />2.47%</span>
-                                                    Last month <strong>$24,478</strong>
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="col-xxl-12">
-                                            <div className="card">
-                                                <div className="card-header">
-                                                    <h4 className="card-title">Balance Overtime</h4>
-                                                </div>
-                                                <div className="card-body">
-                                                    <div className="chartjs-size-monitor">
-                                                        <div className="chartjs-size-monitor-expand">
-                                                            <div />
-                                                        </div>
-                                                        <div className="chartjs-size-monitor-shrink">
-                                                            <div />
-                                                        </div>
-                                                    </div>
-                                                    <ChartjsBalanceOvertime2 />
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="col-xl-12">
-                                            <div className="card">
-                                                <div className="card-header">
-                                                    <h4 className="card-title">Transaction History</h4>
-                                                </div>
-                                                <div className="card-body">
-                                                    <div className="transaction-table">
-                                                        <div className="table-responsive">
-                                                            <table className="table mb-0 table-responsive-sm">
-                                                                <thead>
-                                                                    <tr>
-                                                                        <th>Category</th>
-                                                                        <th>Date</th>
-                                                                        <th>Description</th>
-                                                                        <th>Amount</th>
-                                                                        <th>Currency</th>
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-emerald-500 fi fi-rr-barber-shop" />
-                                                                                Beauty</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-teal-500 fi fi-rr-receipt" />
-                                                                                Bills &amp;
-                                                                                Fees</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-cyan-500 fi fi-rr-car-side" />
-                                                                                Car</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-sky-500 fi fi-rr-graduation-cap" />
-                                                                                Education</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-blue-500 fi fi-rr-clapperboard-play" />
-                                                                                Entertainment</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                </tbody>
-                                                            </table>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                <div className="mb-3">
+                                    <label className="form-label" htmlFor="payment-method-type">Type</label>
+                                    <select id="payment-method-type" className="form-select" value={type} onChange={(event) => setType(event.target.value)}>
+                                        {TYPE_OPTIONS.map((option) => (
+                                            <option key={option} value={option}>{option}</option>
+                                        ))}
+                                    </select>
                                 </div>
-                                <div className={activeIndex == 3 ? "tab-pane fade show active" : "tab-pane fade"}>
-                                    <div className="wallet-tab-title">
-                                        <h3>Visa Card</h3>
-                                    </div>
-                                    <div className="row">
-                                        <div className="col-xxl-6 col-xl-6 col-lg-6">
-                                            <div className="card">
-                                                <div className="card-body">
-                                                    <div className="wallet-total-balance">
-                                                        <p className="mb-0">Total Balance</p>
-                                                        <h2>$221,478</h2>
-                                                    </div>
-                                                    <div className="funds-credit">
-                                                        <p className="mb-0">Personal Funds</p>
-                                                        <h5>$32,500.28</h5>
-                                                    </div>
-                                                    <div className="funds-credit">
-                                                        <p className="mb-0">Credit Limits</p>
-                                                        <h5>$2500.00</h5>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="col-xxl-6 col-xl-6 col-lg-6">
-                                            <div className="credit-card visa">
-                                                <div className="type-brand">
-                                                    <h4>Debit Card</h4>
-                                                    <img src="./images/cc/visa.png" alt="" />
-                                                </div>
-                                                <div className="cc-number">
-                                                    <h6>1234</h6>
-                                                    <h6>5678</h6>
-                                                    <h6>7890</h6>
-                                                    <h6>9875</h6>
-                                                </div>
-                                                <div className="cc-holder-exp">
-                                                    <h5>Saiful Islam</h5>
-                                                    <div className="exp"><span>EXP:</span><strong>12/21</strong></div>
-                                                </div>
-                                                <div className="cc-info">
-                                                    <div className="row justify-content-between align-items-center">
-                                                        <div className="col-5">
-                                                            <div className="d-flex">
-                                                                <p className="me-3">Status</p>
-                                                                <p><strong>Active</strong></p>
-                                                            </div>
-                                                            <div className="d-flex">
-                                                                <p className="me-3">Currency</p>
-                                                                <p><strong>USD</strong></p>
-                                                            </div>
-                                                        </div>
-                                                        <div className="col-xl-7">
-                                                            <div className="d-flex justify-content-between">
-                                                                <div className="ms-3">
-                                                                    <p>Credit Limit</p>
-                                                                    <p><strong>2000 USD</strong></p>
-                                                                </div>
-                                                                <div id="circle1" />
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="col-xl-6 col-lg-6 col-md-6 col-sm-6">
-                                            <div className="stat-widget-1">
-                                                <h6>Total Balance</h6>
-                                                <h3>$ 432568</h3>
-                                                <p>
-                                                    <span className="text-success"><i className="fi fi-rr-arrow-trend-up" />2.47%</span>
-                                                    Last month <strong>$24,478</strong>
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="col-xl-6 col-lg-6 col-md-6 col-sm-6">
-                                            <div className="stat-widget-1">
-                                                <h6>Monthly Expenses</h6>
-                                                <h3>$ 432568</h3>
-                                                <p>
-                                                    <span className="text-success"><i className="fi fi-rr-arrow-trend-up" />2.47%</span>
-                                                    Last month <strong>$24,478</strong>
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="col-xxl-12">
-                                            <div className="card">
-                                                <div className="card-header">
-                                                    <h4 className="card-title">Balance Overtime</h4>
-                                                </div>
-                                                <div className="card-body">
-                                                    <div className="chartjs-size-monitor">
-                                                        <div className="chartjs-size-monitor-expand">
-                                                            <div />
-                                                        </div>
-                                                        <div className="chartjs-size-monitor-shrink">
-                                                            <div />
-                                                        </div>
-                                                    </div>
-                                                    <ChartjsBalanceOvertime3 />
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="col-xl-12">
-                                            <div className="card">
-                                                <div className="card-header">
-                                                    <h4 className="card-title">Transaction History</h4>
-                                                </div>
-                                                <div className="card-body">
-                                                    <div className="transaction-table">
-                                                        <div className="table-responsive">
-                                                            <table className="table mb-0 table-responsive-sm">
-                                                                <thead>
-                                                                    <tr>
-                                                                        <th>Category</th>
-                                                                        <th>Date</th>
-                                                                        <th>Description</th>
-                                                                        <th>Amount</th>
-                                                                        <th>Currency</th>
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-emerald-500 fi fi-rr-barber-shop" />
-                                                                                Beauty</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-teal-500 fi fi-rr-receipt" />
-                                                                                Bills &amp;
-                                                                                Fees</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-cyan-500 fi fi-rr-car-side" />
-                                                                                Car</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-sky-500 fi fi-rr-graduation-cap" />
-                                                                                Education</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-blue-500 fi fi-rr-clapperboard-play" />
-                                                                                Entertainment</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                </tbody>
-                                                            </table>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                <div className="mb-3">
+                                    <label className="form-label" htmlFor="payment-method-issuer">Issuer (optional)</label>
+                                    <input
+                                        id="payment-method-issuer"
+                                        type="text"
+                                        className="form-control"
+                                        placeholder="e.g. Chase"
+                                        value={issuer}
+                                        onChange={(event) => setIssuer(event.target.value)}
+                                    />
                                 </div>
-                                <div className={activeIndex == 4 ? "tab-pane fade show active" : "tab-pane fade"}>
-                                    <div className="wallet-tab-title">
-                                        <h3>Cash</h3>
-                                    </div>
-                                    <div className="row">
-                                        <div className="col-xxl-6 col-xl-6 col-lg-6">
-                                            <div className="card">
-                                                <div className="card-body">
-                                                    <div className="wallet-total-balance">
-                                                        <p className="mb-0">Total Balance</p>
-                                                        <h2>$221,478</h2>
-                                                    </div>
-                                                    <div className="funds-credit">
-                                                        <p className="mb-0">Personal Funds</p>
-                                                        <h5>$32,500.28</h5>
-                                                    </div>
-                                                    <div className="funds-credit">
-                                                        <p className="mb-0">Credit Limits</p>
-                                                        <h5>$2500.00</h5>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="col-xxl-6 col-xl-6 col-lg-6">
-                                            <div className="credit-card visa">
-                                                <div className="type-brand">
-                                                    <h4>Debit Card</h4>
-                                                    <img src="./images/cc/visa.png" alt="" />
-                                                </div>
-                                                <div className="cc-number">
-                                                    <h6>1234</h6>
-                                                    <h6>5678</h6>
-                                                    <h6>7890</h6>
-                                                    <h6>9875</h6>
-                                                </div>
-                                                <div className="cc-holder-exp">
-                                                    <h5>Saiful Islam</h5>
-                                                    <div className="exp"><span>EXP:</span><strong>12/21</strong></div>
-                                                </div>
-                                                <div className="cc-info">
-                                                    <div className="row justify-content-between align-items-center">
-                                                        <div className="col-5">
-                                                            <div className="d-flex">
-                                                                <p className="me-3">Status</p>
-                                                                <p><strong>Active</strong></p>
-                                                            </div>
-                                                            <div className="d-flex">
-                                                                <p className="me-3">Currency</p>
-                                                                <p><strong>USD</strong></p>
-                                                            </div>
-                                                        </div>
-                                                        <div className="col-xl-7">
-                                                            <div className="d-flex justify-content-between">
-                                                                <div className="ms-3">
-                                                                    <p>Credit Limit</p>
-                                                                    <p><strong>2000 USD</strong></p>
-                                                                </div>
-                                                                <div id="circle1" />
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="col-xl-6 col-lg-6 col-md-6 col-sm-6">
-                                            <div className="stat-widget-1">
-                                                <h6>Total Balance</h6>
-                                                <h3>$ 432568</h3>
-                                                <p>
-                                                    <span className="text-success"><i className="fi fi-rr-arrow-trend-up" />2.47%</span>
-                                                    Last month <strong>$24,478</strong>
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="col-xl-6 col-lg-6 col-md-6 col-sm-6">
-                                            <div className="stat-widget-1">
-                                                <h6>Monthly Expenses</h6>
-                                                <h3>$ 432568</h3>
-                                                <p>
-                                                    <span className="text-success"><i className="fi fi-rr-arrow-trend-up" />2.47%</span>
-                                                    Last month <strong>$24,478</strong>
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="col-xxl-12">
-                                            <div className="card">
-                                                <div className="card-header">
-                                                    <h4 className="card-title">Balance Overtime</h4>
-                                                </div>
-                                                <div className="card-body">
-                                                    <div className="chartjs-size-monitor">
-                                                        <div className="chartjs-size-monitor-expand">
-                                                            <div />
-                                                        </div>
-                                                        <div className="chartjs-size-monitor-shrink">
-                                                            <div />
-                                                        </div>
-                                                    </div>
-                                                    <ChartjsBalanceOvertime4 />
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="col-xl-12">
-                                            <div className="card">
-                                                <div className="card-header">
-                                                    <h4 className="card-title">Transaction History</h4>
-                                                </div>
-                                                <div className="card-body">
-                                                    <div className="transaction-table">
-                                                        <div className="table-responsive">
-                                                            <table className="table mb-0 table-responsive-sm">
-                                                                <thead>
-                                                                    <tr>
-                                                                        <th>Category</th>
-                                                                        <th>Date</th>
-                                                                        <th>Description</th>
-                                                                        <th>Amount</th>
-                                                                        <th>Currency</th>
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-emerald-500 fi fi-rr-barber-shop" />
-                                                                                Beauty</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-teal-500 fi fi-rr-receipt" />
-                                                                                Bills &amp;
-                                                                                Fees</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-cyan-500 fi fi-rr-car-side" />
-                                                                                Car</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-sky-500 fi fi-rr-graduation-cap" />
-                                                                                Education</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                    <tr>
-                                                                        <td>
-                                                                            <span className="table-category-icon"><i className="bg-blue-500 fi fi-rr-clapperboard-play" />
-                                                                                Entertainment</span>
-                                                                        </td>
-                                                                        <td>
-                                                                            12.12.2023
-                                                                        </td>
-                                                                        <td>
-                                                                            Grocery Items and Beverage soft drinks
-                                                                        </td>
-                                                                        <td>
-                                                                            -32.20
-                                                                        </td>
-                                                                        <td>USD</td>
-                                                                    </tr>
-                                                                </tbody>
-                                                            </table>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                <div className="mb-3">
+                                    <label className="form-label" htmlFor="payment-method-last-four">Last 4 digits (optional)</label>
+                                    <input
+                                        id="payment-method-last-four"
+                                        type="text"
+                                        className="form-control"
+                                        placeholder="1234"
+                                        value={lastFour}
+                                        maxLength={4}
+                                        onChange={(event) => setLastFour(event.target.value.replace(/\D/g, ""))}
+                                    />
                                 </div>
-                            </div>
+                                <div className="mb-3">
+                                    <label className="form-label" htmlFor="payment-method-balance">Current balance (optional)</label>
+                                    <input
+                                        id="payment-method-balance"
+                                        type="number"
+                                        step="0.01"
+                                        className="form-control"
+                                        placeholder="0.00"
+                                        value={currentBalance}
+                                        onChange={(event) => setCurrentBalance(event.target.value)}
+                                    />
+                                </div>
+                                {formError && <div className="text-danger mb-3" role="alert">{formError}</div>}
+                                <button type="submit" className="btn btn-success w-100" disabled={isSubmitting}>
+                                    {isSubmitting ? "Adding…" : "Add payment method"}
+                                </button>
+                            </form>
                         </div>
                     </div>
                 </div>
-
-            </Layout>
-        </>
+                <div className="col-xl-8 col-lg-7">
+                    {(methods ?? []).length === 0 ? (
+                        <div className="card">
+                            <div className="card-body">
+                                <EmptyState icon="fi fi-rr-wallet" message="No payment methods added yet." />
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="row">
+                            {methods.map((method) => (
+                                <PaymentMethodCard key={method.id} method={method} onDelete={handleDelete} isDeleting={deletingId === method.id} />
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </Layout>
     )
 }

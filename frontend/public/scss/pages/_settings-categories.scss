@@ -50,16 +50,23 @@
     }
 
     .right-category {
-        span {
+        span,
+        button {
             display: inline-block;
             padding: 7px 10px;
             // font-size: 18px;
+            border: 0;
             border-radius: 4px;
             height: 30px;
             background-color: lighten($success, 55%);
             color: $success;
             cursor: pointer;
             margin-left: 5px;
+
+            &:disabled {
+                opacity: 0.6;
+                cursor: not-allowed;
+            }
 
             &:first-child {
                 background-color: lighten($primary, 42%);

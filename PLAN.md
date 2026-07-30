@@ -177,47 +177,161 @@ before this slice is gate-complete).
 - [x] Sign in / Sign up (OTP step removed) — done in M1 groundwork
 - [x] Email verification (link-based) — done in M1 groundwork
 - [x] Dashboard (`/`) — de-mocked, real empty states, reviewed and fixed per above
-- [ ] Yearly/Monthly Analytics (`/analytics*`)
-- [ ] Transactions History (`/analytics-transaction-history` + search/filter/edit/delete additions)
-- [ ] Budgets (`/budgets`)
-- [ ] Savings Goals (`/goals`)
-- [ ] Categories (`/settings-categories` + type/shared-private toggle)
-- [ ] Notifications (`/notifications`, repurposed for bills/insights/partner activity)
-- [ ] Profile / General / Security settings
-- [ ] Privacy policy, 404
+- [x] Yearly/Monthly Analytics (`/analytics*`, all 6 routes) — de-mocked to EmptyState
+      (BIW-INFRA-003; no backend yet, Transactions lands in M3)
+- [x] Transactions History (`/analytics-transaction-history`) — de-mocked to EmptyState;
+      search/filter/edit/delete additions deferred to M3 when the Transactions backend exists
+- [x] Budgets (`/budgets`) — collapsed the fake tabbed category UI to a single EmptyState;
+      real budgets land in M4
+- [x] Savings Goals (`/goals`) — same treatment as Budgets; real goals land in M4
+- [x] Categories (`/settings-categories`) — real SWR-backed CRUD against the M1 categories
+      API (BIW-INFRA-004): create form (name/type/emoji), live income/expense lists, working
+      delete. Owner-only create/delete; partner role sees the list read-only. Type/shared-private
+      toggle UI not yet added (sharing endpoint exists on the backend — `PATCH
+      /categories/{id}/sharing` — but no frontend control yet; small follow-up, not blocking)
+- [x] Notifications (`/notifications`) — de-mocked to EmptyState. Repurposing for
+      bills/insights/partner activity deferred until those event sources exist (M5/M6/M7)
+- [x] Profile / General / Security settings (BIW-INFRA-006) — real user data from `/auth/me`
+      throughout; General collapsed to an honest EmptyState (no preferences backend exists);
+      Security shows real email-verification status and links to a newly-wired password reset
+      flow (see below).
+- [x] Privacy policy, 404 (BIW-INFRA-006) — privacy content rewritten to describe what
+      BillWise actually does (was fake Binance/Poloniex cash-exchange copy); 404's dead
+      `/index` link fixed to `/`.
+
+### Functional gap found and fixed while de-mocking Settings (BIW-INFRA-006)
+Linking Settings-Security's "Change password" to the existing `/reset` route would have
+shipped a new dead end: the backend's `/auth/password-reset/request` and `/confirm` endpoints
+(built and reviewed in M1) had **no working frontend at all** — `/reset` was an inert template
+form (`action="#"`), and `/reset-password` (the exact path the backend emails) didn't exist as
+a route. Added `authApi.requestPasswordReset`/`confirmPasswordReset` to `lib/api.js`, wired
+`/reset` to the request endpoint (with a deliberately unconditional success message regardless
+of whether the email matched an account, to avoid user enumeration — security-reviewer
+confirmed this holds), and built `/reset-password` to consume the emailed token. Verified
+end-to-end via Playwright: request → grab link from backend logs → confirm → sign in with the
+new password.
 
 ### 9.2 Reworked (strip forbidden data collection)
-- [ ] Add Card (`/add-card`) — drop full card number/CVV, keep masked-last-4 visual
-- [ ] Add Tracked Card or Savings (`/add-bank`) — chooser: card alias vs. tracked balance
-- [ ] Payment Methods & Tracked Balances (`/wallets`, `/settings-bank`, `/add-new-account`) — strip bank-linking language/logos
+- [x] Payment Methods & Tracked Balances (`/wallets`) — real SWR-backed CRUD against the M1
+      payment_methods API (BIW-INFRA-005): create form (name/type/issuer/masked-last-4/balance),
+      live list, working delete. Never renders a full card number — only the optional masked
+      last-4 the backend stores.
+- [x] Add Card (`/add-card`) — retired. Collected full card number + CVC + postal code
+      (forbidden, PRD §11.1). Now a one-line redirect to `/wallets`, which owns the one real
+      creation form.
+- [x] Add Tracked Card or Savings (`/add-bank`) — retired. Collected bank routing/account
+      number (forbidden). Redirects to `/wallets`.
+- [x] Add New Account chooser (`/add-new-account`) — retired. Investment-app-styled
+      ("invest large amount"/"invest small amount") chooser that only routed to the two
+      retired forms above. Redirects to `/wallets`.
+- [x] `/settings-bank` — retired. Duplicate fake "Bank of America"/"Master Card" bank-linking
+      UI. Redirects to `/wallets`. Dead "Add Bank" link removed from SettingsMenu.js.
 
-### 9.3 Net new (no template equivalent)
-- [ ] Add Transaction (manual entry)
-- [ ] Receipt Review / OCR Confirmation
-- [ ] Recurring Bills
-- [ ] Cashback
-- [ ] Net Worth
-- [ ] Household & Partner Sharing
-- [ ] Account Deletion flow (in Settings)
-- [ ] Mobile bottom-nav layout (§9.4 — M8 per milestone list, but chrome may land alongside M2)
+### 9.3 Net new (no template equivalent) — scoping decision
+These screens have no template equivalent **and no backend yet** — Add Transaction/OCR is M3,
+Recurring Bills is M6, Cashback/Net Worth are M7, Household & Partner Sharing needs new backend
+endpoints beyond the M1 `partner_permissions` model. Building real UI against a nonexistent
+backend would mean either shipping fake data (violates the project's no-mock-data principle,
+already fixed once in M1/M2) or a dead-end form that saves nothing. **Decision: build each of
+these alongside its owning backend milestone, not now.** Tracked here for visibility, not as
+M2 scope:
+- [ ] Add Transaction (manual entry) — M3
+- [ ] Receipt Review / OCR Confirmation — M3
+- [ ] Recurring Bills — M6
+- [ ] Cashback — M7
+- [ ] Net Worth — M7
+- [ ] Household & Partner Sharing — needs new backend (invite flow), TBD milestone
+- [ ] Account Deletion flow (in Settings) — needs a new backend endpoint, not yet built
+- [ ] Mobile bottom-nav layout (§9.4 — M8 per milestone list; may land earlier if time allows)
+
+### harness-os trail for slices 2-4
+Each slice: `assess_risk` → `create_spec` → `record_decision` (pending) → implement →
+Playwright-verify → `security-reviewer` + `react-reviewer` (parallel background agents) →
+apply fixes → re-verify → `record_decision` (remediation, linked via `related_decision_id`).
+- Slice 2 (`BIW-INFRA-003`, decisions 13/15): Analytics×6/Budgets/Goals/Notifications de-mock.
+  security-reviewer: clean. react-reviewer: fixed a pre-existing template typo
+  ("Banalce"→"Balance") and 6 reintroduced Fragment wrappers; declined the 'use client'
+  suggestion as a non-functional style preference that contradicts the template's own
+  convention.
+- Slice 3 (`BIW-INFRA-004`, decisions 14/17): Categories real CRUD wiring.
+  security-reviewer: clean (one non-blocking fix applied — handleDelete lacked try/catch).
+  react-reviewer: fixed a HIGH keyboard-accessibility bug (delete was `<span role="button">`,
+  not focusable/activatable — now a real `<button>`, which required a matching SCSS selector
+  update in `_settings-categories.scss`) and a MEDIUM double-delete race (added a `deletingId`
+  in-flight guard).
+- Slice 4 (`BIW-INFRA-005`, decisions 16/18): Payment Methods rework (Wallets +
+  retire add-card/add-bank/add-new-account/settings-bank, all of which collected PRD
+  §11.1-forbidden fields). security-reviewer: clean — confirmed the new form only ever
+  collects schema-allowed fields, never a full card/account number. react-reviewer: fixed
+  missing label/input associations (HIGH, WCAG 2.1 Level A — same gap existed unflagged in
+  the Categories form from slice 3, fixed there too for consistency), missing `role="alert"`
+  on error text (HIGH), stale error state after a successful action (MEDIUM), and an
+  unnecessary Fragment in `SettingsMenu.js` (MEDIUM).
+
+- Slice 5 (`BIW-INFRA-006`, decisions 19/20): Profile/Settings/Privacy/404 reskin, password
+  reset flow, ESLint tooling. security-reviewer: clean — confirmed the enumeration-prevention
+  pattern in the reset request flow, confirmed the reset token is never logged/exposed.
+  Flagged a HIGH `brace-expansion` dev-dependency advisory (dev-only, not fixed). react-reviewer:
+  fixed an unnecessary Fragment in `not-found.js` (HIGH) and a missing `Suspense` `fallback`
+  prop in `reset-password/page.js` (HIGH, React 18 requirement) — also proactively fixed the
+  same pre-existing gap in `verify-email/page.js` for consistency. Backlogged a MEDIUM
+  suggestion to add Error Boundaries above Suspense boundaries site-wide (architectural, not
+  slice-specific).
+
+All five slice decisions (11, 15, 17, 18, 20) remain `pending_approval` pending human-ack via
+`harness approve`, consistent with every prior critical/high-risk decision in this project.
+
+### Security debt found, deferred to M9 (not silently ignored)
+Investigating a lint-flagged `brace-expansion` dev-dependency advisory led to running a full
+`npm audit`, which surfaced a **pre-existing critical-severity vulnerability**: this project's
+`next@14.0.4` (pinned since the original Ekash template, not introduced this session) has a
+known SSRF-via-rewrites CVE and an unauthenticated internal Server Function endpoint disclosure
+CVE. The fix (`next@14.2.35`) is outside the current package.json range and would need its own
+dedicated verification pass across all ~48 routes before shipping — too large to fold into a
+screen-reskin slice. **Deferred to M9 (Security Hardening)**, tracked here so it isn't lost.
+
+### ESLint added (closes a backlog item from slice 2's review)
+`react-reviewer` flagged in slice 2 that there was no ESLint config to mechanically catch hook
+bugs like the Layout.js memory leak found in M2 slice 1. A `next build` run later auto-generated
+a `.eslintrc.json` (`extends: next/core-web-vitals`) but it was non-functional — `eslint` itself
+was never an actual devDependency. Installed `eslint@8` + `eslint-config-next@14.0.4` (pinned to
+match this project's Next.js version) for real. This immediately surfaced 3 real, previously
+build-blocking `react/no-unescaped-entities` errors that had been silently passing before
+because eslint wasn't actually running — fixed in `app/demo/page.js`, `app/otp-phone/page.js`,
+`app/settings-session/page.js`. `npm run build` and `npx next lint` are both clean now.
 
 ### 9.5 Remove entirely from nav/routing (keep files, per PRD — don't delete)
-- [ ] `/id-front-and-back-upload`, `/verify-id`, `/verifying-id`, `/verified-id` (KYC)
-- [ ] `/otp-code`, `/otp-phone` (OTP/2FA)
-- [ ] `/affiliates` (referral)
-- [ ] `/support*` (ticketing)
-- [ ] `/settings-api` (dev API keys)
-- [ ] `/settings-currencies` (multi-currency)
-- [ ] `/bank-add-successful`
-- [ ] `/settings-session`, `/locked`, `/blank`
+- [x] `/id-front-and-back-upload`, `/verify-id`, `/verifying-id`, `/verified-id` (KYC) — no
+      remaining nav entry point; their only inbound link (Settings-Security's SSN-card section)
+      was already stripped in BIW-INFRA-006.
+- [x] `/otp-code`, `/otp-phone` (OTP/2FA) — same: only inbound link (phone-verification section)
+      already stripped in BIW-INFRA-006.
+- [x] `/affiliates` (referral) — removed from `Sidebar.js`.
+- [x] `/support*` (ticketing) — removed from `Sidebar.js` and `SettingsMenu.js`.
+- [x] `/settings-api` (dev API keys) — removed from `SettingsMenu.js`.
+- [x] `/settings-currencies` (multi-currency) — removed from `SettingsMenu.js`.
+- [x] `/bank-add-successful` — no remaining inbound link outside the standalone demo page.
+- [x] `/settings-session`, `/locked`, `/blank` — `settings-session` removed from
+      `SettingsMenu.js`; `locked`/`blank` had no inbound nav links to begin with.
 
 ### 9.6 Mock data sweep
-- [ ] Every screen above pulls real backend data or shows a defined empty state —
-      zero leftover hardcoded balances/names/avatars/chart data (PRD §31 acceptance
-      criteria explicitly calls this out)
+- [x] Every §9.1/§9.2 screen (the full set actually reachable via nav after the §9.5 removal)
+      now pulls real backend data or shows a defined empty state — zero leftover hardcoded
+      balances/names/avatars/chart data. Verified via `grep` for known template mock strings
+      (`12.12.2023`, `Grocery Items and Beverage`, hardcoded `$1200`-style figures) returning
+      no matches across every edited file, plus Playwright console-error checks on every route.
+- [ ] §9.3 net-new screens are explicitly out of this sweep's scope — they have no template
+      mock data to remove in the first place (no template equivalent existed) and will get
+      real data wiring alongside their owning backend milestone, not fake placeholder data now.
+- [ ] §9.5-removed screens (KYC/OTP/support/etc.) still contain their original template mock
+      data internally, but are no longer reachable from any nav — PRD says keep the files, not
+      clean them, so this is intentionally left alone.
 
-This is a large, multi-session milestone on its own — flagging scope honestly
-rather than rushing a shallow pass across 40+ screens.
+M2's screen-level de-mock work is now complete for everything in scope. What's left before M2
+can be called fully done: `/wallets`, `/settings-categories`, and the reworked settings screens
+should get one more look once M3/M4 land real backends, since some of the "empty state" screens
+here will need to flip over to real data wiring at that point — tracked per-milestone above,
+not re-litigated here.
 
 ## Milestone 1 Detail
 

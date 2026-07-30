@@ -1,12 +1,11 @@
 
-import ChartjsWeeklyExpenses from "@/components/chart/ChartjsWeeklyExpenses"
+import EmptyState from "@/components/elements/EmptyState"
 import Layout from "@/components/layout/Layout"
 import AnalyticsMenu from "@/components/layout/AnalyticsMenu"
 export default function Analytics() {
 
     return (
-        <>
-            <Layout breadcrumbTitle="Analytics">
+        <Layout breadcrumbTitle="Analytics">
                 <div className="row">
                     <div className="col-xxl-12 col-xl-12">
                         <AnalyticsMenu />
@@ -17,7 +16,7 @@ export default function Analytics() {
                                     </div>
                                     <div className="widget-content">
                                         <p>Daily Average</p>
-                                        <h3>$5470.36</h3>
+                                        <h3>$ 0.00</h3>
                                     </div>
                                 </div>
                             </div>
@@ -27,7 +26,7 @@ export default function Analytics() {
                                     </div>
                                     <div className="widget-content">
                                         <p>Change</p>
-                                        <h3>+47.36%</h3>
+                                        <h3>0%</h3>
                                     </div>
                                 </div>
                             </div>
@@ -37,7 +36,7 @@ export default function Analytics() {
                                     </div>
                                     <div className="widget-content">
                                         <p>Total Transaction</p>
-                                        <h3>354</h3>
+                                        <h3>0</h3>
                                     </div>
                                 </div>
                             </div>
@@ -48,7 +47,7 @@ export default function Analytics() {
                                     </div>
                                     <div className="widget-content">
                                         <p>Categories</p>
-                                        <h3>40</h3>
+                                        <h3>0</h3>
                                     </div>
                                 </div>
                             </div>
@@ -58,7 +57,7 @@ export default function Analytics() {
                                         <h4 className="card-title">Weekly Expenses </h4>
                                     </div>
                                     <div className="card-body">
-                                        <ChartjsWeeklyExpenses />
+                                        <EmptyState icon="fi fi-rr-chart-line-up" message="No expenses recorded this week." />
                                     </div>
                                 </div>
                             </div>
@@ -67,7 +66,6 @@ export default function Analytics() {
                 </div>
 
 
-            </Layout>
-        </>
+        </Layout>
     )
 }

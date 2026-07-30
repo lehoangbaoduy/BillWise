@@ -77,7 +77,7 @@ export default function OtpPhone() {
                                                     of The</option>
                                                 <option value="Cook Islands">Cook Islands</option>
                                                 <option value="Costa Rica">Costa Rica</option>
-                                                <option value="Cote D'ivoire">Cote D'ivoire</option>
+                                                <option value="Cote D'ivoire">Cote D&apos;ivoire</option>
                                                 <option value="Croatia">Croatia</option>
                                                 <option value="Cuba">Cuba</option>
                                                 <option value="Cyprus">Cyprus</option>
@@ -140,12 +140,12 @@ export default function OtpPhone() {
                                                 <option value="Kazakhstan">Kazakhstan</option>
                                                 <option value="Kenya">Kenya</option>
                                                 <option value="Kiribati">Kiribati</option>
-                                                <option value="Korea, Democratic People's Republic of">Korea, Democratic People's
+                                                <option value="Korea, Democratic People's Republic of">Korea, Democratic People&apos;s
                                                     Republic of</option>
                                                 <option value="Korea, Republic of">Korea, Republic of</option>
                                                 <option value="Kuwait">Kuwait</option>
                                                 <option value="Kyrgyzstan">Kyrgyzstan</option>
-                                                <option value="Lao People's Democratic Republic">Lao People's Democratic Republic
+                                                <option value="Lao People's Democratic Republic">Lao People&apos;s Democratic Republic
                                                 </option>
                                                 <option value="Latvia">Latvia</option>
                                                 <option value="Lebanon">Lebanon</option>
@@ -290,14 +290,14 @@ export default function OtpPhone() {
                                         </div>
                                         <div className="alert-text">
                                             <small>Security is critical in Xtrader. to help keep your account
-                                                safe, we'll text you a verification code when you sign in on a new device</small>
+                                                safe, we&apos;ll text you a verification code when you sign in on a new device</small>
                                         </div>
                                         <div className="text-center mt-4">
                                             <button type="submit" className="btn btn-success w-100">Send</button>
                                         </div>
                                     </form>
                                     <div className="new-account mt-3 d-flex justify-content-between">
-                                        <p>Don't get code? <Link className="text-primary" href="/otp-code">Resend</Link></p>
+                                        <p>Don&apos;t get code? <Link className="text-primary" href="/otp-code">Resend</Link></p>
                                     </div>
                                 </div>
                             </div>
