@@ -71,3 +71,18 @@ export const paymentMethodsApi = {
   update: (id, data) => request(`/payment-methods/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   remove: (id) => request(`/payment-methods/${id}`, { method: "DELETE" }),
 }
+
+export const transactionsApi = {
+  list: (params = {}) => {
+    const search = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== null && value !== undefined && value !== "") search.set(key, value)
+    })
+    const query = search.toString()
+    return request(`/transactions${query ? `?${query}` : ""}`)
+  },
+  get: (id) => request(`/transactions/${id}`),
+  create: (data) => request("/transactions", { method: "POST", body: JSON.stringify(data) }),
+  update: (id, data) => request(`/transactions/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  remove: (id) => request(`/transactions/${id}`, { method: "DELETE" }),
+}

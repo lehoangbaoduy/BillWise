@@ -18,6 +18,14 @@ export default function Sidebar() {
                                 <span className="nav-text">Dashboard</span>
                             </Link>
                         </li>
+                        <li className={pathname == "/analytics-transaction-history" || pathname == "/add-transaction" ? "active" : ""}>
+                            <Link href="/analytics-transaction-history">
+                                <span>
+                                    <i className="fi fi-rr-receipt" />
+                                </span>
+                                <span className="nav-text">Transactions</span>
+                            </Link>
+                        </li>
                         <li className={pathname == "/wallets" ? "active" : ""}>
                             <Link href="/wallets">
                                 <span>

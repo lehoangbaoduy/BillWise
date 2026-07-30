@@ -8,6 +8,7 @@ from slowapi.errors import RateLimitExceeded
 from app.api.auth import router as auth_router
 from app.api.categories import router as categories_router
 from app.api.payment_methods import router as payment_methods_router
+from app.api.transactions import router as transactions_router
 from app.core.config import settings
 from app.core.rate_limit import limiter
 
@@ -28,6 +29,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(payment_methods_router)
 app.include_router(categories_router)
+app.include_router(transactions_router)
 
 
 @app.get("/health")
