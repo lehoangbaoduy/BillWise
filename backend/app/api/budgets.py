@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlmodel import and_, or_, select
+from sqlmodel import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import require_owner
@@ -11,6 +11,7 @@ from app.models.budget import Budget
 from app.models.category import Category, CategoryType
 from app.models.user import User
 from app.schemas.budget import BudgetCreate, BudgetPublic, BudgetUpdate
+from app.services.budget_rollover import ensure_budget_rollover
 
 router = APIRouter(prefix="/budgets", tags=["budgets"])
 
@@ -33,28 +34,6 @@ async def _get_owned_or_404(session: AsyncSession, user: User, budget_id: uuid.U
     return budget
 
 
-async def _rollover_if_needed(session: AsyncSession, user: User, month: int, year: int) -> None:
-    """PRD §14.4: a new month with no budget rows yet auto-copies the most recent
-    earlier month's amounts, as new independent rows (editing them never touches
-    the source month's stored figures)."""
-    existing = (
-        await session.exec(select(Budget).where(Budget.user_id == user.id, Budget.month == month, Budget.year == year))
-    ).first()
-    if existing is not None:
-        return
-
-    earlier_condition = or_(Budget.year < year, and_(Budget.year == year, Budget.month < month))
-    candidates = (await session.exec(select(Budget).where(Budget.user_id == user.id, earlier_condition))).all()
-    if not candidates:
-        return
-    source_period = max((b.year, b.month) for b in candidates)
-    source_rows = [b for b in candidates if (b.year, b.month) == source_period]
-
-    for row in source_rows:
-        session.add(Budget(user_id=user.id, category_id=row.category_id, month=month, year=year, budget_amount=row.budget_amount))
-    await session.commit()
-
-
 @router.get("", response_model=list[BudgetPublic])
 async def list_budgets(
     month: int = Query(ge=1, le=12),
@@ -62,7 +41,7 @@ async def list_budgets(
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
 ) -> list[Budget]:
-    await _rollover_if_needed(session, user, month, year)
+    await ensure_budget_rollover(session, user, month, year)
     statement = select(Budget).where(and_(Budget.user_id == user.id, Budget.month == month, Budget.year == year))
     return (await session.exec(statement)).all()
 

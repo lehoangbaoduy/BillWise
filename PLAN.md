@@ -30,9 +30,10 @@ aren't already obvious from the code or the PRD.
       security- and code-reviewed across 2 governed slices — see "Milestone 3
       Detail" below. Formally `pending_approval` pending human-ack (decisions 31-34).
 - [~] **M4: Dashboard, Budgets & Goals** — backend slice 1 (Budgets + Savings Goals,
-      including the deferred `transactions.goal_id` and an add-funds money flow) DONE,
-      tested (100 passing backend tests), security- and fastapi-reviewed — see
-      "Milestone 4 Detail" below. Still to do: Dashboard aggregation endpoints, and
+      including the deferred `transactions.goal_id` and an add-funds money flow) DONE.
+      Backend slice 2 (Dashboard aggregation: monthly/yearly overviews, category and
+      payment-method breakdowns, cash flow) DONE, tested (115 passing backend tests),
+      security- and fastapi-reviewed — see "Milestone 4 Detail" below. Still to do:
       frontend for all three (Budgets, Goals, Dashboard).
 - [ ] **M5: OCR Flow**
 - [ ] **M6: Recurring Bills & Cashback**
@@ -470,12 +471,55 @@ render correctly, nav selection/active-state, create/delete cycle).
   refactor (goal create → add-funds → current_amount updates correctly; budget create → rollover
   into the next month) — service hot-reloaded cleanly post-refactor with no import errors.
 
+### Backend slice 2 — Dashboard aggregation (`BIW-API-004`, decisions 39 → 40)
+- 5 read-only GET endpoints under `/dashboard`: `/monthly` (income/expenses/net cash flow, top
+  category, top payment method, per-category budget status, comparison vs previous month —
+  correctly handles the January→December-of-prior-year boundary), `/yearly` (12-entry monthly
+  trend, spend by category/payment method, average/highest/lowest month, YTD savings total),
+  `/category-breakdown` (per-category % of total + budget comparison for a period),
+  `/payment-method-breakdown` (spend/count/average/tracked balance per method), `/cash-flow`
+  (income vs expenses view per PRD §18.6). No new tables — pure aggregation over
+  transactions/transaction_line_items/budgets/categories/payment_methods, scoped to the owner.
+- Scope decisions documented up front in decision 39: (1) "spend"/"expenses" aggregations use
+  `TransactionType.EXPENSE` only, excluding Saving expense and Adjustment — matches how Budgets are
+  scoped to expense-type categories (`transaction_validation.py`'s `EXPENSE_LIKE_TYPES` distinction
+  carried into the dashboard's category/payment-method rollups). (2) `ytd_savings_total` on the
+  yearly endpoint separately sums Saving-expense transactions rather than folding them into
+  "spending". (3) `/dashboard/net-worth` and `/dashboard/ai-insights` explicitly out of scope,
+  deferred to M7/M9 per PRD. (4) `average_month` divides by a fixed 12, not by months-with-data.
+  (5) `/dashboard/monthly`'s `budget_status` reuses the exact rollover-aware view `GET /budgets`
+  would show for that period — the rollover helper was promoted from budgets.py's private
+  `_rollover_if_needed` to a public `app/services/budget_rollover.py::ensure_budget_rollover`,
+  shared by both routers (same "extract shared logic to services/" pattern used for
+  `transaction_validation.py` in slice 1, applied proactively this time instead of waiting for a
+  reviewer finding).
+- Real TDD: 115 passing backend tests (14 written up front for the slice, +1 added post-review to
+  close a leak-coverage gap).
+- security-reviewer: no CRITICAL/HIGH. 1 MEDIUM (payment-method spend aggregation relied only on
+  `Transaction.user_id` for scoping, no explicit `PaymentMethod.user_id` check — defense-in-depth
+  gap, not an exploitable leak given the FK's referential integrity, but fixed anyway) — added
+  explicit ownership filters to every joined query (`Category.user_id`/`PaymentMethod.user_id`) in
+  both the monthly and yearly endpoints. 1 LOW (budget category-name lookup had no ownership check)
+  — resolved by the same fix. Added a test creating real second-user transaction data and asserting
+  it never appears in the first user's totals, top-entries, or breakdowns.
+- fastapi-reviewer: 1 HIGH (N+1 — `session.get(Category, ...)` once per budget inside the
+  `budget_status` loop) — fixed by batch-fetching all budget categories in one `IN()` query
+  (also closed a related LOW: budgeted categories with zero spend previously fell back to an empty
+  name). 2 MEDIUM (three response fields — `comparison_vs_previous_month`, `highest_month`,
+  `lowest_month` — were typed `Optional` but the endpoint logic always populates them, misleading to
+  API clients; `PaymentMethodBreakdownItem.type` was a bare `str` instead of the `PaymentMethodType`
+  enum, losing OpenAPI enum documentation) — both fixed.
+- Live-verified via the running dev backend's OpenAPI schema that all 5 routes registered and
+  hot-reloaded cleanly with no import errors after the refactor.
+
 ### Still to do for M4
-- Backend: Dashboard aggregation endpoints (`GET /dashboard/monthly`, `/yearly`,
-  `/category-breakdown`, `/payment-method-breakdown`, `/cash-flow` — net worth and AI insights are
-  explicitly M7/M9, not built here).
 - Frontend: real data wiring for `/budgets` and `/goals` (currently M2 EmptyState placeholders),
-  and for the Dashboard (`/`, currently de-mocked to empty states in M2 slice 1).
+  and for the Dashboard (`/`, currently de-mocked to empty states in M2 slice 1) against the new
+  `/dashboard/*` endpoints above. Also queued: extending the Wallets page (per user request
+  2026-07-30) with per-wallet transaction history (reusing `GET /transactions?payment_method_id=`),
+  a total-balance sum, and month's-spending (reusing the new Dashboard endpoints) — "available
+  balance" flagged separately since it needs a `credit_limit` schema field not in the current PRD
+  data model.
 
 ## Milestone 1 Detail
 
@@ -666,15 +710,18 @@ throughout), UUID enumeration (128-bit space, already low risk).
   any frontend path, and the host-side test-run recorder can't execute the
   Docker-wrapped pytest command. A human can update `testCommands`/`gatedGlobs`
   and run `harness reconcile-config` if tighter mechanical enforcement is wanted.
-- **M3 + Wallets-restyle + M4-slice-1 decisions awaiting human-ack**: decisions 31
+- **M3 + Wallets-restyle + M4-slices-1&2 decisions awaiting human-ack**: decisions 31
   (M3 backend assess_risk+spec), 32 (M3 backend review remediation — N+1 fix,
   category filter pushed into SQL, missing index, 5 new tests), 33 (M3 frontend
   assess_risk+spec), 34 (M3 frontend review remediation — SWR cache-key fix, stable
   line-item keys), 35 (Wallets restyle assess_risk+spec), 36 (Wallets restyle review
   remediation — both reviews clean), 37 (M4 Budgets+Goals backend assess_risk+spec),
   38 (M4 Budgets+Goals backend review remediation — rollover query fix, shared
-  validators promoted to a services module, 6 new tests) are all `pending_approval`
-  under CONST-ARCH-001, same pattern as M1/M2. Required reviews have already run for
-  every one of these and all findings are fixed and re-verified. Run
-  `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each, or
-  batch through them — M1 and M2's decisions were all approved this way already.
+  validators promoted to a services module, 6 new tests), 39 (M4 Dashboard backend
+  assess_risk+spec), 40 (M4 Dashboard backend review remediation — N+1 fix, explicit
+  ownership filters on joined queries, schema tightening, 1 new leak-coverage test)
+  are all `pending_approval` under CONST-ARCH-001, same pattern as M1/M2. Required
+  reviews have already run for every one of these and all findings are fixed and
+  re-verified. Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>`
+  for each, or batch through them — M1 and M2's decisions were all approved this way
+  already.
