@@ -4,7 +4,8 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useState } from "react"
 import useSWR from "swr"
 import Layout from "@/components/layout/Layout"
-import { categoriesApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
+import ReceiptUploadPanel from "@/components/receipt/ReceiptUploadPanel"
+import { categoriesApi, ocrApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
 
 const TRANSACTION_TYPES = ["Expense", "Income", "Saving expense", "Adjustment"]
 
@@ -17,7 +18,34 @@ function makeLineItemKey() {
 }
 
 function emptyLineItem() {
-    return { key: makeLineItemKey(), categoryId: "", itemName: "", amount: "" }
+    return { key: makeLineItemKey(), categoryId: "", itemName: "", amount: "", confidence: null }
+}
+
+// OCR items carry plain-English category labels (PRD §29.1), not IDs — resolve them
+// against the user's real category tree by name. Subcategory match wins since it's
+// more specific; "Uncategorized" or an unmatched label is left for manual selection
+// (PRD §29.2).
+function resolveCategoryId(categories, suggestedCategory, suggestedSubcategory) {
+    const byName = new Map((categories ?? []).map((category) => [category.name.trim().toLowerCase(), category.id]))
+    if (suggestedSubcategory) {
+        const match = byName.get(suggestedSubcategory.trim().toLowerCase())
+        if (match) return match
+    }
+    if (suggestedCategory && suggestedCategory !== "Uncategorized") {
+        const match = byName.get(suggestedCategory.trim().toLowerCase())
+        if (match) return match
+    }
+    return ""
+}
+
+function ConfidenceBadge({ confidence }) {
+    if (confidence == null) return null
+    const pct = Math.round(confidence * 100)
+    // Percentage text already conveys the tier numerically; the qualifier below
+    // makes it explicit without relying on the badge color alone (WCAG 1.4.1).
+    const [variant, qualifier] =
+        confidence >= 0.85 ? ["bg-success", ""] : confidence >= 0.6 ? ["bg-warning text-dark", ""] : ["bg-danger", " — needs review"]
+    return <span className={`badge ${variant} ms-2`}>{pct}% match{qualifier}</span>
 }
 
 function categoryTypeForTransactionType(transactionType) {
@@ -51,6 +79,12 @@ function AddTransactionContent() {
     const [formError, setFormError] = useState(null)
     const [isLoadingExisting, setIsLoadingExisting] = useState(isEditing)
 
+    // "manual" | "scan-upload" | "scan-review" — PRD §24.4 treats manual entry and
+    // receipt scanning as two entry paths into one Add Transaction screen.
+    const [entryMode, setEntryMode] = useState("manual")
+    const [ocrStatus, setOcrStatus] = useState(null)
+    const [ocrWarnings, setOcrWarnings] = useState([])
+
     useEffect(() => {
         if (!isEditing) return
         let cancelled = false
@@ -71,6 +105,7 @@ function AddTransactionContent() {
                         categoryId: item.category_id,
                         itemName: item.item_name,
                         amount: String(item.amount),
+                        confidence: null,
                     }))
                 )
             })
@@ -88,6 +123,23 @@ function AddTransactionContent() {
         setPaymentMethodId(paymentMethods[0].id)
     }, [paymentMethods, paymentMethodId])
 
+    // If a scan completes before the categories SWR fetch resolves, resolveCategoryId
+    // has nothing to match against and leaves categoryId empty. Re-resolve once
+    // categories arrive so a fast scan doesn't force an unnecessary manual pick.
+    useEffect(() => {
+        if (entryMode !== "scan-review" || !categories?.length) return
+        setLineItems((current) => {
+            const stillUnresolved = current.some((item) => item.confidence != null && !item.categoryId)
+            if (!stillUnresolved) return current
+            return current.map((item) =>
+                item.confidence != null && !item.categoryId
+                    ? { ...item, categoryId: resolveCategoryId(categories, item.suggestedCategory, item.suggestedSubcategory) }
+                    : item
+            )
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [categories, entryMode])
+
     const relevantCategoryType = categoryTypeForTransactionType(transactionType)
     const availableCategories = (categories ?? []).filter(
         (category) => relevantCategoryType === null || category.category_type === relevantCategoryType
@@ -103,6 +155,52 @@ function AddTransactionContent() {
 
     function removeLineItem(index) {
         setLineItems((current) => current.filter((_, i) => i !== index))
+    }
+
+    function handleExtracted(result) {
+        setDate(result.date || todayISO())
+        setMerchant(result.merchant || "")
+        setDescription("")
+        setTotalAmount(result.total != null ? String(result.total) : "")
+        setTransactionType("Expense")
+        setNotes("")
+        setLineItems(
+            result.items.length > 0
+                ? result.items.map((item) => ({
+                      key: makeLineItemKey(),
+                      categoryId: resolveCategoryId(categories, item.suggested_category, item.suggested_subcategory),
+                      itemName: item.name || "",
+                      amount: item.amount != null ? String(item.amount) : "",
+                      confidence: item.confidence,
+                      suggestedCategory: item.suggested_category,
+                      suggestedSubcategory: item.suggested_subcategory,
+                  }))
+                : [emptyLineItem()]
+        )
+        setOcrStatus(result.ocr_status)
+        setOcrWarnings(result.warnings || [])
+        setFormError(null)
+        setEntryMode("scan-review")
+    }
+
+    function resetToManualEntry() {
+        setEntryMode("manual")
+        setOcrStatus(null)
+        setOcrWarnings([])
+    }
+
+    function startNewScan() {
+        setDate(todayISO())
+        setMerchant("")
+        setDescription("")
+        setTotalAmount("")
+        setTransactionType("Expense")
+        setNotes("")
+        setLineItems([emptyLineItem()])
+        setOcrStatus(null)
+        setOcrWarnings([])
+        setFormError(null)
+        setEntryMode("scan-upload")
     }
 
     async function handleSubmit(event) {
@@ -147,6 +245,9 @@ function AddTransactionContent() {
             let possibleDuplicate = false
             if (isEditing) {
                 await transactionsApi.update(editId, payload)
+            } else if (entryMode === "scan-review") {
+                const created = await ocrApi.confirmTransaction(payload)
+                possibleDuplicate = created.possible_duplicate
             } else {
                 const created = await transactionsApi.create(payload)
                 possibleDuplicate = created.possible_duplicate
@@ -179,7 +280,53 @@ function AddTransactionContent() {
                             <h4 className="card-title">{isEditing ? "Edit transaction" : "Add a transaction"}</h4>
                         </div>
                         <div className="card-body">
-                            <form onSubmit={handleSubmit}>
+                            {!isEditing && (
+                                <div className="btn-group mb-4" role="group" aria-label="Transaction entry mode">
+                                    <button
+                                        type="button"
+                                        aria-pressed={entryMode === "manual"}
+                                        className={`btn btn-sm ${entryMode === "manual" ? "btn-primary" : "btn-outline-primary"}`}
+                                        onClick={resetToManualEntry}
+                                    >
+                                        Manual entry
+                                    </button>
+                                    <button
+                                        type="button"
+                                        aria-pressed={entryMode !== "manual"}
+                                        className={`btn btn-sm ${entryMode !== "manual" ? "btn-primary" : "btn-outline-primary"}`}
+                                        onClick={() => setEntryMode("scan-upload")}
+                                    >
+                                        Scan receipt
+                                    </button>
+                                </div>
+                            )}
+
+                            {entryMode === "scan-upload" ? (
+                                <ReceiptUploadPanel onExtracted={handleExtracted} onCancel={resetToManualEntry} />
+                            ) : (
+                                <form onSubmit={handleSubmit}>
+                                {entryMode === "scan-review" && (
+                                    <div
+                                        className={`alert ${ocrStatus === "low_confidence" ? "alert-warning" : "alert-success"} d-flex justify-content-between align-items-start`}
+                                        role="alert"
+                                    >
+                                        <div>
+                                            <strong>
+                                                {ocrStatus === "low_confidence" ? "Review before saving" : "Receipt scanned — review before saving"}
+                                            </strong>
+                                            {ocrWarnings.length > 0 && (
+                                                <ul className="mb-0 mt-1">
+                                                    {ocrWarnings.map((warning, index) => (
+                                                        <li key={index}>{warning}</li>
+                                                    ))}
+                                                </ul>
+                                            )}
+                                        </div>
+                                        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={startNewScan}>
+                                            Scan a different receipt
+                                        </button>
+                                    </div>
+                                )}
                                 <div className="row">
                                     <div className="col-md-6 mb-3">
                                         <label className="form-label" htmlFor="txn-date">Date</label>
@@ -272,7 +419,10 @@ function AddTransactionContent() {
                                     {lineItems.map((item, index) => (
                                         <div className="row align-items-end mb-2" key={item.key}>
                                             <div className="col-md-4">
-                                                <label className="form-label" htmlFor={`line-item-category-${index}`}>Category</label>
+                                                <label className="form-label" htmlFor={`line-item-category-${index}`}>
+                                                    Category
+                                                    <ConfidenceBadge confidence={item.confidence} />
+                                                </label>
                                                 <select
                                                     id={`line-item-category-${index}`}
                                                     className="form-select"
@@ -345,9 +495,16 @@ function AddTransactionContent() {
                                 {formError && <div className="alert alert-danger" role="alert">{formError}</div>}
 
                                 <button type="submit" className="btn btn-success" disabled={isSubmitting}>
-                                    {isSubmitting ? "Saving…" : isEditing ? "Save changes" : "Add transaction"}
+                                    {isSubmitting
+                                        ? "Saving…"
+                                        : isEditing
+                                        ? "Save changes"
+                                        : entryMode === "scan-review"
+                                        ? "Confirm & save"
+                                        : "Add transaction"}
                                 </button>
                             </form>
+                            )}
                         </div>
                     </div>
                 </div>

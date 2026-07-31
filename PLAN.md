@@ -38,11 +38,16 @@ aren't already obvious from the code or the PRD.
       Dashboard screen (stat widgets, real spend-trend/category charts, condensed
       budget/goal widgets, recent transactions) — see "Milestone 4 Detail" below.
       All decisions (37-44) human-acked via `harness approve` 2026-07-31.
-- [ ] **M5: OCR Flow** — slices 1 (backend receipt OCR + confirm-transaction) and 2
-      (backend statement OCR) DONE, security- and fastapi-reviewed, 21 new tests
-      (139 total passing). Slice 3 (frontend Receipt Review screen) not yet
-      started — see "Milestone 5 Detail" below. Formally `pending_approval` pending
-      human-ack (decisions 53-56).
+- [x] **M5: OCR Flow** — all 3 slices DONE. Backend: receipt OCR + confirm-transaction
+      and statement OCR (local Tesseract extraction, Claude Haiku structuring, 21
+      backend tests, 139 total passing). Frontend: Receipt Review screen + Scan
+      Receipt entry point on the existing Add Transaction screen, Playwright-verified
+      end-to-end against a real receipt image (backend leg) and a mocked successful
+      extraction (review/confirm leg, since live Anthropic calls are pending the user
+      adding a real API key) — see "Milestone 5 Detail" below. Statement-import
+      frontend UI is queued follow-up, not required for M5 to be considered done
+      (backend-only PRD requirement was met). Formally `pending_approval` pending
+      human-ack (decisions 53-58).
 - [ ] **M6: Recurring Bills & Cashback**
 - [ ] **M7: Net Worth, AI Insights, Household & Exports**
 - [ ] **M8: Mobile Layout**
@@ -754,12 +759,65 @@ user adding a real API key).
   enter this manually").
 - 21/21 OCR tests passing (17 receipt+confirm, 4 statement), 139/139 full suite.
 
-### Not yet started
-- **Slice 3**: frontend Receipt Review/confirmation screen (PRD §24.5 — net-new UI,
-  no Ekash template equivalent) plus "Scan Receipt" entry point on the Add
-  Transaction screen (PRD §24.4). Statement-import frontend (a suggested-balance
-  review UI calling the existing `PATCH /payment-methods/{id}`) is PRD §11.4/§24.4
-  scope too but not yet slotted into a specific slice.
+### Slice 3: Frontend Receipt Review screen + Scan Receipt entry point (BIW-INFRA-011, decisions 57-58)
+- Extended the existing M3 Add Transaction screen (`frontend/app/add-transaction/page.js`)
+  with a Manual Entry / Scan Receipt mode toggle rather than building a separate
+  screen — PRD §24.4 frames manual/scan/statement-import as entry paths into one
+  Add Transaction screen, not three screens. Scan mode: `ReceiptUploadPanel`
+  (new, `frontend/components/receipt/ReceiptUploadPanel.js`) uploads a file to
+  `POST /ocr/receipt`; on success the SAME form fields used for manual entry
+  (date, merchant, total, payment method, line items) are pre-filled from the
+  extraction and the screen enters a "scan-review" state — a warnings/status
+  banner, per-line-item confidence badges, and every field stays editable before
+  confirming (PRD §13.2). Confirming calls `POST /ocr/confirm-transaction`
+  instead of `POST /transactions`. OCR failure/timeout shows an inline error with
+  a link back to Manual Entry (PRD §13.3).
+- AI-suggested category labels (plain text, e.g. "Food"/"Grocery") are resolved
+  against the user's real category tree by case-insensitive name match
+  (`resolveCategoryId`, subcategory match preferred); unmatched or "Uncategorized"
+  items are left for manual selection (PRD §29.2).
+- `frontend/lib/api.js`: added `ocrApi.scanReceipt`/`ocrApi.confirmTransaction`;
+  refactored the shared error-handling logic into `throwIfError`, and added
+  `requestMultipart` for the file-upload call (deliberately omits the JSON
+  `Content-Type` header so the browser sets the multipart boundary itself).
+- Security review: clean — confirmed OCR-derived data (an AI-derived, technically
+  attacker-influenceable source since it comes from a user-uploaded image) only
+  ever flows through auto-escaping JSX interpolation, never `dangerouslySetInnerHTML`;
+  confirmed the new multipart upload path has the same same-origin/credentialed
+  CSRF posture as the existing JSON path.
+- React review: no blocking issues; fixed accessibility findings — `aria-pressed`
+  on the mode-toggle buttons, `role="alert"` (was `role="status"`) on the
+  one-time warnings banner, and a text qualifier ("— needs review") added to
+  low-confidence badges so the signal isn't color-only (WCAG 1.4.1). Also fixed a
+  robustness edge case: if the categories SWR fetch resolves after a fast scan
+  completes, a new `useEffect` re-resolves any still-unmatched OCR line-item
+  categories once categories arrive (previously the AI's suggested labels were
+  used transiently and discarded, so nothing was left to re-resolve against —
+  now `suggestedCategory`/`suggestedSubcategory` are stored on each line item).
+- **Verified end-to-end via live Playwright** against the real dev server (not
+  just unit-level): mode switching; a real upload hitting the real backend with
+  no Anthropic key configured correctly surfaced the backend's graceful 503 and
+  the frontend's fallback-to-manual link worked; a mocked successful extraction
+  correctly pre-filled all fields, showed a 92%-match badge with auto-resolved
+  category on a high-confidence item, left a 40%-confidence/"Uncategorized" item
+  unselected requiring manual choice, and displayed the warnings banner;
+  confirming created a real `Transaction` with `source='Receipt OCR'` and correct
+  line items (checked directly via `psql`); a repeat scan of the same receipt
+  correctly redirected with `?duplicate=1`, matching the manual-entry path's
+  existing behavior. Manual-entry regression re-verified end-to-end (unaffected
+  by the shared-form refactor). ESLint clean, production build clean. Test
+  fixtures (payment method, transactions) cleaned up from the dev DB afterward.
+- **This closes M5's originally-scoped work** (backend receipt OCR, backend
+  statement OCR, frontend receipt scan/review). Statement-import frontend
+  (PRD §11.4/§24.4 — a suggested-balance review UI calling the existing
+  `PATCH /payment-methods/{id}`) remains PRD scope but is not yet slotted into a
+  slice; flagged as queued follow-up below, not a gap in M5 itself.
+
+### Queued follow-up (not part of M5, not yet scheduled)
+- Statement-import frontend UI (PRD §11.4/§24.4): a review screen for
+  `POST /ocr/statement`'s suggested balance/dates, letting the user confirm
+  before calling the existing `PATCH /payment-methods/{id}` — backend is done
+  (slice 2), only the UI is outstanding.
 
 ## Milestone 1 Detail
 
@@ -960,11 +1018,13 @@ throughout), UUID enumeration (128-bit space, already low risk).
   remediation — both reviews clean) are still `pending_approval` under
   CONST-ARCH-001. Required reviews have already run for every one of these and all
   findings are fixed and re-verified. Not blocking further work, just outstanding.
-- **M5 slices 1-2 decisions awaiting human-ack**: decision 53 (backend receipt OCR +
-  confirm-transaction assess_risk+spec), 54 (slice 1 review remediation), 55
-  (backend statement OCR assess_risk+spec), 56 (slice 2 review remediation) — see
-  "Milestone 5 Detail" above for the full list of security/fastapi findings fixed —
-  are all `pending_approval` under CONST-ARCH-001.
+- **M5 (all 3 slices) decisions awaiting human-ack**: decision 53 (backend receipt
+  OCR + confirm-transaction assess_risk+spec), 54 (slice 1 review remediation), 55
+  (backend statement OCR assess_risk+spec), 56 (slice 2 review remediation), 57
+  (frontend Receipt Review screen assess_risk+spec), 58 (slice 3 review
+  remediation) — see "Milestone 5 Detail" above for the full list of
+  security/fastapi/react findings fixed — are all `pending_approval` under
+  CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all
   approved this way already.

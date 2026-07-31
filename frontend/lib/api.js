@@ -12,6 +12,18 @@ export class ApiError extends Error {
   }
 }
 
+async function throwIfError(response) {
+  if (response.ok) return
+  let detail = null
+  try {
+    const body = await response.json()
+    detail = body.detail
+  } catch {
+    // Non-JSON error body — fall back to the generic status message.
+  }
+  throw new ApiError(response.status, detail)
+}
+
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
@@ -22,18 +34,21 @@ async function request(path, options = {}) {
     },
   })
 
-  if (!response.ok) {
-    let detail = null
-    try {
-      const body = await response.json()
-      detail = body.detail
-    } catch {
-      // Non-JSON error body — fall back to the generic status message.
-    }
-    throw new ApiError(response.status, detail)
-  }
-
+  await throwIfError(response)
   if (response.status === 204) return null
+  return response.json()
+}
+
+// No Content-Type header here — the browser sets the multipart boundary itself
+// when the body is a FormData instance.
+async function requestMultipart(path, formData) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  })
+
+  await throwIfError(response)
   return response.json()
 }
 
@@ -103,6 +118,16 @@ export const goalsApi = {
     request(`/goals/${id}/sharing`, { method: "PATCH", body: JSON.stringify({ is_shared: isShared }) }),
   remove: (id) => request(`/goals/${id}`, { method: "DELETE" }),
   addFunds: (id, data) => request(`/goals/${id}/add-funds`, { method: "POST", body: JSON.stringify(data) }),
+}
+
+export const ocrApi = {
+  scanReceipt: (file) => {
+    const formData = new FormData()
+    formData.append("file", file)
+    return requestMultipart("/ocr/receipt", formData)
+  },
+  confirmTransaction: (data) =>
+    request("/ocr/confirm-transaction", { method: "POST", body: JSON.stringify(data) }),
 }
 
 export const dashboardApi = {
