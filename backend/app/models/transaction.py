@@ -21,6 +21,7 @@ class TransactionSource(StrEnum):
     RECEIPT_OCR = "Receipt OCR"
     STATEMENT_OCR = "Statement OCR"
     ADJUSTMENT = "Adjustment"
+    RECURRING_BILL = "Recurring Bill"
 
 
 class Transaction(SQLModel, table=True):

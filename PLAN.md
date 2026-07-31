@@ -49,7 +49,12 @@ aren't already obvious from the code or the PRD.
       below); confirmed working end-to-end against the live API afterward. Statement-import
       frontend UI now also built (decisions 72-73), closing the last queued follow-up.
       Formally `pending_approval` pending human-ack (decisions 53-58, 71-73).
-- [ ] **M6: Recurring Bills & Cashback**
+- [ ] **M6: Recurring Bills & Cashback** — slice 1 (backend Recurring Bills) DONE:
+      new `recurring_bills`/`recurring_bill_payments` tables, full CRUD +
+      mark-paid with optional auto-created linked transactions, lazy
+      overdue/next-period reconciliation (28 tests, 168 total passing). Slices
+      2-4 (Cashback backend, frontend Recurring Bills, frontend Cashback) not
+      yet started. Formally `pending_approval` pending human-ack (decisions 76-77).
 - [ ] **M7: Net Worth, AI Insights, Household & Exports**
 - [ ] **M8: Mobile Layout**
 - [ ] **M9: Security Hardening**
@@ -913,6 +918,106 @@ model) → confirmed → `PATCH /payment-methods/{id}` fired → wallet balance
 updated in the UI ($500.00 → $842.15) and confirmed directly via `psql`. Test
 payment method cleaned up from the dev DB afterward.
 
+## Milestone 6 Detail (Recurring Bills & Cashback)
+
+### Slice 1: Backend Recurring Bills (BIW-DATA-004, BIW-API-007, decisions 76-77)
+New `recurring_bills` and `recurring_bill_payments` tables (PRD §23.9-10) via
+Alembic autogenerate + apply, migration `110bd6d5da2f`. `RecurringBill` holds
+the bill definition (name/amount/frequency/category/payment method/toggles);
+`RecurringBillPayment` holds each generated period instance (own due_date,
+status, paid_date, optional linked `transaction_id`) — PRD §16.3's "real
+multi-month payment history" requirement. Added `TransactionSource.RECURRING_BILL`
+("Recurring Bill") enum value.
+
+Endpoints (`app/api/recurring_bills.py`): `GET/POST /recurring-bills`,
+`PATCH/DELETE /recurring-bills/{id}`, `POST /recurring-bills/{id}/mark-paid` —
+exactly PRD §25.8's list, no extra endpoints added.
+
+**Design interpretations made where the PRD is silent** (no contradiction, just
+gaps — documented here for visibility, not blocking):
+1. **Custom frequency never auto-generates** its next period — §16.2 lists
+   'Custom' as a frequency option but §23.9's schema has no interval field to
+   compute a next date from. The owner manually rolls it forward by editing
+   `due_date`. Covered by `test_custom_frequency_does_not_auto_generate`.
+2. **'overdue' is a real stored status** (matching §23.10's declared enum),
+   materialized lazily by `ensure_recurring_bill_state` — same pattern as the
+   existing `ensure_budget_rollover` in `budget_rollover.py` — run on every
+   `GET /recurring-bills` and again after mark-paid. No background job/scheduler
+   introduced anywhere in this project.
+3. **No separate 'skip' endpoint** — §25.8 only lists mark-paid. `skipped` exists
+   in the schema (schema-complete, matching §23.10) but has no PRD-specified
+   trigger, so it isn't yet reachable via the API. Documented gap, not silently
+   dropped.
+4. **No separate recurring-bills dashboard endpoint** — `GET /recurring-bills`
+   embeds each bill's `current_period` (nearest upcoming/overdue) plus its full
+   `payments` history, so the frontend can aggregate "due this week/month, total
+   obligation, missed/overdue" (§16.4) client-side — matching the Budgets/Goals
+   precedent of client-side aggregation over a list endpoint.
+5. **Card Payment Bills** (§16.5): `due_date` auto-populates from the linked
+   payment method's `due_day_optional`/`statement_day_optional` only when the
+   client omits `due_date` at creation (`resolve_card_payment_due_date`) — no
+   new boolean flag added to the schema; the day is clamped to the target
+   month's actual length and rolled to next month if already passed.
+6. **mark-paid targets the bill's earliest non-terminal period** (upcoming or
+   overdue) rather than a specific period id, since §25.8's endpoint is
+   parameterized by bill id, not period id. Returns 409 if none exists (e.g.
+   already paid, or custom-frequency bill with nothing left to pay).
+7. Recurring bills require an **expense-type category** (`_validate_expense_category`)
+   — no income/saving recurring inflows in scope, matching the feature's framing
+   throughout §16.
+
+`mark_bill_paid` optionally creates a real `Transaction` (source='Recurring
+Bill') via the existing shared `create_transaction_record` service (same DRY
+path used by OCR confirm and goal add-funds) when `auto_create_transaction` is
+set, and links it back via the period's `transaction_id`.
+
+### Security review (security-reviewer agent)
+Clean — no critical/high findings. Ownership scoping correct on all 5 routes;
+`auto_create_transaction` path re-validates payment-method/category ownership
+via the existing `create_transaction_record`/`_validate_expense_category`
+(can't be exploited to write transactions against another user's data);
+amounts constrained `gt=0`; no injection risk (`.in_()` built from
+already-owner-filtered ids); rate-limiting absence confirmed consistent with
+`budgets.py`/`goals.py`/`transactions.py` (not a gap specific to this router).
+One MINOR: `RecurringBillUpdate`'s NOT-NULL FK fields technically accepted an
+explicit JSON `null`. Fixed — the router now rejects explicit `null` on any
+not-nullable field (`payment_method_id`, `category_id`, `name`, `amount`,
+`frequency`, `due_date`) with a clear 422, plus a regression test.
+
+### FastAPI review (fastapi-reviewer agent) — fixed immediately
+- **N+1 query in `list_recurring_bills`** (HIGH): payments were loaded per-bill
+  in a loop. Fixed — batch-load all payments for the user's bills in one query,
+  group in memory, matching the existing `transactions.py` pattern.
+- **Redundant `session.refresh`** (MEDIUM) in `mark_bill_paid`: called again
+  after `ensure_recurring_bill_state`, which never touches the just-paid
+  period. Removed.
+- **Missing `from_attributes` config** (LOW) on `RecurringBillPublic` for
+  consistency with peer response schemas. Added.
+- Confirmed correct outright: async session semantics throughout
+  `ensure_recurring_bill_state` (single batched commit, no stale reads, no
+  hidden N+1 in the reconciliation loop itself), Decimal serialization, the
+  three-commit composition in `mark_bill_paid` (transaction creation → period
+  update → state reconciliation) judged consistent with how this codebase
+  already composes shared service calls elsewhere.
+
+### Verification
+28 new tests in `backend/tests/test_recurring_bills.py`: bill CRUD + ownership
+404s, expense-category/payment-method validation, card-payment due-date
+auto-population, `next_due_date` unit tests covering month-end clamping
+(Jan 31 monthly → Feb 28) and leap-year yearly rollover (Feb 29 2028 → Feb 28
+2029), lazy overdue-flip and next-period-generation on list, custom-frequency
+non-generation, mark-paid with/without `auto_create_transaction` (including
+confirming the linked transaction's `source`/amount via a follow-up
+`GET /transactions`), 409 on an already-resolved bill, and the explicit-null
+rejection added during remediation. Full backend suite: 168/168 passing, no
+regressions.
+
+### Not yet built (queued within M6, not yet scheduled)
+- Cashback rules/records backend (PRD §17, §23.11-12, §25.9) — slice 2.
+- Frontend Recurring Bills screen (net-new UI, no template equivalent per
+  PRD §9's screen inventory) — slice 3.
+- Frontend Cashback screen (net-new UI) — slice 4.
+
 ## Milestone 1 Detail
 
 ### Specs registered
@@ -1126,6 +1231,10 @@ throughout), UUID enumeration (128-bit space, already low risk).
 - **Wallets enhancement decisions awaiting human-ack**: decision 74 (assess_risk+spec,
   `BIW-INFRA-013`), 75 (review remediation, linked to 74) — see "Wallets enhancement"
   above — are `pending_approval` under CONST-ARCH-001.
+- **M6 slice 1 (backend Recurring Bills) decisions awaiting human-ack**: decision 76
+  (assess_risk+spec, `BIW-DATA-004`/`BIW-API-007`), 77 (review remediation, linked
+  to 76) — see "Milestone 6 Detail" above — are `pending_approval` under
+  CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all
   approved this way already.

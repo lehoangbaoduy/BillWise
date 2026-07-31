@@ -12,6 +12,7 @@ from app.api.dashboard import router as dashboard_router
 from app.api.goals import router as goals_router
 from app.api.ocr import router as ocr_router
 from app.api.payment_methods import router as payment_methods_router
+from app.api.recurring_bills import router as recurring_bills_router
 from app.api.transactions import router as transactions_router
 from app.core.config import settings
 from app.core.rate_limit import limiter
@@ -38,6 +39,7 @@ app.include_router(budgets_router)
 app.include_router(goals_router)
 app.include_router(dashboard_router)
 app.include_router(ocr_router)
+app.include_router(recurring_bills_router)
 
 
 @app.get("/health")
