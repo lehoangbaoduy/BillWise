@@ -1,5 +1,4 @@
 import uuid
-from datetime import date as date_type
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -10,53 +9,19 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.api.deps import require_owner
 from app.core.db import get_session
 from app.models._common import utcnow
-from app.models.goal import SavingsGoal
 from app.models.transaction import Transaction, TransactionLineItem, TransactionSource, TransactionType
 from app.models.user import User
 from app.schemas.transaction import TransactionCreate, TransactionPublic, TransactionUpdate
-from app.services.transaction_validation import validate_line_items, validate_payment_method
+from app.services.transaction_validation import (
+    create_transaction_record,
+    load_line_items,
+    to_transaction_public,
+    validate_goal,
+    validate_line_items,
+    validate_payment_method,
+)
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
-
-_GOAL_ELIGIBLE_TYPES = {TransactionType.SAVING_EXPENSE, TransactionType.ADJUSTMENT}
-
-
-async def _validate_goal(
-    session: AsyncSession, user: User, transaction_type: TransactionType, goal_id: uuid.UUID | None
-) -> None:
-    if goal_id is None:
-        return
-    if transaction_type not in _GOAL_ELIGIBLE_TYPES:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="goal_id is only valid for Saving expense or Adjustment transactions",
-        )
-    goal = await session.get(SavingsGoal, goal_id)
-    if goal is None or goal.user_id != user.id or not goal.is_active:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid goal")
-
-
-async def _detect_duplicate(
-    session: AsyncSession,
-    user: User,
-    merchant: str,
-    date: date_type,
-    total_amount: Decimal,
-    payment_method_id: uuid.UUID,
-    exclude_id: uuid.UUID | None = None,
-) -> bool:
-    conditions = [
-        Transaction.user_id == user.id,
-        Transaction.merchant == merchant,
-        Transaction.date == date,
-        Transaction.total_amount == total_amount,
-        Transaction.payment_method_id == payment_method_id,
-    ]
-    if exclude_id is not None:
-        conditions.append(Transaction.id != exclude_id)
-    statement = select(Transaction).where(and_(*conditions))
-    result = await session.exec(statement)
-    return result.first() is not None
 
 
 async def _get_owned_or_404(session: AsyncSession, user: User, transaction_id: uuid.UUID) -> Transaction:
@@ -64,29 +29,6 @@ async def _get_owned_or_404(session: AsyncSession, user: User, transaction_id: u
     if transaction is None or transaction.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
     return transaction
-
-
-async def _load_line_items(session: AsyncSession, transaction_id: uuid.UUID) -> list[TransactionLineItem]:
-    statement = select(TransactionLineItem).where(TransactionLineItem.transaction_id == transaction_id)
-    return (await session.exec(statement)).all()
-
-
-async def _to_public(session: AsyncSession, transaction: Transaction, possible_duplicate: bool = False) -> TransactionPublic:
-    line_items = await _load_line_items(session, transaction.id)
-    return TransactionPublic(
-        id=transaction.id,
-        payment_method_id=transaction.payment_method_id,
-        goal_id=transaction.goal_id,
-        date=transaction.date,
-        merchant=transaction.merchant,
-        description=transaction.description,
-        total_amount=transaction.total_amount,
-        transaction_type=transaction.transaction_type,
-        source=transaction.source,
-        notes=transaction.notes,
-        line_items=line_items,
-        possible_duplicate=possible_duplicate,
-    )
 
 
 @router.get("", response_model=list[TransactionPublic])
@@ -162,43 +104,8 @@ async def create_transaction(
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
 ) -> TransactionPublic:
-    await validate_payment_method(session, user, body.payment_method_id)
-    await validate_line_items(session, user, body.transaction_type, body.total_amount, body.line_items)
-    await _validate_goal(session, user, body.transaction_type, body.goal_id)
-
-    possible_duplicate = await _detect_duplicate(
-        session, user, body.merchant, body.date, body.total_amount, body.payment_method_id
-    )
-
-    transaction = Transaction(
-        user_id=user.id,
-        payment_method_id=body.payment_method_id,
-        goal_id=body.goal_id,
-        date=body.date,
-        merchant=body.merchant,
-        description=body.description,
-        total_amount=body.total_amount,
-        transaction_type=body.transaction_type,
-        source=TransactionSource.MANUAL,
-        notes=body.notes,
-    )
-    session.add(transaction)
-    await session.flush()
-
-    for item in body.line_items:
-        session.add(
-            TransactionLineItem(
-                transaction_id=transaction.id,
-                category_id=item.category_id,
-                item_name=item.item_name,
-                amount=item.amount,
-                quantity=item.quantity,
-                notes=item.notes,
-            )
-        )
-    await session.commit()
-    await session.refresh(transaction)
-    return await _to_public(session, transaction, possible_duplicate=possible_duplicate)
+    transaction, possible_duplicate = await create_transaction_record(session, user, body, TransactionSource.MANUAL)
+    return await to_transaction_public(session, transaction, possible_duplicate=possible_duplicate)
 
 
 @router.get("/{transaction_id}", response_model=TransactionPublic)
@@ -208,7 +115,7 @@ async def get_transaction(
     session: AsyncSession = Depends(get_session),
 ) -> TransactionPublic:
     transaction = await _get_owned_or_404(session, user, transaction_id)
-    return await _to_public(session, transaction)
+    return await to_transaction_public(session, transaction)
 
 
 @router.patch("/{transaction_id}", response_model=TransactionPublic)
@@ -229,11 +136,11 @@ async def update_transaction(
     total_amount = body.total_amount if body.total_amount is not None else transaction.total_amount
 
     if "goal_id" in updates and updates["goal_id"] is not None:
-        await _validate_goal(session, user, transaction_type, updates["goal_id"])
+        await validate_goal(session, user, transaction_type, updates["goal_id"])
 
     if body.line_items is not None:
         await validate_line_items(session, user, transaction_type, total_amount, body.line_items)
-        existing_line_items = await _load_line_items(session, transaction.id)
+        existing_line_items = await load_line_items(session, transaction.id)
         for item in existing_line_items:
             await session.delete(item)
         await session.flush()
@@ -249,7 +156,7 @@ async def update_transaction(
                 )
             )
     elif body.total_amount is not None or body.transaction_type is not None:
-        existing_line_items = await _load_line_items(session, transaction.id)
+        existing_line_items = await load_line_items(session, transaction.id)
         await validate_line_items(session, user, transaction_type, total_amount, existing_line_items)
 
     for field, value in updates.items():
@@ -258,7 +165,7 @@ async def update_transaction(
     session.add(transaction)
     await session.commit()
     await session.refresh(transaction)
-    return await _to_public(session, transaction)
+    return await to_transaction_public(session, transaction)
 
 
 @router.delete("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     frontend_base_url: str = "http://localhost:3000"
     login_rate_limit_window: str = "5/minute"
     password_reset_rate_limit_window: str = "3/hour"
+    anthropic_api_key: str = ""
+    ocr_rate_limit_window: str = "20/hour"
+    ocr_timeout_seconds: int = 40
+    ocr_max_upload_bytes: int = 10 * 1024 * 1024
 
     @field_validator("frontend_base_url")
     @classmethod

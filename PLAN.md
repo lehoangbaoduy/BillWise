@@ -37,8 +37,12 @@ aren't already obvious from the code or the PRD.
       a real concurrency bug caught via live Playwright testing and fixed), and a real
       Dashboard screen (stat widgets, real spend-trend/category charts, condensed
       budget/goal widgets, recent transactions) — see "Milestone 4 Detail" below.
-      Formally `pending_approval` pending human-ack (decisions 37-44).
-- [ ] **M5: OCR Flow**
+      All decisions (37-44) human-acked via `harness approve` 2026-07-31.
+- [ ] **M5: OCR Flow** — slice 1 (backend receipt OCR + confirm-transaction) DONE,
+      security- and fastapi-reviewed, 16 new tests (134 total passing). Slices 2
+      (statement OCR) and 3 (frontend Receipt Review screen) not yet started — see
+      "Milestone 5 Detail" below. Formally `pending_approval` pending human-ack
+      (decisions 53-54).
 - [ ] **M6: Recurring Bills & Cashback**
 - [ ] **M7: Net Worth, AI Insights, Household & Exports**
 - [ ] **M8: Mobile Layout**
@@ -619,6 +623,116 @@ render correctly, nav selection/active-state, create/delete cycle).
   separately since it needs a `credit_limit` schema field not in the current PRD data
   model.
 
+## Milestone 5 Detail (OCR Flow)
+
+### Scope decision (confirmed with user 2026-07-30, before implementation)
+PRD §7.5 reads as internally contradictory in isolation — point 1 suggests sending
+the receipt image itself to Claude Haiku for OCR, point 2 forbids ever sending the
+image to any third party. Resolved with the user: **local OCR extracts text entirely
+within the backend process (Tesseract via pytesseract — the image bytes never leave
+the process, satisfying point 2); only the extracted plain text is sent to Claude
+Haiku for structuring into the §29.1 JSON schema** (satisfying point 1's "AI does the
+receipt-understanding work" intent without violating point 2's privacy constraint).
+User confirmed this interpretation and confirmed they will add a real
+`ANTHROPIC_API_KEY` to `backend/.env` themselves (not pasted into chat) — live
+end-to-end verification with a real receipt image is pending that key being added;
+until then the flow is verified against 134 passing tests with the Anthropic SDK
+mocked at its client boundary.
+
+### Slice 1: Backend receipt OCR + confirm-transaction (BIW-API-005, decisions 53-54)
+- `POST /ocr/receipt` — multipart upload (jpg/png/heic/single-page PDF, 10MB max).
+  Local Tesseract extraction (`app/services/ocr_service.py`) runs via
+  `asyncio.to_thread` so it doesn't block the event loop; PDF pages are rasterized
+  via PyMuPDF at 300dpi. Extracted text is sent to Claude Haiku
+  (`app/services/ai_structuring_service.py`, `anthropic.AsyncAnthropic`) to
+  structure into the §29.1 schema (merchant/date/total/tax/items/warnings), with a
+  30→40s end-to-end timeout (widened during review — see below) falling back to a
+  clean 504 so the client can drop to manual entry. Stateless: no DB writes, no file
+  ever touches disk — image bytes live only in the request's local scope.
+  Category suggestions are constrained server-side to the §29.2 allowlist plus
+  "Uncategorized" (confidence < 0.6 forced to Uncategorized regardless of what the
+  model returns) — defense-in-depth against a prompt-injection receipt image trying
+  to make the AI emit an arbitrary category string.
+- `POST /ocr/confirm-transaction` — creates the real `Transaction`
+  (`source='Receipt OCR'`) from the user-reviewed/edited data. Never called
+  automatically. Reuses the exact same ownership/validation path as manual entry
+  (`POST /transactions`) — see the DRY refactor below — so a client that skips the
+  actual OCR step and calls this directly with arbitrary data gets identical
+  ownership, category-type, line-item-sum, and duplicate-detection enforcement.
+- **Proactive DRY refactor**: `_validate_goal`/`_detect_duplicate` (previously
+  private helpers in `app/api/transactions.py`) plus a new
+  `create_transaction_record`/`load_line_items`/`to_transaction_public` were
+  promoted to `app/services/transaction_validation.py` so both the manual-entry
+  router and the new OCR router share one code path for transaction creation and
+  serialization — same pattern established in M4 slice 1 (`budget_rollover.py`) and
+  M3 (`transaction_validation.py` itself). `app/api/transactions.py` shrank
+  accordingly with no behavior change (132/132 pre-existing tests unaffected).
+- Dockerfile: added `tesseract-ocr` system package. requirements.txt: `pytesseract`,
+  `Pillow`, `pillow-heif` (HEIC support), `pymupdf` (PDF rasterization, no extra
+  system deps needed), `anthropic`, `python-multipart` (required for FastAPI file
+  uploads — build failed without it, caught immediately by the test run).
+
+### Security review (security-reviewer agent) — fixed immediately
+- **Memory-exhaustion DoS**: file was read fully into memory before the size check.
+  Fixed — reject early from the `Content-Length` header before buffering the body.
+- **Missing rate limit on `/ocr/confirm-transaction`**: added (matches
+  `/ocr/receipt`'s window) — it creates real financial records and the security
+  checklist requires rate limiting on all endpoints.
+- **API-key/PII leakage risk in logs**: exception objects and raw AI-response text
+  were logged directly, which could echo SDK internals or receipt PII (merchant
+  names, item text) into application logs. Fixed — log only exception type and
+  response length, never content.
+- **PDF resource exhaustion**: no bound on rendered-page pixel count before 300dpi
+  rasterization — a malicious PDF declaring huge page dimensions could force a
+  massive allocation. Fixed — bounded to ~40MP before calling `get_pixmap`.
+- **Content-Type spoofing**: PDF-vs-image parsing was routed by the client-supplied
+  `Content-Type` header, which is trivially spoofable. Fixed — routing now sniffs
+  the `%PDF-` magic bytes instead. This also surfaced a real bug the security
+  review didn't originally flag as such: `pymupdf.open()` on malformed PDF bytes
+  raised an **unhandled** `pymupdf.FileDataError` (would have been a raw 500, not a
+  clean 422) — wrapped in try/except. Verified this wasn't a paper finding by
+  reverting the fix and re-running the new regression test
+  (`test_malformed_pdf_bytes_return_422_not_500`): it failed with exactly that
+  unhandled exception, then passed again once restored.
+- Deferred as documented, accepted residual risk (not fixed): `asyncio.to_thread`
+  cannot forcibly kill the underlying OS thread if the route's `asyncio.wait_for`
+  times out — the Tesseract process keeps running to completion in the background.
+  Not fixable without a killable worker-process pool, judged over-engineering at
+  this MVP's single-instance, 20/hour-rate-limited scale.
+
+### FastAPI review (fastapi-reviewer agent) — fixed immediately
+- Async correctness (blocking Tesseract via `asyncio.to_thread`, `AsyncAnthropic`
+  properly awaited, `response_model` Decimal handling matching the existing
+  `TransactionPublic` convention), error-status-code choices, router organization,
+  and the transactions.py refactor were all confirmed correct/idiomatic outright.
+- **Anthropic client reconstructed per-request**: not idiomatic (new httpx
+  connection pool every call, never closed). Fixed — cached as a module-level
+  singleton (`_client_cache`), same pattern as `app.core.db`'s module-level
+  `engine`. Tests reset the cache explicitly via monkeypatch to keep isolation
+  between tests that swap in different fake clients.
+- **Timeout margin too tight**: AI client timeout (25s) left only 5s of the 30s
+  route budget for Tesseract + thread-scheduling overhead. Fixed — route budget
+  widened to 40s, client timeout brought down to 20s, leaving a comfortable margin.
+
+### Verification
+16 new tests in `backend/tests/test_ocr.py` (auth requirements, file-size/type
+rejection, successful structured extraction, unreadable-image and timeout
+fallback-to-manual paths, magic-byte PDF routing + malformed-PDF regression,
+confirm-transaction creation/duplicate-detection/validation, and AI-structuring
+unit tests mocked at the Anthropic SDK boundary for low-confidence coercion,
+malformed-JSON handling, and missing-API-key handling). Full backend suite:
+134/134 passing, no regressions. Not yet Playwright-verified end-to-end (no
+frontend UI exists yet — that's slice 3 — and live Anthropic calls are pending the
+user adding a real API key).
+
+### Not yet started
+- **Slice 2**: `POST /ocr/statement` (PRD §11.4 — credit card statement/bill OCR,
+  suggests a balance/liability update, never auto-saves). Related to slice 1 but a
+  distinct flow (no Transaction created; suggests a payment-method balance change).
+- **Slice 3**: frontend Receipt Review/confirmation screen (PRD §24.5 — net-new UI,
+  no Ekash template equivalent) plus "Scan Receipt" entry point on the Add
+  Transaction screen (PRD §24.4).
+
 ## Milestone 1 Detail
 
 ### Specs registered
@@ -808,22 +922,20 @@ throughout), UUID enumeration (128-bit space, already low risk).
   any frontend path, and the host-side test-run recorder can't execute the
   Docker-wrapped pytest command. A human can update `testCommands`/`gatedGlobs`
   and run `harness reconcile-config` if tighter mechanical enforcement is wanted.
-- **M3 + Wallets-restyle + all 4 M4 slices decisions awaiting human-ack**: decisions 31
+- **M4 (all 4 slices) approved 2026-07-31** via `harness approve` — decisions 37-44
+  all have matching `approve_decision` log entries. ✅
+- **M3 + Wallets-restyle decisions still awaiting human-ack**: decisions 31
   (M3 backend assess_risk+spec), 32 (M3 backend review remediation — N+1 fix,
   category filter pushed into SQL, missing index, 5 new tests), 33 (M3 frontend
   assess_risk+spec), 34 (M3 frontend review remediation — SWR cache-key fix, stable
   line-item keys), 35 (Wallets restyle assess_risk+spec), 36 (Wallets restyle review
-  remediation — both reviews clean), 37 (M4 Budgets+Goals backend assess_risk+spec),
-  38 (M4 Budgets+Goals backend review remediation — rollover query fix, shared
-  validators promoted to a services module, 6 new tests), 39 (M4 Dashboard backend
-  assess_risk+spec), 40 (M4 Dashboard backend review remediation — N+1 fix, explicit
-  ownership filters on joined queries, schema tightening, 1 new leak-coverage test),
-  41 (M4 Budgets+Goals frontend assess_risk+spec), 42 (M4 Budgets+Goals frontend
-  review remediation — a real concurrency bug caught via Playwright and fixed, plus
-  react-reviewer/security-reviewer polish), 43 (M4 Dashboard frontend assess_risk+spec),
-  44 (M4 Dashboard frontend review remediation — accessibility fixes on charts and
-  progress bars; security-reviewer approved outright) are all `pending_approval` under
-  CONST-ARCH-001, same pattern as M1/M2. Required reviews have already run for every
-  one of these and all findings are fixed and re-verified. Run
-  `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each, or
-  batch through them — M1 and M2's decisions were all approved this way already.
+  remediation — both reviews clean) are still `pending_approval` under
+  CONST-ARCH-001. Required reviews have already run for every one of these and all
+  findings are fixed and re-verified. Not blocking further work, just outstanding.
+- **M5 slice 1 decisions awaiting human-ack**: decision 53 (backend receipt OCR +
+  confirm-transaction assess_risk+spec) and 54 (review remediation — see "Milestone
+  5 Detail" above for the full list of security/fastapi findings fixed) are
+  `pending_approval` under CONST-ARCH-001.
+- Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
+  outstanding decision, or batch through them — M1, M2, and M4's decisions were all
+  approved this way already.
