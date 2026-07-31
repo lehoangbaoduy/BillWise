@@ -30,3 +30,22 @@ class ReceiptExtractionResult(BaseModel):
     tax: Decimal | None = None
     items: list[ReceiptExtractionItem] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class StatementExtractionItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    amount: Decimal
+
+
+class StatementExtractionResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ocr_status: OcrStatus
+    statement_balance: Decimal | None = None
+    statement_date: date_type | None = None
+    due_date: date_type | None = None
+    minimum_payment: Decimal | None = None
+    items: list[StatementExtractionItem] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)

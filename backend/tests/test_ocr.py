@@ -10,7 +10,13 @@ from app.models.category import Category, CategoryType
 from app.models.payment_method import PaymentMethod, PaymentMethodType
 from app.models.transaction import Transaction, TransactionSource, TransactionType
 from app.models.user import User, UserRole
-from app.schemas.ocr import OcrStatus, ReceiptExtractionItem, ReceiptExtractionResult
+from app.schemas.ocr import (
+    OcrStatus,
+    ReceiptExtractionItem,
+    ReceiptExtractionResult,
+    StatementExtractionItem,
+    StatementExtractionResult,
+)
 from app.services import ai_structuring_service, ocr_service
 
 VALID_PASSWORD = "StrongPass123"
@@ -152,6 +158,61 @@ class TestScanReceipt:
         monkeypatch.setattr("app.services.ocr_service.extract_text", _slow_extract)
         response = await client.post("/ocr/receipt", files={"file": ("receipt.jpg", b"fake-bytes", "image/jpeg")})
         assert response.status_code == 504
+
+
+_SUCCESSFUL_STATEMENT_EXTRACTION = StatementExtractionResult(
+    ocr_status=OcrStatus.SUCCESS,
+    statement_balance=Decimal("1250.75"),
+    statement_date="2026-07-01",
+    due_date="2026-07-25",
+    minimum_payment=Decimal("35.00"),
+    items=[StatementExtractionItem(name="Grocery Store", amount=Decimal("120.50"))],
+    warnings=[],
+)
+
+
+class TestScanStatement:
+    async def test_requires_authentication(self, client):
+        response = await client.post("/ocr/statement", files={"file": ("statement.jpg", b"fake-bytes", "image/jpeg")})
+        assert response.status_code == 401
+
+    async def test_rejects_unsupported_file_type(self, client, session, unique_email):
+        await _authed_client(client, session, unique_email)
+        response = await client.post("/ocr/statement", files={"file": ("statement.txt", b"not an image", "text/plain")})
+        assert response.status_code == 415
+
+    async def test_successful_scan_returns_structured_extraction(self, client, session, unique_email, monkeypatch):
+        await _authed_client(client, session, unique_email)
+        monkeypatch.setattr("app.services.ocr_service.extract_text", lambda *a, **k: "Statement text")
+
+        async def _fake_structure(raw_text: str) -> StatementExtractionResult:
+            assert raw_text == "Statement text"
+            return _SUCCESSFUL_STATEMENT_EXTRACTION
+
+        monkeypatch.setattr("app.services.ai_structuring_service.structure_statement_text", _fake_structure)
+
+        response = await client.post("/ocr/statement", files={"file": ("statement.jpg", b"fake-bytes", "image/jpeg")})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ocr_status"] == "success"
+        assert body["statement_balance"] == "1250.75"
+        assert body["due_date"] == "2026-07-25"
+
+    async def test_never_writes_to_payment_methods(self, client, session, unique_email, monkeypatch):
+        """Stateless extraction only (PRD §11.4) — the client must call the existing
+        PATCH /payment-methods/{id} separately to actually apply a balance update."""
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user, type_=PaymentMethodType.CREDIT_CARD)
+        monkeypatch.setattr("app.services.ocr_service.extract_text", lambda *a, **k: "Statement text")
+
+        async def _fake_structure(raw_text: str) -> StatementExtractionResult:
+            return _SUCCESSFUL_STATEMENT_EXTRACTION
+
+        monkeypatch.setattr("app.services.ai_structuring_service.structure_statement_text", _fake_structure)
+        await client.post("/ocr/statement", files={"file": ("statement.jpg", b"fake-bytes", "image/jpeg")})
+
+        await session.refresh(pm)
+        assert pm.current_balance is None
 
 
 class TestConfirmTransaction:
@@ -298,3 +359,20 @@ class TestAiStructuringService:
         with pytest.raises(HTTPException) as exc_info:
             await ai_structuring_service.structure_receipt_text("Costco\nChicken $20.00")
         assert exc_info.value.status_code == status.HTTP_502_BAD_GATEWAY
+
+    async def test_structures_statement_text(self, monkeypatch):
+        monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
+        monkeypatch.setattr(ai_structuring_service, "_client_cache", None)
+        response_json = (
+            '{"statement_balance": 1250.75, "statement_date": "2026-07-01", "due_date": "2026-07-25", '
+            '"minimum_payment": 35.00, "items": [{"name": "Grocery Store", "amount": 120.50}], "warnings": []}'
+        )
+        monkeypatch.setattr(
+            ai_structuring_service,
+            "AsyncAnthropic",
+            lambda **kwargs: TestAiStructuringService._FakeAsyncAnthropic(response_json),
+        )
+        result = await ai_structuring_service.structure_statement_text("Statement text")
+        assert result.statement_balance == Decimal("1250.75")
+        assert result.ocr_status == OcrStatus.SUCCESS
+        assert result.items[0].name == "Grocery Store"

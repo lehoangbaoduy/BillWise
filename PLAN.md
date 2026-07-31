@@ -38,11 +38,11 @@ aren't already obvious from the code or the PRD.
       Dashboard screen (stat widgets, real spend-trend/category charts, condensed
       budget/goal widgets, recent transactions) — see "Milestone 4 Detail" below.
       All decisions (37-44) human-acked via `harness approve` 2026-07-31.
-- [ ] **M5: OCR Flow** — slice 1 (backend receipt OCR + confirm-transaction) DONE,
-      security- and fastapi-reviewed, 16 new tests (134 total passing). Slices 2
-      (statement OCR) and 3 (frontend Receipt Review screen) not yet started — see
-      "Milestone 5 Detail" below. Formally `pending_approval` pending human-ack
-      (decisions 53-54).
+- [ ] **M5: OCR Flow** — slices 1 (backend receipt OCR + confirm-transaction) and 2
+      (backend statement OCR) DONE, security- and fastapi-reviewed, 21 new tests
+      (139 total passing). Slice 3 (frontend Receipt Review screen) not yet
+      started — see "Milestone 5 Detail" below. Formally `pending_approval` pending
+      human-ack (decisions 53-56).
 - [ ] **M6: Recurring Bills & Cashback**
 - [ ] **M7: Net Worth, AI Insights, Household & Exports**
 - [ ] **M8: Mobile Layout**
@@ -725,13 +725,41 @@ malformed-JSON handling, and missing-API-key handling). Full backend suite:
 frontend UI exists yet — that's slice 3 — and live Anthropic calls are pending the
 user adding a real API key).
 
+### Slice 2: Backend statement OCR (BIW-API-006, decisions 55-56)
+- `POST /ocr/statement` (PRD §11.4 — credit card statement/bill OCR). Reuses slice
+  1's `ocr_service.extract_text` unchanged (same local-Tesseract, magic-byte-routed,
+  10MB/40s-bounded path) and a new `ai_structuring_service.structure_statement_text`
+  with a statement-specific Claude Haiku prompt, extracting balance, statement/due
+  dates, minimum payment, and line items for the user's reference.
+- **Deliberately stateless, no confirm endpoint**: unlike receipt OCR, this slice
+  adds no `/ocr/statement/confirm` — the PRD requires the extracted balance to
+  always be a suggested update the user must explicitly confirm, and BillWise
+  already has an endpoint that does exactly that (`PATCH /payment-methods/{id}`,
+  which already supports `current_balance` and already validates ownership). The
+  frontend (slice 3+, not yet built) will call that existing endpoint directly
+  after the user reviews/edits the suggestion — no new write path was needed.
+  Verified statelessness with a dedicated test (`test_never_writes_to_payment_methods`)
+  confirming a payment method's `current_balance` is untouched by the scan call.
+- **Proactive DRY refactor**: extracted `_read_and_validate_upload`/
+  `_run_with_ocr_timeout` in `app/api/ocr.py` and `_call_and_parse_json` in
+  `app/services/ai_structuring_service.py` out of the receipt path so both
+  endpoints share the Content-Length pre-check, size/type validation, timeout
+  wrapping, and sanitized-logging discipline instead of duplicating it.
+- Security review: clean — confirmed all 5 of slice 1's fixes carry over correctly
+  through the new shared helpers, confirmed statelessness. FastAPI review: two
+  minor fixes — `_call_and_parse_json`'s bare `dict` return type tightened to
+  `dict[str, Any]`; shared error-message wording ("enter this transaction
+  manually") was misleading for the statement flow (which suggests a balance
+  update, not a transaction) — reworded to caller-agnostic phrasing ("try again or
+  enter this manually").
+- 21/21 OCR tests passing (17 receipt+confirm, 4 statement), 139/139 full suite.
+
 ### Not yet started
-- **Slice 2**: `POST /ocr/statement` (PRD §11.4 — credit card statement/bill OCR,
-  suggests a balance/liability update, never auto-saves). Related to slice 1 but a
-  distinct flow (no Transaction created; suggests a payment-method balance change).
 - **Slice 3**: frontend Receipt Review/confirmation screen (PRD §24.5 — net-new UI,
   no Ekash template equivalent) plus "Scan Receipt" entry point on the Add
-  Transaction screen (PRD §24.4).
+  Transaction screen (PRD §24.4). Statement-import frontend (a suggested-balance
+  review UI calling the existing `PATCH /payment-methods/{id}`) is PRD §11.4/§24.4
+  scope too but not yet slotted into a specific slice.
 
 ## Milestone 1 Detail
 
@@ -932,10 +960,11 @@ throughout), UUID enumeration (128-bit space, already low risk).
   remediation — both reviews clean) are still `pending_approval` under
   CONST-ARCH-001. Required reviews have already run for every one of these and all
   findings are fixed and re-verified. Not blocking further work, just outstanding.
-- **M5 slice 1 decisions awaiting human-ack**: decision 53 (backend receipt OCR +
-  confirm-transaction assess_risk+spec) and 54 (review remediation — see "Milestone
-  5 Detail" above for the full list of security/fastapi findings fixed) are
-  `pending_approval` under CONST-ARCH-001.
+- **M5 slices 1-2 decisions awaiting human-ack**: decision 53 (backend receipt OCR +
+  confirm-transaction assess_risk+spec), 54 (slice 1 review remediation), 55
+  (backend statement OCR assess_risk+spec), 56 (slice 2 review remediation) — see
+  "Milestone 5 Detail" above for the full list of security/fastapi findings fixed —
+  are all `pending_approval` under CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all
   approved this way already.
