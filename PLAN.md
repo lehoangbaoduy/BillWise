@@ -29,14 +29,15 @@ aren't already obvious from the code or the PRD.
       frontend (Add/Edit Transaction, Transactions History) both built, tested,
       security- and code-reviewed across 2 governed slices — see "Milestone 3
       Detail" below. Formally `pending_approval` pending human-ack (decisions 31-34).
-- [~] **M4: Dashboard, Budgets & Goals** — backend slice 1 (Budgets + Savings Goals,
-      including the deferred `transactions.goal_id` and an add-funds money flow) DONE.
-      Backend slice 2 (Dashboard aggregation: monthly/yearly overviews, category and
-      payment-method breakdowns, cash flow) DONE. Frontend slice 3 (real Budgets +
-      Goals screens replacing M2's EmptyState placeholders) DONE, including a real
-      concurrency bug caught via live Playwright testing and fixed — see "Milestone 4
-      Detail" below. Backend now at 118 passing tests. Still to do: frontend Dashboard
-      screen (slice 4).
+- [x] **M4: Dashboard, Budgets & Goals** — all 4 slices DONE. Backend: Budgets +
+      Savings Goals (incl. the deferred `transactions.goal_id` and an add-funds money
+      flow), and Dashboard aggregation (monthly/yearly overviews, category and
+      payment-method breakdowns, cash flow) — 118 passing backend tests. Frontend:
+      real Budgets + Goals screens (replacing M2's EmptyState placeholders, including
+      a real concurrency bug caught via live Playwright testing and fixed), and a real
+      Dashboard screen (stat widgets, real spend-trend/category charts, condensed
+      budget/goal widgets, recent transactions) — see "Milestone 4 Detail" below.
+      Formally `pending_approval` pending human-ack (decisions 37-44).
 - [ ] **M5: OCR Flow**
 - [ ] **M6: Recurring Bills & Cashback**
 - [ ] **M7: Net Worth, AI Insights, Household & Exports**
@@ -573,14 +574,50 @@ render correctly, nav selection/active-state, create/delete cycle).
   decision 42 could be recorded. No code or data was lost — this was purely a local
   dev-environment interruption, not a project issue.
 
-### Still to do for M4
-- Frontend: Dashboard screen (`/`, currently de-mocked to empty states in M2 slice 1)
-  wired to the `/dashboard/*` endpoints from slice 2 (slice 4).
-- Queued (per user request 2026-07-30, not yet scheduled): extending the Wallets page
-  with per-wallet transaction history (reusing `GET /transactions?payment_method_id=`),
-  a total-balance sum, and month's-spending (reusing the Dashboard endpoints) —
-  "available balance" flagged separately since it needs a `credit_limit` schema field
-  not in the current PRD data model.
+### Frontend slice 4 — Dashboard screen (`BIW-INFRA-010`, decisions 43 → 44)
+- Rewrote `frontend/app/page.js` (was M2's fully-empty-state placeholder — the last
+  screen in the app still fully mocked) into a real Dashboard now that every
+  prerequisite backend exists: stat widgets (Total Balance = live sum of
+  `payment_methods.current_balance`, Total Period Change/Expenses/Income from
+  `GET /dashboard/monthly`), a real category-spend donut and a real 12-month
+  spend-trend bar chart, a condensed Monthly Budgets progress list, a condensed
+  Saving Goals list (reusing `CircularProgress` from the Goals screen), and a recent
+  Transaction History table.
+- Two new parameterized Chart.js components (`DashboardCategoryDonut`,
+  `DashboardSpendTrendChart`) built from scratch rather than reusing the Ekash
+  template's existing `ChartjsDonut`/`ChartjsIncomeVsExpense` components, which have
+  hardcoded fake data baked in with no data props — consistent with the no-fake-data
+  discipline applied throughout M2-M4.
+- Weekly Expenses and Recurring Bills cards deliberately remain honest empty states
+  (no weekly-granularity aggregation endpoint exists, and M6/Recurring Bills isn't
+  built yet) rather than approximated with misleading data. "Balance Trends" relabeled
+  "Monthly Spending Trend" since the schema has no balance-snapshot-over-time data —
+  the yearly spend-by-month figures are what's actually available and honest to show.
+- security-reviewer: approved outright, no findings — confirmed all 6 endpoints used
+  are the same owner-scoped ones already reviewed in prior slices, no new backend
+  surface, no XSS vectors.
+- react-reviewer: 2 HIGH (both accessibility) — the two chart components had no ARIA
+  description on their canvases, and three progress bars had `role="progressbar"`
+  with no `aria-valuenow`/`min`/`max`/`label` — both fixed. 2 MEDIUM — `topCategories`
+  sort/slice wasn't memoized (now `useMemo`, matching the pattern from
+  `budgets/page.js`), an inline width calculation extracted to a named variable.
+  Also fixed the donut chart's `responsive: false`, which conflicted with its
+  Bootstrap-responsive parent column.
+- Backend unchanged this slice (no new endpoints needed) — 118 tests still passing.
+  Frontend production build clean. Playwright-verified end-to-end against real seeded
+  data (a wallet, two categories, an over-budget budget, a goal with a real
+  contribution, two transactions) with a full-page screenshot confirming every widget
+  renders real numbers with no console errors.
+- **This closes M4.** All four slices (backend Budgets+Goals, backend Dashboard
+  aggregation, frontend Budgets+Goals, frontend Dashboard) are implemented, tested,
+  reviewed, and committed — see decisions 37-44 in "Outstanding human actions".
+
+### Queued follow-up (not part of M4, not yet scheduled)
+- Per user request 2026-07-30: extend the Wallets page with per-wallet transaction
+  history (reusing `GET /transactions?payment_method_id=`), a total-balance sum, and
+  month's-spending (reusing the Dashboard endpoints) — "available balance" flagged
+  separately since it needs a `credit_limit` schema field not in the current PRD data
+  model.
 
 ## Milestone 1 Detail
 
@@ -771,7 +808,7 @@ throughout), UUID enumeration (128-bit space, already low risk).
   any frontend path, and the host-side test-run recorder can't execute the
   Docker-wrapped pytest command. A human can update `testCommands`/`gatedGlobs`
   and run `harness reconcile-config` if tighter mechanical enforcement is wanted.
-- **M3 + Wallets-restyle + M4-slices-1,2,3 decisions awaiting human-ack**: decisions 31
+- **M3 + Wallets-restyle + all 4 M4 slices decisions awaiting human-ack**: decisions 31
   (M3 backend assess_risk+spec), 32 (M3 backend review remediation — N+1 fix,
   category filter pushed into SQL, missing index, 5 new tests), 33 (M3 frontend
   assess_risk+spec), 34 (M3 frontend review remediation — SWR cache-key fix, stable
@@ -783,7 +820,9 @@ throughout), UUID enumeration (128-bit space, already low risk).
   ownership filters on joined queries, schema tightening, 1 new leak-coverage test),
   41 (M4 Budgets+Goals frontend assess_risk+spec), 42 (M4 Budgets+Goals frontend
   review remediation — a real concurrency bug caught via Playwright and fixed, plus
-  react-reviewer/security-reviewer polish) are all `pending_approval` under
+  react-reviewer/security-reviewer polish), 43 (M4 Dashboard frontend assess_risk+spec),
+  44 (M4 Dashboard frontend review remediation — accessibility fixes on charts and
+  progress bars; security-reviewer approved outright) are all `pending_approval` under
   CONST-ARCH-001, same pattern as M1/M2. Required reviews have already run for every
   one of these and all findings are fixed and re-verified. Run
   `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each, or
