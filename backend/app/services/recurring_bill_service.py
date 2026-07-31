@@ -12,7 +12,8 @@ from app.models.recurring_bill import RecurringBill, RecurringBillPayment, Recur
 from app.models.transaction import Transaction, TransactionSource, TransactionType
 from app.models.user import User
 from app.schemas.transaction import TransactionCreate, TransactionLineItemCreate
-from app.services.transaction_validation import create_transaction_record
+from app.services.cashback_service import record_cashback_for_line_items
+from app.services.transaction_validation import create_transaction_record, load_line_items
 
 _TERMINAL_STATUSES = {RecurringBillPaymentStatus.PAID, RecurringBillPaymentStatus.SKIPPED}
 _OPEN_STATUSES = {RecurringBillPaymentStatus.UPCOMING, RecurringBillPaymentStatus.OVERDUE}
@@ -138,6 +139,8 @@ async def mark_bill_paid(
         )
         transaction, _ = await create_transaction_record(session, user, body, TransactionSource.RECURRING_BILL)
         period.transaction_id = transaction.id
+        line_items = await load_line_items(session, transaction.id)
+        await record_cashback_for_line_items(session, user, transaction, line_items)
 
     period.status = RecurringBillPaymentStatus.PAID
     period.paid_date = paid_date

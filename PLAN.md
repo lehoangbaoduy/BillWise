@@ -49,12 +49,14 @@ aren't already obvious from the code or the PRD.
       below); confirmed working end-to-end against the live API afterward. Statement-import
       frontend UI now also built (decisions 72-73), closing the last queued follow-up.
       Formally `pending_approval` pending human-ack (decisions 53-58, 71-73).
-- [ ] **M6: Recurring Bills & Cashback** — slice 1 (backend Recurring Bills) DONE:
-      new `recurring_bills`/`recurring_bill_payments` tables, full CRUD +
-      mark-paid with optional auto-created linked transactions, lazy
-      overdue/next-period reconciliation (28 tests, 168 total passing). Slices
-      2-4 (Cashback backend, frontend Recurring Bills, frontend Cashback) not
-      yet started. Formally `pending_approval` pending human-ack (decisions 76-77).
+- [ ] **M6: Recurring Bills & Cashback** — slices 1-2 (backend) DONE: Recurring
+      Bills (new tables, full CRUD + mark-paid with optional auto-created
+      linked transactions, lazy overdue/next-period reconciliation) and
+      Cashback (new tables, rules CRUD, per-line-item auto-computation on
+      every transaction-creation path, manual override, monthly/yearly
+      summary dashboard data) — 53 new tests, 193 total passing. Slices 3-4
+      (frontend Recurring Bills, frontend Cashback) not yet started. Formally
+      `pending_approval` pending human-ack (decisions 76-78).
 - [ ] **M7: Net Worth, AI Insights, Household & Exports**
 - [ ] **M8: Mobile Layout**
 - [ ] **M9: Security Hardening**
@@ -1012,8 +1014,80 @@ confirming the linked transaction's `source`/amount via a follow-up
 rejection added during remediation. Full backend suite: 168/168 passing, no
 regressions.
 
+### Slice 2: Backend Cashback (BIW-DATA-005, BIW-API-008, decision 78)
+New `cashback_rules` and `cashback_records` tables (PRD §23.11-12), migration
+`7241b1a664f5`. `CashbackRule.category_id` is nullable — null means "the
+payment method's default rate" (§17.2), set means a category-specific
+override that takes precedence when both are in effect for the same date;
+among rules of equal specificity, the most recent `start_date` wins (§27.5:
+"Rule changes mid-month → new rate applies going forward only"). No matching
+rule → 0 (§27.5). Deliberately does **not** fall back to the pre-existing
+`payment_methods.default_cashback_rate` column — that field stays display-only
+(the Wallets card visual badge from M1); §27.5 is explicit that estimation
+looks at rules alone.
+
+Cashback is computed **per line item** (§17.3) and materialized into
+`cashback_records` by `record_cashback_for_line_items`
+(`app/services/cashback_service.py`), called explicitly from all three
+existing `create_transaction_record` call sites — manual entry
+(`POST /transactions`), OCR confirm (`POST /ocr/confirm-transaction`), and
+recurring-bill mark-paid — plus `PATCH /transactions/{id}` when line items are
+wholesale-replaced. Deliberately **not** baked into `create_transaction_record`
+itself, keeping that shared foundational helper feature-agnostic rather than
+reaching into a specific feature's concerns. **Not wired into Goal add-funds**,
+which doesn't go through `create_transaction_record` at all (pre-existing M4
+architecture) — documented gap, not silently dropped.
+
+**Manual overrides persist correctly** (§27.5: "Manual override persists, not
+overwritten by recalculation") without needing an extra override-tracking
+field: `PATCH /cashback-records/{id}` writes directly, and nothing
+recomputes an existing record unless its underlying `TransactionLineItem` is
+wholesale-replaced (in which case the old record cascade-deletes via
+`ondelete="CASCADE"` along with the line item, and a fresh one is computed for
+the new item — no stale override can survive against a line item that no
+longer exists). Editing a transaction's other fields (date, payment method,
+total amount alone) leaves existing cashback records — including overrides —
+untouched.
+
+**Bug caught and fixed before review**: an initial attempt to reorder
+`update_transaction`'s logic (to have `transaction.payment_method_id`/`date`
+current before recomputing cashback) accidentally moved a `setattr` +
+`session.add` ahead of a validation branch. A failed PATCH (422) could then
+leak a partial write via SQLAlchemy's autoflush before the exception was ever
+raised to the client. Caught immediately by
+`test_updating_total_amount_alone_revalidates_against_existing_line_items`
+failing; fixed by restoring validation-strictly-before-mutation ordering and
+computing cashback only after the (unconditional, already-correct) final
+commit+refresh.
+
+`GET /cashback` (single flexible endpoint per §25.9's list — no separate
+`/monthly`/`/yearly` variants unlike the Dashboard section) accepts
+`year` + optional `month`, joins through `Transaction` (since
+`CashbackRecord` has no date column) and aggregates by card/category in
+Python — judged fine at this app's personal-finance scale rather than pushed
+into a SQL `GROUP BY`.
+
+**security-reviewer**: clean, no findings — ownership scoping correct on all 5
+routes, rule creation validates payment-method/category ownership, no way to
+smuggle unvalidated ids into a `CashbackRecord`, amounts/rate correctly bounded.
+**fastapi-reviewer**: 1 MEDIUM — `record_cashback_for_line_items` commits in a
+separate DB transaction from the one it computes cashback for (each call site
+already committed the transaction before calling it). Accepted as a documented
+residual risk rather than restructuring `create_transaction_record`'s commit
+boundary across its 3 already-shipped call sites: the failure window is a rare
+mid-request DB failure between two back-to-back commits, and the worst case is
+a missing/zero cashback estimate, not corrupted financial data. 1 LOW — the
+Python-side aggregation noted above, explicitly not worth fixing at this scale.
+
+**Verification**: 25 new tests in `backend/tests/test_cashback.py` — rule CRUD
++ ownership 404s, rate-resolution edge cases (default vs. category-specific,
+most-recent-wins, expired/future rules), auto-computation on transaction
+create (including a zero-record case for Income and a zero-estimate case with
+no matching rule), recompute-on-line-item-replacement, the manual-override-
+persists-on-unrelated-edit case, record update, and summary aggregation by
+month vs. year. Full backend suite: 193/193 passing, no regressions.
+
 ### Not yet built (queued within M6, not yet scheduled)
-- Cashback rules/records backend (PRD §17, §23.11-12, §25.9) — slice 2.
 - Frontend Recurring Bills screen (net-new UI, no template equivalent per
   PRD §9's screen inventory) — slice 3.
 - Frontend Cashback screen (net-new UI) — slice 4.
@@ -1231,10 +1305,11 @@ throughout), UUID enumeration (128-bit space, already low risk).
 - **Wallets enhancement decisions awaiting human-ack**: decision 74 (assess_risk+spec,
   `BIW-INFRA-013`), 75 (review remediation, linked to 74) — see "Wallets enhancement"
   above — are `pending_approval` under CONST-ARCH-001.
-- **M6 slice 1 (backend Recurring Bills) decisions awaiting human-ack**: decision 76
-  (assess_risk+spec, `BIW-DATA-004`/`BIW-API-007`), 77 (review remediation, linked
-  to 76) — see "Milestone 6 Detail" above — are `pending_approval` under
-  CONST-ARCH-001.
+- **M6 slices 1-2 (backend Recurring Bills + Cashback) decisions awaiting
+  human-ack**: decision 76 (assess_risk+spec, `BIW-DATA-004`/`BIW-API-007`), 77
+  (slice 1 review remediation, linked to 76), 78 (slice 2 — assess_risk+spec
+  `BIW-DATA-005`/`BIW-API-008` + review remediation combined) — see "Milestone
+  6 Detail" above — are `pending_approval` under CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all
   approved this way already.

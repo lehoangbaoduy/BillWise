@@ -12,6 +12,7 @@ from app.models._common import utcnow
 from app.models.transaction import Transaction, TransactionLineItem, TransactionSource, TransactionType
 from app.models.user import User
 from app.schemas.transaction import TransactionCreate, TransactionPublic, TransactionUpdate
+from app.services.cashback_service import record_cashback_for_line_items
 from app.services.transaction_validation import (
     create_transaction_record,
     load_line_items,
@@ -105,6 +106,8 @@ async def create_transaction(
     session: AsyncSession = Depends(get_session),
 ) -> TransactionPublic:
     transaction, possible_duplicate = await create_transaction_record(session, user, body, TransactionSource.MANUAL)
+    line_items = await load_line_items(session, transaction.id)
+    await record_cashback_for_line_items(session, user, transaction, line_items)
     return await to_transaction_public(session, transaction, possible_duplicate=possible_duplicate)
 
 
@@ -138,23 +141,33 @@ async def update_transaction(
     if "goal_id" in updates and updates["goal_id"] is not None:
         await validate_goal(session, user, transaction_type, updates["goal_id"])
 
+    # Validation must run and raise (if it's going to) before anything below
+    # mutates `transaction` or calls session.add — otherwise a later autoflush
+    # (triggered by any session.exec/get) can silently persist a half-applied
+    # update even though the request ultimately fails with a 422.
+    new_line_items: list[TransactionLineItem] | None = None
     if body.line_items is not None:
         await validate_line_items(session, user, transaction_type, total_amount, body.line_items)
         existing_line_items = await load_line_items(session, transaction.id)
         for item in existing_line_items:
+            # CashbackRecord.line_item_id has ondelete="CASCADE", so any cashback
+            # record tied to a replaced line item is cleaned up automatically —
+            # no orphaned records, and no risk of a stale manual override
+            # surviving against a line item that no longer exists.
             await session.delete(item)
         await session.flush()
+        new_line_items = []
         for item in body.line_items:
-            session.add(
-                TransactionLineItem(
-                    transaction_id=transaction.id,
-                    category_id=item.category_id,
-                    item_name=item.item_name,
-                    amount=item.amount,
-                    quantity=item.quantity,
-                    notes=item.notes,
-                )
+            line_item = TransactionLineItem(
+                transaction_id=transaction.id,
+                category_id=item.category_id,
+                item_name=item.item_name,
+                amount=item.amount,
+                quantity=item.quantity,
+                notes=item.notes,
             )
+            session.add(line_item)
+            new_line_items.append(line_item)
     elif body.total_amount is not None or body.transaction_type is not None:
         existing_line_items = await load_line_items(session, transaction.id)
         await validate_line_items(session, user, transaction_type, total_amount, existing_line_items)
@@ -165,6 +178,15 @@ async def update_transaction(
     session.add(transaction)
     await session.commit()
     await session.refresh(transaction)
+
+    # Cashback is only recomputed when line items are wholesale replaced. Editing
+    # just the date/payment-method/amount without touching line_items leaves
+    # existing cashback records (including any manual overrides) untouched, per
+    # PRD §27.5 "Manual override persists, not overwritten by recalculation" —
+    # documented scope choice, not a silent gap.
+    if new_line_items is not None:
+        await record_cashback_for_line_items(session, user, transaction, new_line_items)
+
     return await to_transaction_public(session, transaction)
 
 

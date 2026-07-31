@@ -7,6 +7,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.api.auth import router as auth_router
 from app.api.budgets import router as budgets_router
+from app.api.cashback import router as cashback_router
 from app.api.categories import router as categories_router
 from app.api.dashboard import router as dashboard_router
 from app.api.goals import router as goals_router
@@ -40,6 +41,7 @@ app.include_router(goals_router)
 app.include_router(dashboard_router)
 app.include_router(ocr_router)
 app.include_router(recurring_bills_router)
+app.include_router(cashback_router)
 
 
 @app.get("/health")

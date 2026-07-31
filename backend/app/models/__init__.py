@@ -1,4 +1,5 @@
 from app.models.budget import Budget
+from app.models.cashback import CashbackRecord, CashbackRule
 from app.models.category import Category
 from app.models.goal import SavingsGoal
 from app.models.partner_permission import PartnerPermission
@@ -9,6 +10,8 @@ from app.models.user import EmailVerificationToken, PasswordResetToken, User
 
 __all__ = [
     "Budget",
+    "CashbackRecord",
+    "CashbackRule",
     "Category",
     "PartnerPermission",
     "PaymentMethod",
