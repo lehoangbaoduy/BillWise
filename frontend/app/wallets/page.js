@@ -3,6 +3,7 @@ import { useState } from "react"
 import useSWR from "swr"
 import Layout from "@/components/layout/Layout"
 import EmptyState from "@/components/elements/EmptyState"
+import StatementUploadPanel from "@/components/statement/StatementUploadPanel"
 import { paymentMethodsApi } from "@/lib/api"
 
 const TYPE_OPTIONS = ["Credit Card", "Debit Card", "Cash", "Tracked Savings", "Other"]
@@ -96,6 +97,8 @@ export default function Wallets() {
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [formError, setFormError] = useState(null)
     const [deletingId, setDeletingId] = useState(null)
+    const [isImportingStatement, setIsImportingStatement] = useState(false)
+    const [importSuccess, setImportSuccess] = useState(null)
 
     const activeMethod = (methods ?? []).find((method) => method.id === selectedId) ?? (methods ?? [])[0] ?? null
 
@@ -120,7 +123,7 @@ export default function Wallets() {
                 current_balance: currentBalance === "" ? null : Number(currentBalance),
             })
             await mutate()
-            setSelectedId(created.id)
+            handleSelectWallet(created.id)
             setName("")
             setType(TYPE_OPTIONS[0])
             setIssuer("")
@@ -134,13 +137,26 @@ export default function Wallets() {
         }
     }
 
+    function handleSelectWallet(id) {
+        setSelectedId(id)
+        setIsImportingStatement(false)
+        setImportSuccess(null)
+    }
+
+    async function handleStatementConfirm(newBalance) {
+        await paymentMethodsApi.update(activeMethod.id, { current_balance: newBalance })
+        await mutate()
+        setIsImportingStatement(false)
+        setImportSuccess(`Balance updated to ${formatCurrency(newBalance)}.`)
+    }
+
     async function handleDelete(method) {
         if (!window.confirm(`Delete "${method.name}"?`)) return
         setDeletingId(method.id)
         try {
             await paymentMethodsApi.remove(method.id)
             await mutate()
-            if (selectedId === method.id) setSelectedId(null)
+            if (selectedId === method.id) handleSelectWallet(null)
             setFormError(null)
         } catch (error) {
             setFormError(error.message)
@@ -161,7 +177,7 @@ export default function Wallets() {
                                         key={method.id}
                                         method={method}
                                         isActive={activeMethod?.id === method.id}
-                                        onSelect={setSelectedId}
+                                        onSelect={handleSelectWallet}
                                     />
                                 ))}
                             </div>
@@ -257,25 +273,55 @@ export default function Wallets() {
                                 <>
                                     <div className="wallet-tab-title d-flex justify-content-between align-items-center">
                                         <h3>{activeMethod.name}</h3>
-                                        <button
-                                            type="button"
-                                            className="btn btn-sm btn-outline-danger"
-                                            aria-label={`Delete ${activeMethod.name}`}
-                                            disabled={deletingId === activeMethod.id}
-                                            onClick={() => handleDelete(activeMethod)}
-                                        >
-                                            <i className="fi fi-rr-trash" />
-                                        </button>
-                                    </div>
-                                    <div className="row">
-                                        <div className="col-xxl-6 col-xl-12 col-lg-6">
-                                            {["Credit Card", "Debit Card"].includes(activeMethod.type) ? (
-                                                <CreditCardVisual method={activeMethod} />
-                                            ) : (
-                                                <TrackedBalanceVisual method={activeMethod} />
+                                        <div className="d-flex gap-2">
+                                            {!isImportingStatement && (
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-sm btn-outline-primary"
+                                                    onClick={() => {
+                                                        setIsImportingStatement(true)
+                                                        setImportSuccess(null)
+                                                    }}
+                                                >
+                                                    Import statement
+                                                </button>
                                             )}
+                                            <button
+                                                type="button"
+                                                className="btn btn-sm btn-outline-danger"
+                                                aria-label={`Delete ${activeMethod.name}`}
+                                                disabled={deletingId === activeMethod.id}
+                                                onClick={() => handleDelete(activeMethod)}
+                                            >
+                                                <i className="fi fi-rr-trash" />
+                                            </button>
                                         </div>
                                     </div>
+
+                                    {importSuccess && (
+                                        <div className="alert alert-success" role="status">{importSuccess}</div>
+                                    )}
+
+                                    {isImportingStatement ? (
+                                        <div className="card">
+                                            <div className="card-body">
+                                                <StatementUploadPanel
+                                                    onConfirm={handleStatementConfirm}
+                                                    onCancel={() => setIsImportingStatement(false)}
+                                                />
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="row">
+                                            <div className="col-xxl-6 col-xl-12 col-lg-6">
+                                                {["Credit Card", "Debit Card"].includes(activeMethod.type) ? (
+                                                    <CreditCardVisual method={activeMethod} />
+                                                ) : (
+                                                    <TrackedBalanceVisual method={activeMethod} />
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
                                 </>
                             )}
                         </div>

@@ -47,9 +47,8 @@ aren't already obvious from the code or the PRD.
       real `ANTHROPIC_API_KEY` — this surfaced and fixed a real markdown-fence
       JSON-parsing bug in Claude Haiku's response (decision 71, see "Post-M5 bugfix"
       below); confirmed working end-to-end against the live API afterward. Statement-import
-      frontend UI is queued follow-up, not required for M5 to be considered done
-      (backend-only PRD requirement was met). Formally `pending_approval` pending
-      human-ack (decisions 53-58, 71).
+      frontend UI now also built (decisions 72-73), closing the last queued follow-up.
+      Formally `pending_approval` pending human-ack (decisions 53-58, 71-73).
 - [ ] **M6: Recurring Bills & Cashback**
 - [ ] **M7: Net Worth, AI Insights, Household & Exports**
 - [ ] **M8: Mobile Layout**
@@ -852,11 +851,43 @@ statement structuring (`_call_and_parse_json`):
   `PATCH /payment-methods/{id}`) remains PRD scope but is not yet slotted into a
   slice; flagged as queued follow-up below, not a gap in M5 itself.
 
-### Queued follow-up (not part of M5, not yet scheduled)
-- Statement-import frontend UI (PRD §11.4/§24.4): a review screen for
-  `POST /ocr/statement`'s suggested balance/dates, letting the user confirm
-  before calling the existing `PATCH /payment-methods/{id}` — backend is done
-  (slice 2), only the UI is outstanding.
+### Statement-import frontend UI — DONE (BIW-INFRA-012, decisions 72-73)
+Closes the queued follow-up from slice 2. A review screen on the Wallets page
+(`frontend/app/wallets/page.js` + new `frontend/components/statement/StatementUploadPanel.js`):
+an "Import statement" action on the active wallet opens an upload panel
+(mirrors `ReceiptUploadPanel.js`'s pattern — file picker, 10MB client pre-check,
+loading/error state), calls the new `ocrApi.scanStatement` → the existing,
+unchanged `POST /ocr/statement` (BIW-API-006). On success, shows a review
+screen: `statement_balance` as a pre-filled, user-editable number input (the
+only field ever written back), `statement_date`/`due_date`/`minimum_payment`/
+`items` shown read-only for reference (no matching `PaymentMethod` columns
+exist for them), and a warnings banner shown verbatim when non-empty.
+Confirming calls the existing, unchanged `PATCH /payment-methods/{id}`
+(BIW-API-001) with only `{ current_balance: <edited value> }` — never
+auto-applied. Cancel closes the panel with no write. `assess_risk` auto-critical
+(financial keyword match: payment, wallet) → `create_spec` (`BIW-INFRA-012`) →
+`record_decision` (72, pending).
+
+**security-reviewer**: clean, no critical/high findings — XSS-safe (JSX
+auto-escaping on OCR-extracted text), confirm requires a genuine user click,
+client validation correctly non-load-bearing (backend owns real
+validation/ownership).
+**react-reviewer**: 2 HIGH (unstable list keys — warnings keyed by string text,
+not guaranteed unique; items keyed by name+index) — fixed by switching both to
+plain index keys (both arrays are immutable single-shot snapshots from one OCR
+response, never reordered/filtered/mutated after render, so index keys are
+safe here) with an explanatory comment. 1 MEDIUM (file input missing a visible
+label) declined — consistent with the existing, already-reviewed
+`ReceiptUploadPanel.js` convention (aria-label only).
+Remediation recorded as decision 73, linked to 72.
+
+**Verification**: ESLint clean, production build clean. Playwright-verified
+end-to-end against the live Anthropic API with a real synthetic statement
+image: uploaded → extraction shown (balance $842.15, dates, $35.00 minimum
+payment, 3 items, and a due-date-anomaly warning correctly surfaced by the
+model) → confirmed → `PATCH /payment-methods/{id}` fired → wallet balance
+updated in the UI ($500.00 → $842.15) and confirmed directly via `psql`. Test
+payment method cleaned up from the dev DB afterward.
 
 ## Milestone 1 Detail
 
@@ -1057,13 +1088,16 @@ throughout), UUID enumeration (128-bit space, already low risk).
   remediation — both reviews clean) are still `pending_approval` under
   CONST-ARCH-001. Required reviews have already run for every one of these and all
   findings are fixed and re-verified. Not blocking further work, just outstanding.
-- **M5 (all 3 slices + 1 post-hoc bugfix) decisions awaiting human-ack**: decision 53
-  (backend receipt OCR + confirm-transaction assess_risk+spec), 54 (slice 1 review
-  remediation), 55 (backend statement OCR assess_risk+spec), 56 (slice 2 review
-  remediation), 57 (frontend Receipt Review screen assess_risk+spec), 58 (slice 3
-  review remediation), 71 (markdown-fence JSON-parsing bugfix, linked to 54) — see
-  "Milestone 5 Detail" above for the full list of security/fastapi/react findings
-  fixed, and "Post-M5 bugfix" for decision 71 — are all `pending_approval` under
+- **M5 (all 3 slices + bugfix + statement-import UI) decisions awaiting human-ack**:
+  decision 53 (backend receipt OCR + confirm-transaction assess_risk+spec), 54
+  (slice 1 review remediation), 55 (backend statement OCR assess_risk+spec), 56
+  (slice 2 review remediation), 57 (frontend Receipt Review screen
+  assess_risk+spec), 58 (slice 3 review remediation), 71 (markdown-fence
+  JSON-parsing bugfix, linked to 54), 72 (statement-import UI assess_risk+spec),
+  73 (statement-import UI review remediation, linked to 72) — see "Milestone 5
+  Detail" above for the full list of security/fastapi/react findings fixed,
+  "Post-M5 bugfix" for decision 71, and "Statement-import frontend UI" for
+  decisions 72-73 — are all `pending_approval` under
   CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all

@@ -126,6 +126,11 @@ export const ocrApi = {
     formData.append("file", file)
     return requestMultipart("/ocr/receipt", formData)
   },
+  scanStatement: (file) => {
+    const formData = new FormData()
+    formData.append("file", file)
+    return requestMultipart("/ocr/statement", formData)
+  },
   confirmTransaction: (data) =>
     request("/ocr/confirm-transaction", { method: "POST", body: JSON.stringify(data) }),
 }
