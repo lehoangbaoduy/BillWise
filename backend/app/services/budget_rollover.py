@@ -1,3 +1,4 @@
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import and_, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -9,7 +10,11 @@ async def ensure_budget_rollover(session: AsyncSession, user: User, month: int, 
     """PRD §14.4: a new month with no budget rows yet auto-copies the most recent
     earlier month's amounts, as new independent rows (editing them never touches
     the source month's stored figures). Shared by the Budgets router (on list) and
-    the Dashboard router (budget_status needs the same rolled-over view)."""
+    the Dashboard router (budget_status/category_breakdown need the same rolled-over
+    view) — both can be called concurrently for the same user+period (e.g. the
+    Budgets frontend page fetches both in parallel), so a second caller losing the
+    existing-rows check to a race is expected and treated as a no-op rather than an
+    error."""
     existing = (
         await session.exec(select(Budget).where(Budget.user_id == user.id, Budget.month == month, Budget.year == year))
     ).first()
@@ -25,4 +30,10 @@ async def ensure_budget_rollover(session: AsyncSession, user: User, month: int, 
 
     for row in source_rows:
         session.add(Budget(user_id=user.id, category_id=row.category_id, month=month, year=year, budget_amount=row.budget_amount))
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as error:
+        await session.rollback()
+        constraint_name = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+        if constraint_name != "uq_budget_category_period":
+            raise

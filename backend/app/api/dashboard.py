@@ -257,14 +257,26 @@ async def category_breakdown(
 ) -> list[CategoryBreakdownItem]:
     category_rows = await _category_expense_spend(session, user, month, year)
     total_expenses = await _sum_by_type(session, user, month, year, TransactionType.EXPENSE)
+    spend_by_category = {row[0]: (row[1], row[2], row[3]) for row in category_rows}
 
+    await ensure_budget_rollover(session, user, month, year)
     budgets = (
         await session.exec(select(Budget).where(Budget.user_id == user.id, Budget.month == month, Budget.year == year))
     ).all()
     budget_by_category = {budget.category_id: budget for budget in budgets}
 
+    zero_spend_budgeted_ids = set(budget_by_category) - set(spend_by_category)
+    if zero_spend_budgeted_ids:
+        zero_spend_categories = (
+            await session.exec(
+                select(Category).where(Category.id.in_(zero_spend_budgeted_ids), Category.user_id == user.id)  # type: ignore[union-attr]
+            )
+        ).all()
+        for category in zero_spend_categories:
+            spend_by_category[category.id] = (category.name, category.parent_category_id, _ZERO)
+
     items = []
-    for category_id, name, parent_category_id, amount in category_rows:
+    for category_id, (name, parent_category_id, amount) in spend_by_category.items():
         budget = budget_by_category.get(category_id)
         items.append(
             CategoryBreakdownItem(

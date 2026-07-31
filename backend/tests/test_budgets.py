@@ -1,7 +1,15 @@
+import asyncio
+
+from sqlmodel import delete, select
+from sqlmodel.ext.asyncio.session import AsyncSession as RawAsyncSession
+
 from app.core.security import hash_password
 from app.models._common import utcnow
+from app.models.budget import Budget
 from app.models.category import Category, CategoryType
 from app.models.user import User, UserRole
+from app.services.budget_rollover import ensure_budget_rollover
+from tests.conftest import async_engine
 
 VALID_PASSWORD = "StrongPass123"
 
@@ -229,3 +237,59 @@ class TestBudgetRolloverEdgeCases:
         assert body[0]["budget_amount"] == "275.00"
         assert body[0]["month"] == 1
         assert body[0]["year"] == 2027
+
+    async def test_rollover_is_safe_under_concurrent_callers(self, unique_email):
+        """Regression test for a real bug caught via Playwright: the Budgets frontend
+        fires GET /budgets and GET /dashboard/category-breakdown in parallel for the
+        same period, and both call ensure_budget_rollover. Each gets its own DB
+        connection/session in production (unlike this suite's other tests, which share
+        one connection via the `session` fixture and so can't reproduce a real
+        cross-connection race), so two callers can both pass the "no rows yet" check
+        before either commits, then race to INSERT the same rolled-over row and hit
+        the unique constraint. This test uses genuinely independent, really-committed
+        connections/sessions (bypassing the shared-session fixture entirely, with
+        manual cleanup) to reproduce that race and assert it no longer raises."""
+        setup_conn = await async_engine.connect()
+        setup_session = RawAsyncSession(bind=setup_conn, expire_on_commit=False)
+        user = User(
+            email=unique_email,
+            password_hash=hash_password(VALID_PASSWORD),
+            display_name="Concurrency Tester",
+            role=UserRole.OWNER,
+            email_verified_at=utcnow(),
+        )
+        setup_session.add(user)
+        await setup_session.flush()
+        category = Category(user_id=user.id, name="Concurrent Rollover", category_type=CategoryType.EXPENSE)
+        setup_session.add(category)
+        await setup_session.flush()
+        setup_session.add(Budget(user_id=user.id, category_id=category.id, month=6, year=2026, budget_amount="250.00"))
+        await setup_session.commit()
+
+        try:
+            async with async_engine.connect() as conn_a, async_engine.connect() as conn_b:
+                session_a = RawAsyncSession(bind=conn_a, expire_on_commit=False)
+                session_b = RawAsyncSession(bind=conn_b, expire_on_commit=False)
+                try:
+                    await asyncio.gather(
+                        ensure_budget_rollover(session_a, user, 7, 2026),
+                        ensure_budget_rollover(session_b, user, 7, 2026),
+                    )
+                finally:
+                    await session_a.close()
+                    await session_b.close()
+
+            rolled_over = (
+                await setup_session.exec(
+                    select(Budget).where(Budget.user_id == user.id, Budget.month == 7, Budget.year == 2026)
+                )
+            ).all()
+            assert len(rolled_over) == 1
+            assert rolled_over[0].budget_amount == 250
+        finally:
+            await setup_session.exec(delete(Budget).where(Budget.user_id == user.id))
+            await setup_session.exec(delete(Category).where(Category.user_id == user.id))
+            await setup_session.exec(delete(User).where(User.id == user.id))
+            await setup_session.commit()
+            await setup_session.close()
+            await setup_conn.close()

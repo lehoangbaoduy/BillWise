@@ -32,9 +32,11 @@ aren't already obvious from the code or the PRD.
 - [~] **M4: Dashboard, Budgets & Goals** — backend slice 1 (Budgets + Savings Goals,
       including the deferred `transactions.goal_id` and an add-funds money flow) DONE.
       Backend slice 2 (Dashboard aggregation: monthly/yearly overviews, category and
-      payment-method breakdowns, cash flow) DONE, tested (115 passing backend tests),
-      security- and fastapi-reviewed — see "Milestone 4 Detail" below. Still to do:
-      frontend for all three (Budgets, Goals, Dashboard).
+      payment-method breakdowns, cash flow) DONE. Frontend slice 3 (real Budgets +
+      Goals screens replacing M2's EmptyState placeholders) DONE, including a real
+      concurrency bug caught via live Playwright testing and fixed — see "Milestone 4
+      Detail" below. Backend now at 118 passing tests. Still to do: frontend Dashboard
+      screen (slice 4).
 - [ ] **M5: OCR Flow**
 - [ ] **M6: Recurring Bills & Cashback**
 - [ ] **M7: Net Worth, AI Insights, Household & Exports**
@@ -512,14 +514,73 @@ render correctly, nav selection/active-state, create/delete cycle).
 - Live-verified via the running dev backend's OpenAPI schema that all 5 routes registered and
   hot-reloaded cleanly with no import errors after the refactor.
 
+### Frontend slice 3 — Budgets + Goals screens (`BIW-INFRA-009`, decisions 41 → 42)
+- Rewrote `frontend/app/budgets/page.js` (was M2's EmptyState) into a month/year-scoped
+  budget-vs-actual screen: nav list of budgeted categories sourced from
+  `GET /dashboard/category-breakdown` (spend, % used, over-budget flag), month
+  prev/next navigation, create/edit/delete via `/budgets` CRUD, an "add budget" flow
+  restricted to expense categories not yet budgeted for the selected period. Retains
+  the Ekash template's `.budgets-nav`/`.budgets-tab-content` visual chrome, strips the
+  template's fake Last-Month/Expenses/Taxes/Debt stat grid and fake Budget Period chart
+  (no real data source for either).
+- Rewrote `frontend/app/goals/page.js` (was M2's EmptyState) into a real goals screen:
+  nav list with real `CircularProgress` (current/target %), create/edit/deactivate,
+  an add-funds flow that creates a real linked transaction via
+  `POST /goals/{id}/add-funds`, a real contributions history table sourced from
+  `GoalDetail.contributing_transactions`, and a sharing toggle. Strips the template's
+  fake "Available by Wallet" cross-wallet balances and fake history rows.
+- Added `budgetsApi`/`goalsApi`/`dashboardApi` to `frontend/lib/api.js` following the
+  existing `request()`-wrapper pattern.
+- **Live Playwright testing caught a real production bug**, not just a static-review
+  finding: the Budgets page's two parallel SWR fetches (`/budgets` and
+  `/dashboard/category-breakdown`, same period) both independently call
+  `ensure_budget_rollover`; each request gets its own DB session in production, so
+  both can pass the "no rows yet" check before either commits, then race to insert the
+  same rolled-over row and hit `uq_budget_category_period`, surfacing as an uncaught
+  500/CORS error in the browser on month navigation. Fixed by catching the
+  `IntegrityError` in `budget_rollover.py` and treating it as a no-op. Verified the fix
+  is real (not a false-positive test) by writing a regression test using genuinely
+  independent DB connections (bypassing the test suite's shared-session fixture, which
+  cannot reproduce true cross-connection races), reverting the fix to confirm the test
+  fails with the exact error seen in the browser, then restoring the fix and
+  reconfirming green.
+- `/dashboard/category-breakdown` also gained: (1) budgeted categories with zero spend
+  now appear (previously only categories with actual expense line items did — a gap
+  that would have hidden newly-budgeted categories from the Budgets screen), (2) the
+  same `ensure_budget_rollover` call `/dashboard/monthly` already had, for consistency
+  with `GET /budgets`.
+- security-reviewer: 1 HIGH on the concurrency fix itself — catching bare
+  `IntegrityError` risked masking unrelated integrity violations — narrowed to check
+  `error.orig.diag.constraint_name == "uq_budget_category_period"`, re-raising
+  anything else. No frontend vulnerabilities found (React auto-escaping, no
+  `dangerouslySetInnerHTML`, all IDs server-sourced and owner-enforced backend-side,
+  proper `credentials: "include"` usage).
+- react-reviewer: approved, no CRITICAL/HIGH. 3 MEDIUM polish items applied: `useMemo`
+  on the category→budget-id `Map` rebuilt each render, an explicit `<label>` for the
+  edit-budget-amount input (was `aria-label` only), resetting the add-funds date field
+  after successful submission (previously stayed stale across repeat contributions).
+- Backend suite: 118 passing (115 → +3: two `category-breakdown` tests for the
+  zero-spend/rollover-consistency fixes, one true-concurrency regression test).
+  Frontend production build clean. Manually walked both screens end-to-end via
+  Playwright against the live dev stack: budget create/edit/delete, over-budget
+  styling, month navigation with rollover (including the race-condition scenario,
+  confirmed fixed), goal creation, add-funds → real transaction → progress update,
+  sharing toggle, contribution history.
+- **Mid-slice environment incident**: Docker Desktop's WSL integration dropped
+  mid-session (lost `docker` binary and all running containers, including
+  `harness_gate_daemon`); required the user to restart Docker Desktop and reconnect
+  the Claude Code session for the `harness-os` MCP connection to come back before
+  decision 42 could be recorded. No code or data was lost — this was purely a local
+  dev-environment interruption, not a project issue.
+
 ### Still to do for M4
-- Frontend: real data wiring for `/budgets` and `/goals` (currently M2 EmptyState placeholders),
-  and for the Dashboard (`/`, currently de-mocked to empty states in M2 slice 1) against the new
-  `/dashboard/*` endpoints above. Also queued: extending the Wallets page (per user request
-  2026-07-30) with per-wallet transaction history (reusing `GET /transactions?payment_method_id=`),
-  a total-balance sum, and month's-spending (reusing the new Dashboard endpoints) — "available
-  balance" flagged separately since it needs a `credit_limit` schema field not in the current PRD
-  data model.
+- Frontend: Dashboard screen (`/`, currently de-mocked to empty states in M2 slice 1)
+  wired to the `/dashboard/*` endpoints from slice 2 (slice 4).
+- Queued (per user request 2026-07-30, not yet scheduled): extending the Wallets page
+  with per-wallet transaction history (reusing `GET /transactions?payment_method_id=`),
+  a total-balance sum, and month's-spending (reusing the Dashboard endpoints) —
+  "available balance" flagged separately since it needs a `credit_limit` schema field
+  not in the current PRD data model.
 
 ## Milestone 1 Detail
 
@@ -710,7 +771,7 @@ throughout), UUID enumeration (128-bit space, already low risk).
   any frontend path, and the host-side test-run recorder can't execute the
   Docker-wrapped pytest command. A human can update `testCommands`/`gatedGlobs`
   and run `harness reconcile-config` if tighter mechanical enforcement is wanted.
-- **M3 + Wallets-restyle + M4-slices-1&2 decisions awaiting human-ack**: decisions 31
+- **M3 + Wallets-restyle + M4-slices-1,2,3 decisions awaiting human-ack**: decisions 31
   (M3 backend assess_risk+spec), 32 (M3 backend review remediation — N+1 fix,
   category filter pushed into SQL, missing index, 5 new tests), 33 (M3 frontend
   assess_risk+spec), 34 (M3 frontend review remediation — SWR cache-key fix, stable
@@ -719,9 +780,11 @@ throughout), UUID enumeration (128-bit space, already low risk).
   38 (M4 Budgets+Goals backend review remediation — rollover query fix, shared
   validators promoted to a services module, 6 new tests), 39 (M4 Dashboard backend
   assess_risk+spec), 40 (M4 Dashboard backend review remediation — N+1 fix, explicit
-  ownership filters on joined queries, schema tightening, 1 new leak-coverage test)
-  are all `pending_approval` under CONST-ARCH-001, same pattern as M1/M2. Required
-  reviews have already run for every one of these and all findings are fixed and
-  re-verified. Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>`
-  for each, or batch through them — M1 and M2's decisions were all approved this way
-  already.
+  ownership filters on joined queries, schema tightening, 1 new leak-coverage test),
+  41 (M4 Budgets+Goals frontend assess_risk+spec), 42 (M4 Budgets+Goals frontend
+  review remediation — a real concurrency bug caught via Playwright and fixed, plus
+  react-reviewer/security-reviewer polish) are all `pending_approval` under
+  CONST-ARCH-001, same pattern as M1/M2. Required reviews have already run for every
+  one of these and all findings are fixed and re-verified. Run
+  `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each, or
+  batch through them — M1 and M2's decisions were all approved this way already.

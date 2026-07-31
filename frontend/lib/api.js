@@ -86,3 +86,29 @@ export const transactionsApi = {
   update: (id, data) => request(`/transactions/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   remove: (id) => request(`/transactions/${id}`, { method: "DELETE" }),
 }
+
+export const budgetsApi = {
+  list: (month, year) => request(`/budgets?month=${month}&year=${year}`),
+  create: (data) => request("/budgets", { method: "POST", body: JSON.stringify(data) }),
+  update: (id, data) => request(`/budgets/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  remove: (id) => request(`/budgets/${id}`, { method: "DELETE" }),
+}
+
+export const goalsApi = {
+  list: () => request("/goals"),
+  create: (data) => request("/goals", { method: "POST", body: JSON.stringify(data) }),
+  get: (id) => request(`/goals/${id}`),
+  update: (id, data) => request(`/goals/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  updateSharing: (id, isShared) =>
+    request(`/goals/${id}/sharing`, { method: "PATCH", body: JSON.stringify({ is_shared: isShared }) }),
+  remove: (id) => request(`/goals/${id}`, { method: "DELETE" }),
+  addFunds: (id, data) => request(`/goals/${id}/add-funds`, { method: "POST", body: JSON.stringify(data) }),
+}
+
+export const dashboardApi = {
+  monthly: (month, year) => request(`/dashboard/monthly?month=${month}&year=${year}`),
+  yearly: (year) => request(`/dashboard/yearly?year=${year}`),
+  categoryBreakdown: (month, year) => request(`/dashboard/category-breakdown?month=${month}&year=${year}`),
+  paymentMethodBreakdown: (month, year) => request(`/dashboard/payment-method-breakdown?month=${month}&year=${year}`),
+  cashFlow: (month, year) => request(`/dashboard/cash-flow?month=${month}&year=${year}`),
+}

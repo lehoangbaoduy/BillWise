@@ -228,6 +228,36 @@ class TestCategoryBreakdown:
         assert by_name["Shopping"]["budget_amount"] is None
         assert by_name["Shopping"]["is_over_budget"] is False
 
+    async def test_includes_budgeted_categories_with_zero_spend(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        entertainment = await _make_category(session, user, name="Entertainment")
+        await client.post(
+            "/budgets", json={"category_id": str(entertainment.id), "month": 7, "year": 2026, "budget_amount": "80.00"}
+        )
+
+        response = await client.get("/dashboard/category-breakdown", params={"month": 7, "year": 2026})
+        assert response.status_code == 200
+        items = response.json()
+        assert len(items) == 1
+        assert items[0]["name"] == "Entertainment"
+        assert items[0]["amount"] == "0"
+        assert items[0]["budget_amount"] == "80.00"
+        assert items[0]["is_over_budget"] is False
+
+    async def test_rolls_over_budget_for_consistency_with_budgets_endpoint(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        category = await _make_category(session, user)
+        await client.post("/budgets", json={"category_id": str(category.id), "month": 6, "year": 2026, "budget_amount": "150.00"})
+
+        response = await client.get("/dashboard/category-breakdown", params={"month": 7, "year": 2026})
+        assert response.status_code == 200
+        items = response.json()
+        assert len(items) == 1
+        assert items[0]["budget_amount"] == "150.00"
+
+        budgets_response = await client.get("/budgets", params={"month": 7, "year": 2026})
+        assert budgets_response.json()[0]["budget_amount"] == "150.00"
+
 
 class TestPaymentMethodBreakdown:
     async def test_amount_count_and_average(self, client, session, unique_email):
