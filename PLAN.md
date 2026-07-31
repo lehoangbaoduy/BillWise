@@ -39,15 +39,17 @@ aren't already obvious from the code or the PRD.
       budget/goal widgets, recent transactions) — see "Milestone 4 Detail" below.
       All decisions (37-44) human-acked via `harness approve` 2026-07-31.
 - [x] **M5: OCR Flow** — all 3 slices DONE. Backend: receipt OCR + confirm-transaction
-      and statement OCR (local Tesseract extraction, Claude Haiku structuring, 21
-      backend tests, 139 total passing). Frontend: Receipt Review screen + Scan
+      and statement OCR (local Tesseract extraction, Claude Haiku structuring, 22
+      backend tests, 140 total passing). Frontend: Receipt Review screen + Scan
       Receipt entry point on the existing Add Transaction screen, Playwright-verified
       end-to-end against a real receipt image (backend leg) and a mocked successful
-      extraction (review/confirm leg, since live Anthropic calls are pending the user
-      adding a real API key) — see "Milestone 5 Detail" below. Statement-import
+      extraction (review/confirm leg). Live-API-verified after the user populated a
+      real `ANTHROPIC_API_KEY` — this surfaced and fixed a real markdown-fence
+      JSON-parsing bug in Claude Haiku's response (decision 71, see "Post-M5 bugfix"
+      below); confirmed working end-to-end against the live API afterward. Statement-import
       frontend UI is queued follow-up, not required for M5 to be considered done
       (backend-only PRD requirement was met). Formally `pending_approval` pending
-      human-ack (decisions 53-58).
+      human-ack (decisions 53-58, 71).
 - [ ] **M6: Recurring Bills & Cashback**
 - [ ] **M7: Net Worth, AI Insights, Household & Exports**
 - [ ] **M8: Mobile Layout**
@@ -730,6 +732,43 @@ malformed-JSON handling, and missing-API-key handling). Full backend suite:
 frontend UI exists yet — that's slice 3 — and live Anthropic calls are pending the
 user adding a real API key).
 
+### Post-M5 bugfix: markdown-fence JSON parsing (decision 71, related to 54)
+The user populated a real `ANTHROPIC_API_KEY` and the first-ever live call to
+`POST /ocr/receipt` returned 502. Root cause: Claude Haiku wraps its structuring
+response in ` ```json ... ``` ` markdown fences despite the system prompt
+explicitly forbidding it — a real-world model behavior no mocked unit test could
+have caught, since every existing test fed clean JSON straight to `json.loads`.
+Confirmed via `docker compose logs` (Anthropic call succeeded, `json.loads` failed)
+and a standalone diagnostic script hitting the live API directly.
+Fix in `app/services/ai_structuring_service.py`, shared by both receipt and
+statement structuring (`_call_and_parse_json`):
+- **Primary defense**: seed the `messages` array with a trailing
+  `{"role": "assistant", "content": "{"}` entry (Anthropic's standard "assistant-turn
+  prefill" technique) so the response continues an already-opened JSON object —
+  structurally very unlikely to be preceded by a fence. The prefilled `{` is
+  manually prepended back onto the response text before parsing.
+- **Belt-and-braces**: `_parse_json_response` strips leading and trailing markdown
+  fences independently. A first draft only stripped the trailing fence when a
+  leading fence was also present — dead code once the prefill guarantees no leading
+  fence can appear at position 0 — caught by re-reading the logic before commit and
+  fixed to strip each independently.
+- Added `test_strips_markdown_fences_before_parsing`, simulating the realistic
+  post-prefill shape (a stray trailing ``` after otherwise-valid JSON). Verified it
+  actually catches the regression by temporarily reverting the trailing-fence fix,
+  confirming the test failed with the exact original 502, then restoring and
+  reconfirming green.
+- Full backend suite: 140/140 passing. Re-ran the original live curl call
+  post-fix: `200` with a correctly structured Costco receipt extraction (merchant,
+  items, categories, confidence scores, and a mismatched-total warning all correct).
+- Also required discovering that `docker compose restart` does **not** pick up
+  `.env` changes — only `docker compose up -d --force-recreate` does, since
+  `env_file` values are baked into the container at creation, not re-read on
+  restart. Noted here since it'll bite again if any other secret is rotated.
+- harness-os: `assess_risk` → medium (gated-path, no security/financial keyword
+  match) → `record_decision` (decision 71, `pending_approval`, linked to decision
+  54 as a remediation of that slice's implementation — no new spec needed, same
+  endpoints/schema/behavior).
+
 ### Slice 2: Backend statement OCR (BIW-API-006, decisions 55-56)
 - `POST /ocr/statement` (PRD §11.4 — credit card statement/bill OCR). Reuses slice
   1's `ocr_service.extract_text` unchanged (same local-Tesseract, magic-byte-routed,
@@ -1018,12 +1057,13 @@ throughout), UUID enumeration (128-bit space, already low risk).
   remediation — both reviews clean) are still `pending_approval` under
   CONST-ARCH-001. Required reviews have already run for every one of these and all
   findings are fixed and re-verified. Not blocking further work, just outstanding.
-- **M5 (all 3 slices) decisions awaiting human-ack**: decision 53 (backend receipt
-  OCR + confirm-transaction assess_risk+spec), 54 (slice 1 review remediation), 55
-  (backend statement OCR assess_risk+spec), 56 (slice 2 review remediation), 57
-  (frontend Receipt Review screen assess_risk+spec), 58 (slice 3 review
-  remediation) — see "Milestone 5 Detail" above for the full list of
-  security/fastapi/react findings fixed — are all `pending_approval` under
+- **M5 (all 3 slices + 1 post-hoc bugfix) decisions awaiting human-ack**: decision 53
+  (backend receipt OCR + confirm-transaction assess_risk+spec), 54 (slice 1 review
+  remediation), 55 (backend statement OCR assess_risk+spec), 56 (slice 2 review
+  remediation), 57 (frontend Receipt Review screen assess_risk+spec), 58 (slice 3
+  review remediation), 71 (markdown-fence JSON-parsing bugfix, linked to 54) — see
+  "Milestone 5 Detail" above for the full list of security/fastapi/react findings
+  fixed, and "Post-M5 bugfix" for decision 71 — are all `pending_approval` under
   CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all

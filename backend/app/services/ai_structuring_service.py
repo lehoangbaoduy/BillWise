@@ -93,6 +93,24 @@ def _client() -> AsyncAnthropic:
     return _client_cache
 
 
+def _parse_json_response(raw: str) -> dict[str, Any]:
+    """Strips markdown code fences if present. Belt-and-braces: the assistant-turn
+    '{' prefill in _call_and_parse_json is the primary defense against Claude
+    wrapping its response in ```json fences despite the system prompt saying not
+    to (observed in practice against the real API) — this covers fence remnants
+    that slip through regardless. Since the prefilled '{' means a genuine leading
+    fence can't appear at position 0, the most likely remnant is a stray trailing
+    ``` that Claude appends out of habit after continuing the JSON — so leading and
+    trailing fences are stripped independently rather than gating both on a leading
+    match."""
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.removeprefix("```json").removeprefix("```").strip()
+    if text.endswith("```"):
+        text = text.removesuffix("```").strip()
+    return json.loads(text)
+
+
 def _coerce_low_confidence(item: dict) -> dict:
     try:
         confidence = float(item.get("confidence", 0) or 0)
@@ -114,11 +132,18 @@ async def _call_and_parse_json(system_prompt: str, raw_text: str) -> dict[str, A
     should catch and re-raise with their own detail message if it matters."""
     client = _client()
     try:
+        # Prefilling the assistant turn with '{' is Anthropic's standard technique
+        # to force the response to start directly with JSON — the model can't
+        # prepend a ```json fence to a turn it's already continuing. Response
+        # content picks up from where the prefill left off, so it's prepended back.
         response = await client.messages.create(
             model=_MODEL,
             max_tokens=2048,
             system=system_prompt,
-            messages=[{"role": "user", "content": raw_text}],
+            messages=[
+                {"role": "user", "content": raw_text},
+                {"role": "assistant", "content": "{"},
+            ],
         )
     except Exception as exc:
         logger.warning("Anthropic structuring call failed: %s", type(exc).__name__)
@@ -127,9 +152,9 @@ async def _call_and_parse_json(system_prompt: str, raw_text: str) -> dict[str, A
             detail="Structuring failed — try again or enter this manually",
         ) from exc
 
-    raw = "".join(block.text for block in response.content if block.type == "text")
+    raw = "{" + "".join(block.text for block in response.content if block.type == "text")
     try:
-        return json.loads(raw)
+        return _parse_json_response(raw)
     except (json.JSONDecodeError, TypeError):
         logger.warning("Anthropic returned non-JSON structuring output (%d chars)", len(raw))
         raise HTTPException(

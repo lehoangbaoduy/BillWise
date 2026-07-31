@@ -334,8 +334,10 @@ class TestAiStructuringService:
     async def test_coerces_low_confidence_items_to_uncategorized(self, monkeypatch):
         monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
         monkeypatch.setattr(ai_structuring_service, "_client_cache", None)
+        # No leading "{" — the real call prefills the assistant turn with "{", so Claude's
+        # response (and this fake) only carries the continuation after it.
         response_json = (
-            '{"merchant": "Costco", "date": "2026-07-05", "total": 20.00, "tax": null, '
+            '"merchant": "Costco", "date": "2026-07-05", "total": 20.00, "tax": null, '
             '"items": [{"name": "Chicken", "amount": 20.00, "suggested_category": "Food", '
             '"suggested_subcategory": "Grocery", "confidence": 0.3}], "warnings": []}'
         )
@@ -364,7 +366,7 @@ class TestAiStructuringService:
         monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
         monkeypatch.setattr(ai_structuring_service, "_client_cache", None)
         response_json = (
-            '{"statement_balance": 1250.75, "statement_date": "2026-07-01", "due_date": "2026-07-25", '
+            '"statement_balance": 1250.75, "statement_date": "2026-07-01", "due_date": "2026-07-25", '
             '"minimum_payment": 35.00, "items": [{"name": "Grocery Store", "amount": 120.50}], "warnings": []}'
         )
         monkeypatch.setattr(
@@ -376,3 +378,25 @@ class TestAiStructuringService:
         assert result.statement_balance == Decimal("1250.75")
         assert result.ocr_status == OcrStatus.SUCCESS
         assert result.items[0].name == "Grocery Store"
+
+    async def test_strips_markdown_fences_before_parsing(self, monkeypatch):
+        """Regression test: live testing against the real Anthropic API showed Claude
+        Haiku sometimes appends a stray trailing ``` after continuing the prefilled
+        '{' turn, even though the leading fence itself can't appear (the prefill
+        already occupies position 0). This simulates that observed shape and verifies
+        _parse_json_response's fence-stripping still recovers valid JSON."""
+        monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
+        monkeypatch.setattr(ai_structuring_service, "_client_cache", None)
+        # This is the continuation text only (post-prefill) — _call_and_parse_json
+        # prepends the "{" back before parsing, matching the real call shape.
+        response_continuation = (
+            '"merchant": "Costco", "date": null, "total": null, '
+            '"tax": null, "items": [], "warnings": []}\n```'
+        )
+        monkeypatch.setattr(
+            ai_structuring_service,
+            "AsyncAnthropic",
+            lambda **kwargs: TestAiStructuringService._FakeAsyncAnthropic(response_continuation),
+        )
+        result = await ai_structuring_service.structure_receipt_text("Costco receipt text")
+        assert result.merchant == "Costco"
