@@ -4,7 +4,7 @@ import useSWR from "swr"
 import Layout from "@/components/layout/Layout"
 import EmptyState from "@/components/elements/EmptyState"
 import StatementUploadPanel from "@/components/statement/StatementUploadPanel"
-import { paymentMethodsApi } from "@/lib/api"
+import { dashboardApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
 
 const TYPE_OPTIONS = ["Credit Card", "Debit Card", "Cash", "Tracked Savings", "Other"]
 
@@ -102,6 +102,20 @@ export default function Wallets() {
 
     const activeMethod = (methods ?? []).find((method) => method.id === selectedId) ?? (methods ?? [])[0] ?? null
 
+    const totalBalance = (methods ?? []).reduce((sum, method) => sum + Number(method.current_balance ?? 0), 0)
+
+    const now = new Date()
+    const { data: monthBreakdown } = useSWR(
+        ["/dashboard/payment-method-breakdown", now.getMonth() + 1, now.getFullYear()],
+        () => dashboardApi.paymentMethodBreakdown(now.getMonth() + 1, now.getFullYear())
+    )
+    const monthSpend = (monthBreakdown ?? []).find((row) => row.payment_method_id === activeMethod?.id)?.amount ?? 0
+
+    const { data: walletTransactions } = useSWR(
+        activeMethod ? ["/transactions", activeMethod.id] : null,
+        () => transactionsApi.list({ payment_method_id: activeMethod.id })
+    )
+
     async function handleCreate(event) {
         event.preventDefault()
         if (!name.trim()) {
@@ -170,6 +184,14 @@ export default function Wallets() {
             <div className="wallet-tab">
                 <div className="row g-0">
                     <div className="col-xl-4">
+                        {(methods ?? []).length > 0 && (
+                            <div className="card mb-3">
+                                <div className="card-body">
+                                    <p className="mb-0 text-muted">Total balance</p>
+                                    <h3 className="mb-0">{formatCurrency(totalBalance)}</h3>
+                                </div>
+                            </div>
+                        )}
                         <div className="nav d-block">
                             <div className="row">
                                 {(methods ?? []).map((method) => (
@@ -312,15 +334,45 @@ export default function Wallets() {
                                             </div>
                                         </div>
                                     ) : (
-                                        <div className="row">
-                                            <div className="col-xxl-6 col-xl-12 col-lg-6">
-                                                {["Credit Card", "Debit Card"].includes(activeMethod.type) ? (
-                                                    <CreditCardVisual method={activeMethod} />
-                                                ) : (
-                                                    <TrackedBalanceVisual method={activeMethod} />
-                                                )}
+                                        <>
+                                            <div className="row">
+                                                <div className="col-xxl-6 col-xl-12 col-lg-6">
+                                                    {["Credit Card", "Debit Card"].includes(activeMethod.type) ? (
+                                                        <CreditCardVisual method={activeMethod} />
+                                                    ) : (
+                                                        <TrackedBalanceVisual method={activeMethod} />
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
+
+                                            <div className="card mt-3">
+                                                <div className="card-body">
+                                                    <p className="mb-0 text-muted">This month&apos;s spending</p>
+                                                    <h4 className="mb-0">{formatCurrency(monthSpend)}</h4>
+                                                </div>
+                                            </div>
+
+                                            <div className="card mt-3">
+                                                <div className="card-body">
+                                                    <h5 className="card-title">Recent transactions</h5>
+                                                    {(walletTransactions ?? []).length === 0 ? (
+                                                        <EmptyState icon="fi fi-rr-receipt" message="No transactions for this wallet yet." />
+                                                    ) : (
+                                                        <ul className="list-group list-group-flush">
+                                                            {walletTransactions.slice(0, 10).map((transaction) => (
+                                                                <li key={transaction.id} className="list-group-item d-flex justify-content-between align-items-center">
+                                                                    <div>
+                                                                        <div>{transaction.merchant}</div>
+                                                                        <small className="text-muted">{transaction.date}</small>
+                                                                    </div>
+                                                                    <span>{formatCurrency(transaction.total_amount)}</span>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </>
                                     )}
                                 </>
                             )}

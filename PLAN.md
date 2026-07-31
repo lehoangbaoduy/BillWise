@@ -622,12 +622,36 @@ render correctly, nav selection/active-state, create/delete cycle).
   aggregation, frontend Budgets+Goals, frontend Dashboard) are implemented, tested,
   reviewed, and committed — see decisions 37-44 in "Outstanding human actions".
 
-### Queued follow-up (not part of M4, not yet scheduled)
-- Per user request 2026-07-30: extend the Wallets page with per-wallet transaction
-  history (reusing `GET /transactions?payment_method_id=`), a total-balance sum, and
-  month's-spending (reusing the Dashboard endpoints) — "available balance" flagged
-  separately since it needs a `credit_limit` schema field not in the current PRD data
-  model.
+### Wallets enhancement — DONE (BIW-INFRA-013, decisions 74-75)
+Per user request 2026-07-30, built 2026-07-31 (after M5, before M6): extended the
+Wallets page (`frontend/app/wallets/page.js`) with a total-balance summary (client-side
+sum of `current_balance` across active payment methods, shown above the wallet nav
+list), this-month's-spending for the active wallet (existing, unchanged
+`GET /dashboard/payment-method-breakdown`, matched by `payment_method_id`), and a
+per-wallet recent-transactions list (existing, unchanged
+`GET /transactions?payment_method_id=`, newest-10 shown, no edit/delete — full
+management stays on the Transaction History page). No backend changes; all three
+reuse already-reviewed, owner-scoped endpoints. "Available balance"
+(`credit_limit - current_balance`) explicitly descoped by the user 2026-07-31: it
+needs a new `credit_limit` field not in the current `PaymentMethod` data model / PRD.
+
+`assess_risk` auto-critical (financial keyword match: payment, wallet) →
+`create_spec` (`BIW-INFRA-013`) → `record_decision` (74, pending).
+**security-reviewer**: clean, no findings — total balance is a local sum of the
+user's own data; month-spend/history fetches match by id against owner-scoped
+endpoints; SWR cache keys correctly scoped by month/year and wallet id.
+**react-reviewer**: APPROVE with 1 MEDIUM (unnecessary `useMemo` on a trivial
+reduce feeding one text node) — fixed by computing `totalBalance` directly;
+conditional SWR key pattern, cache-key primitives, and stale-data-on-switch
+handling were all already correct. Remediation recorded as decision 75, linked
+to 74.
+
+**Verification**: ESLint clean, production build clean. Playwright-verified
+end-to-end: created two wallets ($300 + $200) → total balance summed to $500;
+added a real $45.50 transaction against one wallet via Add Transaction → that
+wallet's month spend showed $45.50 and recent transactions listed it, while the
+other wallet correctly showed $0/empty. Test data cleaned up from the dev DB
+afterward.
 
 ## Milestone 5 Detail (OCR Flow)
 
@@ -1099,6 +1123,9 @@ throughout), UUID enumeration (128-bit space, already low risk).
   "Post-M5 bugfix" for decision 71, and "Statement-import frontend UI" for
   decisions 72-73 — are all `pending_approval` under
   CONST-ARCH-001.
+- **Wallets enhancement decisions awaiting human-ack**: decision 74 (assess_risk+spec,
+  `BIW-INFRA-013`), 75 (review remediation, linked to 74) — see "Wallets enhancement"
+  above — are `pending_approval` under CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all
   approved this way already.
