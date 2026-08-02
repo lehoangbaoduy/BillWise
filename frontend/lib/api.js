@@ -12,12 +12,24 @@ export class ApiError extends Error {
   }
 }
 
+// FastAPI's `detail` is either a plain string (explicit HTTPException(detail=...))
+// or a Pydantic validation array of {loc, msg, type} objects (422s raised by
+// schema validation itself). Without this, the array case reaches the Error
+// constructor as-is and stringifies to the useless "[object Object]".
+function formatDetail(detail) {
+  if (typeof detail === "string") return detail
+  if (Array.isArray(detail)) {
+    return detail.map((item) => item?.msg || String(item)).join("; ")
+  }
+  return null
+}
+
 async function throwIfError(response) {
   if (response.ok) return
   let detail = null
   try {
     const body = await response.json()
-    detail = body.detail
+    detail = formatDetail(body.detail)
   } catch {
     // Non-JSON error body — fall back to the generic status message.
   }
@@ -118,6 +130,14 @@ export const goalsApi = {
     request(`/goals/${id}/sharing`, { method: "PATCH", body: JSON.stringify({ is_shared: isShared }) }),
   remove: (id) => request(`/goals/${id}`, { method: "DELETE" }),
   addFunds: (id, data) => request(`/goals/${id}/add-funds`, { method: "POST", body: JSON.stringify(data) }),
+}
+
+export const recurringBillsApi = {
+  list: () => request("/recurring-bills"),
+  create: (data) => request("/recurring-bills", { method: "POST", body: JSON.stringify(data) }),
+  update: (id, data) => request(`/recurring-bills/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  remove: (id) => request(`/recurring-bills/${id}`, { method: "DELETE" }),
+  markPaid: (id, data) => request(`/recurring-bills/${id}/mark-paid`, { method: "POST", body: JSON.stringify(data) }),
 }
 
 export const ocrApi = {

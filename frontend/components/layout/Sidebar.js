@@ -50,6 +50,14 @@ export default function Sidebar() {
                                 <span className="nav-text">Goals</span>
                             </Link>
                         </li>
+                        <li className={pathname == "/recurring-bills" ? "active" : ""}>
+                            <Link href="/recurring-bills">
+                                <span>
+                                    <i className="fi fi-rr-calendar-clock" />
+                                </span>
+                                <span className="nav-text">Recurring Bills</span>
+                            </Link>
+                        </li>
                         <li className={pathname == "/profile" ? "active" : ""}>
                             <Link href="/profile">
                                 <span>

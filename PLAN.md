@@ -54,9 +54,12 @@ aren't already obvious from the code or the PRD.
       linked transactions, lazy overdue/next-period reconciliation) and
       Cashback (new tables, rules CRUD, per-line-item auto-computation on
       every transaction-creation path, manual override, monthly/yearly
-      summary dashboard data) — 53 new tests, 193 total passing. Slices 3-4
-      (frontend Recurring Bills, frontend Cashback) not yet started. Formally
-      `pending_approval` pending human-ack (decisions 76-78).
+      summary dashboard data) — 53 new tests, 193 total passing. Slice 3
+      (frontend Recurring Bills) DONE — see "Milestone 6 Detail" for the two
+      bugs caught during manual Playwright verification after the
+      react-reviewer agent hit its weekly usage limit twice. Slice 4
+      (frontend Cashback) not yet started. Formally `pending_approval`
+      pending human-ack (decisions 76-79).
 - [ ] **M7: Net Worth, AI Insights, Household & Exports**
 - [ ] **M8: Mobile Layout**
 - [ ] **M9: Security Hardening**
@@ -1087,9 +1090,77 @@ no matching rule), recompute-on-line-item-replacement, the manual-override-
 persists-on-unrelated-edit case, record update, and summary aggregation by
 month vs. year. Full backend suite: 193/193 passing, no regressions.
 
+### Slice 3: Frontend Recurring Bills screen (BIW-INFRA-014, decision 79)
+New `frontend/app/recurring-bills/page.js` (net-new UI, no template equivalent
+per PRD §9's screen inventory) — mirrors the existing `goals/page.js`
+two-column nav+detail layout for visual consistency with the Ekash-derived
+design system. `recurringBillsApi` added to `lib/api.js`; `remove()` maps to
+the backend's soft-deactivate `DELETE` (no hard delete, no reactivate
+endpoint) — presented in the UI as a confirmed, semi-irreversible action
+rather than a reversible toggle. Sidebar nav entry added between Goals and
+Profile.
+
+Covers create/edit (pre-filled), the backend's not-nullable-field guard
+surfacing cleanly as a 422, mark-paid (optional paid-date/amount overrides,
+correctly re-rendering the lazily-generated next period), full per-period
+payment history table, and deactivate with a `window.confirm` dialog
+(matching the existing `goals`/`wallets` pages' pattern for destructive
+actions).
+
+**Two real bugs caught during my own live Playwright verification** (not by
+a review agent — the react-reviewer subagent hit a weekly usage-limit wall on
+both the initial attempt and a retry, so this slice's UI-correctness pass was
+done by hand instead of delegated):
+1. The create-form and detail-panel error banners shared one `formError`
+   state, but the two panels render **simultaneously** (side-by-side columns,
+   not toggled views) — an error from a detail-panel action (edit/mark-paid/
+   deactivate) would leak into the create-form panel if it happened to be
+   open at the same time, and vice versa. Fixed by splitting into `createError`
+   and `detailError`, each cleared independently when its own panel is
+   opened/reset.
+2. Discovered while re-testing fix #1: FastAPI's Pydantic-validation 422
+   `detail` is an array of `{loc, msg, type}` objects, not a string. The
+   shared `ApiError` in `lib/api.js` passed that array straight to `Error`'s
+   constructor, which stringifies it to the literal text `"[object Object]"`
+   — a pre-existing, **app-wide** bug (every page using `error.message`
+   inherits it for any raw Pydantic 422, as opposed to hand-written
+   `HTTPException(detail="...")` strings, which were already fine). Fixed
+   with a `formatDetail()` helper in `lib/api.js` that joins array-of-`msg`
+   into a readable string; string details pass through unchanged. This is a
+   shared-file fix with app-wide effect, scoped narrowly (one function, no
+   behavior change for the already-working string case) — not deferred to a
+   separate slice since it directly affects the correctness of the error
+   surfacing this slice depends on.
+
+**security-reviewer**: 1 CRITICAL (missing CSRF tokens on state-changing
+requests), 1 MEDIUM (inconsistent URL query-param encoding in
+`budgetsApi.list()`). Both assessed as out-of-scope/pre-existing, not new
+gaps from this slice: the session cookie is already `set-cookie:
+billwise_session=...; SameSite=lax` (set at login, app-wide, predates this
+slice) — `SameSite=Lax` blocks cookies on cross-site fetch/XHR regardless of
+method, which is the standard CSRF mitigation for cookie-auth SPAs and
+already covers `recurringBillsApi`'s POST/PATCH/DELETE calls. The
+query-param finding doesn't apply to this slice's new code either —
+`recurringBillsApi` uses only path-segment UUIDs and POST/PATCH bodies, no
+query strings. Neither finding blocks this slice; both are pre-existing,
+app-wide, and out of scope for a targeted fix here.
+
+**react-reviewer**: agent unavailable (weekly usage limit hit on two
+consecutive attempts). Reviewed the diff by hand instead — hook usage,
+`bill.id`/`period.id` list keys (no index-key usage anywhere), label/input
+`htmlFor`/`id` pairing, and the `window.confirm` pattern (matches existing
+`goals`/`wallets` precedent) all checked clean. The two bugs above were found
+this way, not by an automated pass — recorded here as a known gap in this
+slice's review coverage until harness-os/react-reviewer capacity resets.
+
+**Verification**: `eslint` clean, production `npm run build` clean, live
+Playwright pass covering create (including the empty-form and missing-due-
+date 422 paths), select, edit pre-fill and 422 surfacing, mark-paid
+(including auto-generated next-period re-render), payment history rendering,
+and deactivate with confirm-dialog handling — all exercised against the real
+backend, not mocked.
+
 ### Not yet built (queued within M6, not yet scheduled)
-- Frontend Recurring Bills screen (net-new UI, no template equivalent per
-  PRD §9's screen inventory) — slice 3.
 - Frontend Cashback screen (net-new UI) — slice 4.
 
 ## Milestone 1 Detail
@@ -1305,11 +1376,17 @@ throughout), UUID enumeration (128-bit space, already low risk).
 - **Wallets enhancement decisions awaiting human-ack**: decision 74 (assess_risk+spec,
   `BIW-INFRA-013`), 75 (review remediation, linked to 74) — see "Wallets enhancement"
   above — are `pending_approval` under CONST-ARCH-001.
-- **M6 slices 1-2 (backend Recurring Bills + Cashback) decisions awaiting
-  human-ack**: decision 76 (assess_risk+spec, `BIW-DATA-004`/`BIW-API-007`), 77
-  (slice 1 review remediation, linked to 76), 78 (slice 2 — assess_risk+spec
-  `BIW-DATA-005`/`BIW-API-008` + review remediation combined) — see "Milestone
-  6 Detail" above — are `pending_approval` under CONST-ARCH-001.
+- **M6 slices 1-3 (backend Recurring Bills + Cashback, frontend Recurring
+  Bills) decisions awaiting human-ack**: decision 76 (assess_risk+spec,
+  `BIW-DATA-004`/`BIW-API-007`), 77 (slice 1 review remediation, linked to
+  76), 78 (slice 2 — assess_risk+spec `BIW-DATA-005`/`BIW-API-008` + review
+  remediation combined), 79 (slice 3 — assess_risk+spec `BIW-INFRA-014`; the
+  react-reviewer half of this slice's review was never recorded as a
+  completed remediation decision since the agent hit its weekly usage limit
+  on both attempts — the two bugs it would likely have caught were instead
+  found and fixed via manual Playwright verification, documented in
+  "Milestone 6 Detail" above) — see "Milestone 6 Detail" above — are
+  `pending_approval` under CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all
   approved this way already.
