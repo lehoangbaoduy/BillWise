@@ -7,7 +7,7 @@ import EmptyState from "@/components/elements/EmptyState"
 import { useAuth } from "@/hooks/useAuth"
 import { categoriesApi } from "@/lib/api"
 
-function CategoryList({ title, categories, canManage, onDelete, deletingId }) {
+function CategoryList({ title, categories, canManage, onDelete, deletingId, onToggleSharing, togglingId }) {
     return (
         <div className="card">
             <div className="card-header">
@@ -27,7 +27,16 @@ function CategoryList({ title, categories, canManage, onDelete, deletingId }) {
                                         </span>
                                     </div>
                                     {canManage && (
-                                        <div className="right-category">
+                                        <div className="right-category d-flex gap-2">
+                                            <button
+                                                type="button"
+                                                className="btn btn-sm btn-outline-secondary"
+                                                aria-label={`${category.is_shared ? "Stop" : "Start"} sharing ${category.name} with partner`}
+                                                disabled={togglingId === category.id}
+                                                onClick={() => onToggleSharing(category)}
+                                            >
+                                                {category.is_shared ? "Shared" : "Private"}
+                                            </button>
                                             <button
                                                 type="button"
                                                 aria-label={`Delete ${category.name}`}
@@ -59,6 +68,7 @@ export default function SettingsCategories() {
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [formError, setFormError] = useState(null)
     const [deletingId, setDeletingId] = useState(null)
+    const [togglingId, setTogglingId] = useState(null)
 
     const incomeCategories = (categories ?? []).filter((c) => c.category_type === "income")
     const expenseCategories = (categories ?? []).filter((c) => c.category_type === "expense")
@@ -84,6 +94,19 @@ export default function SettingsCategories() {
             setFormError(error.message)
         } finally {
             setIsSubmitting(false)
+        }
+    }
+
+    async function handleToggleSharing(category) {
+        setTogglingId(category.id)
+        try {
+            await categoriesApi.updateSharing(category.id, !category.is_shared)
+            await mutate()
+            setFormError(null)
+        } catch (error) {
+            setFormError(error.message)
+        } finally {
+            setTogglingId(null)
         }
     }
 
@@ -164,8 +187,8 @@ export default function SettingsCategories() {
                             </div>
                         )}
                         <div className={canManage ? "col-xxl-8 col-xl-8 col-lg-6" : "col-xxl-12 col-xl-12"}>
-                            <CategoryList title="Income Categories" categories={incomeCategories} canManage={canManage} onDelete={handleDelete} deletingId={deletingId} />
-                            <CategoryList title="Expense Categories" categories={expenseCategories} canManage={canManage} onDelete={handleDelete} deletingId={deletingId} />
+                            <CategoryList title="Income Categories" categories={incomeCategories} canManage={canManage} onDelete={handleDelete} deletingId={deletingId} onToggleSharing={handleToggleSharing} togglingId={togglingId} />
+                            <CategoryList title="Expense Categories" categories={expenseCategories} canManage={canManage} onDelete={handleDelete} deletingId={deletingId} onToggleSharing={handleToggleSharing} togglingId={togglingId} />
                         </div>
                     </div>
                 </div>

@@ -89,6 +89,8 @@ export const categoriesApi = {
   list: () => request("/categories"),
   create: (data) => request("/categories", { method: "POST", body: JSON.stringify(data) }),
   update: (id, data) => request(`/categories/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  updateSharing: (id, isShared) =>
+    request(`/categories/${id}/sharing`, { method: "PATCH", body: JSON.stringify({ is_shared: isShared }) }),
   remove: (id) => request(`/categories/${id}`, { method: "DELETE" }),
 }
 
@@ -180,6 +182,26 @@ export const dashboardApi = {
 
 export const aiInsightsApi = {
   dismiss: (id) => request(`/ai-insights/${id}`, { method: "PATCH", body: JSON.stringify({ is_dismissed: true }) }),
+}
+
+export const householdApi = {
+  get: () => request("/household"),
+  invitePartner: (email, canAddTransactions) =>
+    request("/household/invite-partner", {
+      method: "POST",
+      body: JSON.stringify({ email, can_add_transactions: canAddTransactions }),
+    }),
+  acceptInvite: (token, password, displayName) =>
+    request("/household/accept-invite", {
+      method: "POST",
+      body: JSON.stringify({ token, password, display_name: displayName }),
+    }),
+  removePartner: (id) => request(`/household/partner/${id}`, { method: "DELETE" }),
+  updatePermissions: (id, canAddTransactions) =>
+    request(`/household/partner/${id}/permissions`, {
+      method: "PATCH",
+      body: JSON.stringify({ can_add_transactions: canAddTransactions }),
+    }),
 }
 
 export const netWorthApi = {

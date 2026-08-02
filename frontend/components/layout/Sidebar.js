@@ -1,9 +1,11 @@
 'use client'
 import { usePathname } from 'next/navigation'
 import Link from "next/link"
+import { useAuth } from "@/hooks/useAuth"
 
 export default function Sidebar() {
     const pathname = usePathname()
+    const { user } = useAuth()
     return (
         <>
             <div className="sidebar">
@@ -74,6 +76,16 @@ export default function Sidebar() {
                                 <span className="nav-text">Net Worth</span>
                             </Link>
                         </li>
+                        {user?.role === "owner" && (
+                            <li className={pathname == "/household" ? "active" : ""}>
+                                <Link href="/household">
+                                    <span>
+                                        <i className="fi fi-rr-users" />
+                                    </span>
+                                    <span className="nav-text">Household</span>
+                                </Link>
+                            </li>
+                        )}
                         <li className={pathname == "/profile" ? "active" : ""}>
                             <Link href="/profile">
                                 <span>

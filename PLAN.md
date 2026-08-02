@@ -63,7 +63,7 @@ aren't already obvious from the code or the PRD.
       once it recovered) and fixed, plus the Cashback-rules
       GET-endpoint gap-fill. Formally `pending_approval` pending human-ack
       (decisions 76-82).
-- [~] **M7: Net Worth, AI Insights, Household & Exports** — slices 1-6 of 8
+- [~] **M7: Net Worth, AI Insights, Household & Exports** — slices 1-7 of 8
       DONE. Backend: Net Worth (new tables, full CRUD gap-filled from the
       PRD's §24.11 requirement since §25 has no dedicated Net Worth CRUD
       section, complete-snapshot validation rule, dashboard aggregation
@@ -98,9 +98,20 @@ aren't already obvious from the code or the PRD.
       classification (first cross-user access to financial data), one MEDIUM
       fastapi finding (a type-contract violation in household_owner_id under a
       data-integrity edge case) found and fixed, zero security findings. 266
-      total backend tests passing. See "Milestone 7 Detail" below. Formally
-      `pending_approval` pending human-ack (decisions 83-94). Remaining
-      slices (Household frontend, Exports) not yet started.
+      total backend tests passing. Frontend: Household screen (invite form,
+      pending-invite list with cancel, partner list with revoke and a
+      can_add_transactions permission toggle) plus a public /accept-invite
+      page mirroring the existing reset-password page's token-handling
+      pattern, and a category-sharing toggle bringing Categories to parity
+      with Goals' pre-existing one — one accessibility MEDIUM (toggle-button
+      aria-labels not describing the click outcome) and one MEDIUM security
+      finding (a frontend error message re-leaking the email-registration
+      status that invite-partner's backend was hardened to hide) found and
+      fixed, live-verified end-to-end via Playwright (invite → accept →
+      partner login → sharing toggle → permission toggle → revoke →
+      immediate lockout). See "Milestone 7 Detail" below. Formally
+      `pending_approval` pending human-ack (decisions 83-96). Remaining
+      slice (Exports) not yet started.
 - [ ] **M8: Mobile Layout**
 - [ ] **M9: Security Hardening**
 
@@ -1674,11 +1685,66 @@ import is consistent with this codebase's existing cross-layer import
 precedent; the `not_in` subquery is an appropriate, efficient construct at
 this app's scale; no unused imports or orphaned code.
 
-### Remaining M7 slices (not yet started)
-- Slice 7: Household frontend (invite form, pending-invite list with
-  cancel, partner list with revoke and permission toggle, category/goal
-  sharing toggles — the sharing endpoints already exist from earlier
-  milestones)
+### Slice 7: Frontend Household (BIW-INFRA-018, decisions 95-96)
+
+New `/household` page (owner-only, gated client-side on `useAuth()`'s
+`user.role === "owner"` — the real boundary is each backend endpoint's own
+`require_owner`, this is only a UX nicety): invite-partner form (email +
+can-add-transactions checkbox), pending-invite list with a cancel action,
+and a partner list with a revoke action and a can_add_transactions
+permission toggle. New public `/accept-invite` page (no auth) reading a
+`token` query param, mirroring the existing `/reset-password` page's
+`Suspense`-wrapped `useSearchParams` pattern — collects display name +
+password, POSTs to accept, redirects to `/signin` on success (does not
+auto-log-in). `lib/api.js` gained `householdApi` (get/invitePartner/
+acceptInvite/removePartner/updatePermissions) and `categoriesApi.updateSharing`.
+Sidebar gained an owner-only "Household" nav entry — its first `useAuth()`
+call, since it previously had no user-awareness at all.
+
+**Also added, discovered as a gap while building the household screen**: a
+per-category sharing toggle on the Categories screen (`settings-categories`),
+bringing it to parity with Goals' equivalent toggle (already shipped in an
+earlier milestone) — Categories had the backend `PATCH /categories/{id}/sharing`
+endpoint from the start but no UI had ever surfaced it.
+
+**Live-verified end-to-end via Playwright, not just lint/build**: signed up
+a fresh owner, invited a partner, pulled the raw invite token from the
+backend's console-email log, accepted the invite in a fresh session,
+confirmed the new partner account logs in, toggled a category to shared and
+confirmed it appeared on the (fully separate, previously-tested-empty)
+partner's Categories view, toggled the partner's `can_add_transactions`
+permission both directions, revoked the partner, and confirmed their
+session was immediately invalidated (`POST /auth/login` now returns 401 —
+this is Slice 5's session-invalidation design, re-confirmed end-to-end
+through the UI rather than only via the earlier backend test suite).
+Separately confirmed the Household nav entry is correctly absent for a
+partner role, and that the pre-existing owner-only Dashboard widgets
+(deliberately out of Slice 6's scope) degrade to their normal empty states
+for a partner instead of crashing — 10 console 403s from
+`/dashboard/monthly`, `/payment-methods`, etc., all pre-existing gaps, not a
+regression from this slice, and not blocking since nothing user-visible
+breaks.
+
+**react-reviewer — one MEDIUM found and fixed**: the permission-toggle and
+category-sharing-toggle buttons had `aria-label`s describing the click
+*action* while their visible text showed the current *state* ("Can add
+transactions"/"View only", "Shared"/"Private") — a screen-reader user hears
+only the label and loses the state context a sighted user sees. Reworded
+both to unambiguously state what clicking will do. All other checks
+(hook correctness, the `Suspense` boundary, loading/error state on every
+mutation, the UTC/local timezone date-parsing fix applied correctly to
+`expires_at`/`joined_at`) passed clean.
+
+**security-reviewer — one MEDIUM found and fixed**: `household/page.js`'s
+invite-partner 409 handler said "...or it belongs to an existing account" —
+reintroducing, on the frontend, the exact email-registration-status leak
+that `invite-partner`'s backend was hardened to avoid in Slice 5 (decision
+92). Fixed with a generic message that doesn't distinguish the two cases.
+No XSS, token/password leakage, or CSRF issues found; the owner-only
+client-side gates were confirmed to be UX-only with the backend as the real
+boundary.
+
+### Remaining M7 slice (not yet started)
 - Slice 8: Export backend + frontend (CSV/Excel/PDF via short-lived
   signed URLs per PRD §20.4)
 
@@ -1957,6 +2023,15 @@ throughout), UUID enumeration (128-bit space, already low risk).
   violable under a data-integrity edge case) fixed by raising explicitly
   instead of degrading) — see "Milestone 7 Detail" above — are
   `pending_approval` under CONST-ARCH-001.
+- **M7 slice 7 (frontend Household) decisions awaiting human-ack**: decision
+  95 (assess_risk+spec, `BIW-INFRA-018`, `high` risk — an honest match, the
+  new `/accept-invite` page collects a password over an unauthenticated
+  route) and 96 (slice 7 review remediation, linked to 95 —
+  react-reviewer's one MEDIUM (toggle-button aria-labels describing the
+  action inconsistently with the visible state text) fixed;
+  security-reviewer's one MEDIUM (a frontend error message re-leaking the
+  email-registration status the backend was hardened to hide) fixed) — see
+  "Milestone 7 Detail" above — are `pending_approval` under CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all
   approved this way already.
