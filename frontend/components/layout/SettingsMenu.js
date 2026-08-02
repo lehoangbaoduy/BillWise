@@ -11,6 +11,7 @@ export default function SettingsMenu() {
             <Link className={pathname == "/settings-profile" ? "active" : ""} href="/settings-profile">Profile</Link>
             <Link className={pathname == "/settings-security" ? "active" : ""} href="/settings-security">Security</Link>
             <Link className={pathname == "/settings-categories" ? "active" : ""} href="/settings-categories">Categories</Link>
+            <Link className={pathname == "/settings-exports" ? "active" : ""} href="/settings-exports">Exports</Link>
         </div>
     )
 }

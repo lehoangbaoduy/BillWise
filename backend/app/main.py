@@ -11,6 +11,7 @@ from app.api.budgets import router as budgets_router
 from app.api.cashback import router as cashback_router
 from app.api.categories import router as categories_router
 from app.api.dashboard import router as dashboard_router
+from app.api.exports import router as exports_router
 from app.api.goals import router as goals_router
 from app.api.household import router as household_router
 from app.api.net_worth import router as net_worth_router
@@ -48,6 +49,7 @@ app.include_router(cashback_router)
 app.include_router(net_worth_router)
 app.include_router(ai_insights_router)
 app.include_router(household_router)
+app.include_router(exports_router)
 
 
 @app.get("/health")

@@ -204,6 +204,20 @@ export const householdApi = {
     }),
 }
 
+export const exportsApi = {
+  transactionsCsv: () => request("/exports/transactions.csv"),
+  monthlyReportXlsx: (month, year) => request(`/exports/monthly-report.xlsx?month=${month}&year=${year}`),
+  monthlyReportPdf: (month, year, password) => {
+    const search = new URLSearchParams({ month: String(month), year: String(year) })
+    if (password) search.set("password", password)
+    return request(`/exports/monthly-report.pdf?${search.toString()}`)
+  },
+  // The download link's `download_url` is a short-lived signed backend path
+  // (PRD §20.4), not an already-absolute URL — resolve it against the same
+  // API origin every other request in this file uses.
+  downloadUrl: (path) => `${API_BASE_URL}${path}`,
+}
+
 export const netWorthApi = {
   listAccounts: () => request("/net-worth-accounts"),
   createAccount: (data) => request("/net-worth-accounts", { method: "POST", body: JSON.stringify(data) }),

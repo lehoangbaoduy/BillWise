@@ -2,6 +2,7 @@ from app.models.ai_insight import AIInsight
 from app.models.budget import Budget
 from app.models.cashback import CashbackRecord, CashbackRule
 from app.models.category import Category
+from app.models.export import ExportToken
 from app.models.goal import SavingsGoal
 from app.models.net_worth import NetWorthAccount, NetWorthBalance, NetWorthSnapshot
 from app.models.partner_permission import PartnerInviteToken, PartnerPermission
@@ -16,6 +17,7 @@ __all__ = [
     "CashbackRecord",
     "CashbackRule",
     "Category",
+    "ExportToken",
     "NetWorthAccount",
     "NetWorthBalance",
     "NetWorthSnapshot",

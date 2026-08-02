@@ -63,7 +63,7 @@ aren't already obvious from the code or the PRD.
       once it recovered) and fixed, plus the Cashback-rules
       GET-endpoint gap-fill. Formally `pending_approval` pending human-ack
       (decisions 76-82).
-- [~] **M7: Net Worth, AI Insights, Household & Exports** — slices 1-7 of 8
+- [x] **M7: Net Worth, AI Insights, Household & Exports** — all 8 slices
       DONE. Backend: Net Worth (new tables, full CRUD gap-filled from the
       PRD's §24.11 requirement since §25 has no dedicated Net Worth CRUD
       section, complete-snapshot validation rule, dashboard aggregation
@@ -109,9 +109,26 @@ aren't already obvious from the code or the PRD.
       status that invite-partner's backend was hardened to hide) found and
       fixed, live-verified end-to-end via Playwright (invite → accept →
       partner login → sharing toggle → permission toggle → revoke →
-      immediate lockout). See "Milestone 7 Detail" below. Formally
-      `pending_approval` pending human-ack (decisions 83-96). Remaining
-      slice (Exports) not yet started.
+      immediate lockout). Backend + frontend: Exports (new `ExportToken` table
+      storing generated file bytes behind a hashed opaque token, two-step
+      signed-URL pattern — owner-only generator endpoints for
+      transactions.csv/monthly-report.xlsx/monthly-report.pdf, a public
+      token-gated `GET /exports/download/{token}`, openpyxl/reportlab for
+      Excel/PDF generation, optional PDF password protection, a read-only
+      `latest_ai_insights()` helper added specifically to avoid triggering
+      the paid-API side effect of the real AI Insights endpoint) — 12 new
+      tests, 278 total backend tests passing. One CRITICAL fastapi finding
+      (CSV BOM prepended as a literal character instead of real BOM bytes,
+      corrupting the first cell for strict CSV readers) found and fixed via
+      `utf-8-sig` encoding plus a regression test; two MEDIUM security
+      findings (no expired-token cleanup, fixed via an opportunistic
+      per-user delete; no application-layer export encryption, documented
+      as a deliberately deferred gap scoped narrower than PRD §22.2) and one
+      MINOR (missing frontend password maxLength) fixed; react-reviewer
+      approved with no blocking issues. Live-verified via Playwright
+      (CSV/XLSX/PDF all downloaded and opened successfully). See "Milestone
+      7 Detail" below. Formally `pending_approval` pending human-ack
+      (decisions 83-98).
 - [ ] **M8: Mobile Layout**
 - [ ] **M9: Security Hardening**
 
@@ -1744,9 +1761,97 @@ No XSS, token/password leakage, or CSRF issues found; the owner-only
 client-side gates were confirmed to be UX-only with the backend as the real
 boundary.
 
-### Remaining M7 slice (not yet started)
-- Slice 8: Export backend + frontend (CSV/Excel/PDF via short-lived
-  signed URLs per PRD §20.4)
+### Slice 8: Export backend + frontend
+
+**Specs registered**: `BIW-DATA-008` (data, `export_tokens` table),
+`BIW-API-012` (api, 4 endpoints — 3 owner-only generators plus the public
+download route). `assess_risk` — medium (financial data export, but no
+new cross-user access surface). Decision 97 (`pending_approval`) recorded
+before implementation.
+
+**Design**: PRD §20.4 requires "short-lived signed download URLs, 15-minute
+default expiry, not permanent links" without specifying a mechanism. No
+S3/blob storage exists anywhere in this codebase, so the chosen approach
+stores generated file bytes directly in Postgres (`ExportToken.content`,
+`LargeBinary`) alongside a hashed opaque token — the same
+generate_token()/hash_token() pattern already used for
+email-verification/password-reset/partner-invite tokens. Generation is a
+two-step flow: an owner-only `GET /exports/{type}` endpoint synchronously
+builds the file and returns `{download_url, expires_at}` JSON; a separate
+public `GET /exports/download/{token}` streams the bytes back with no
+session check, since the unguessable token is itself the credential
+(matching this app's other token-gated public endpoints). Links are
+reusable (not single-use) until `expires_at`, matching typical presigned-URL
+semantics. PRD §20.1's broader CSV-export wishlist (7 resource types) was
+narrowed to the single literal `transactions.csv` endpoint PRD §25.11
+actually names — treated as authoritative per this session's established
+literal-endpoint-list-wins convention.
+
+Monthly report generation (XLSX/PDF) reuses existing
+dashboard/cashback/goals/recurring-bills/transactions aggregation functions
+by calling their endpoint functions directly with explicit keyword
+arguments (the established direct-call-reuse pattern from
+`insight_aggregation.py`), except for AI Insights: `GET
+/dashboard/ai-insights` has a real side effect (triggers a paid Anthropic
+API call on cache staleness), so a new read-only `latest_ai_insights()`
+helper queries the `AIInsight` table directly instead, deliberately
+avoiding that endpoint. Expired-token cleanup has no dedicated job (no
+scheduler/cron infra exists anywhere in this codebase); each new export
+opportunistically deletes its own owner's past-expiry rows as a side effect
+of normal usage.
+
+**New dependencies**: `openpyxl` (Excel), `reportlab` (PDF + built-in
+`StandardEncryption` password protection) — both pure-Python, no new
+native/infra dependencies.
+
+**Backend**: `ExportToken` model, `export_service.py` (CSV/XLSX/PDF
+builders), `exports.py` router (4 endpoints) — 12 new tests, 278 total
+backend tests passing.
+
+**fastapi-reviewer — one CRITICAL found and fixed**: the CSV BOM was
+prepended as a literal `'﻿'` character before UTF-8 encoding
+(`("﻿" + text).encode("utf-8")`), which embeds the BOM as a real
+character in the first cell (`'﻿Date'`) rather than emitting proper
+BOM bytes — Excel's lenient parser hides this, but any strict CSV
+reader/re-import would see a corrupted header. Fixed to
+`buffer.getvalue().encode("utf-8-sig")`, which emits BOM bytes correctly on
+encode and strips them correctly on decode. Added a regression test
+asserting the raw response bytes start with the UTF-8 BOM sequence and that
+`utf-8-sig`-decoded content starts with a clean `"Date,"`. All other checks
+(the `latest_ai_insights()` side-effect avoidance, reportlab `HexColor`
+usage, sequential-not-concurrent aggregation calls given `AsyncSession`
+isn't concurrency-safe, empty-month handling, token hashing, migration
+correctness) confirmed correct with no changes needed.
+
+**security-reviewer — two MEDIUM, one MINOR, all addressed**: (1) MEDIUM —
+no cleanup for expired `ExportToken` rows; fixed via the opportunistic
+per-user delete described above. (2) MEDIUM — no application-layer
+encryption of export content beyond Postgres encryption-at-rest; documented
+as a deliberately deferred gap rather than fixed, since PRD §22.2's
+app-layer AES-256-GCM requirement is scoped specifically to auth/reset
+tokens, no other equally-sensitive financial data in this app has
+app-layer encryption either, and the reviewer itself framed this as
+conditional/acceptable at this app's scale. (3) MINOR — frontend PDF
+password input missing `maxLength`; fixed by adding `maxLength={128}` to
+match the backend's `Query(max_length=128)`.
+
+**react-reviewer — approved, no blocking issues**: hook correctness,
+per-export-type `pendingAction` race-condition safety, the greenfield
+`window.open(url, "_blank", "noopener")` download-trigger pattern, and
+accessibility all confirmed sound. One non-blocking nit (recreating `new
+Date()` on every render instead of a lazy `useState` initializer) applied
+anyway as a free, zero-risk change.
+
+**Frontend**: `settings-exports/page.js` (three cards — CSV/Excel/PDF,
+month/year pickers, optional PDF password field), `exportsApi` in
+`lib/api.js`, an "Exports" link added to `SettingsMenu.js`. Live-verified
+end-to-end via Playwright: CSV, XLSX (magic-byte + opened content
+confirmed via `docker cp` into the backend container, since openpyxl's
+zip-based reader needs a seekable file), and PDF all downloaded
+successfully with real transaction data.
+
+Decision 98 (`pending_approval`, linked to 97) records this remediation.
+This was the final slice of Milestone 7 — all 8 slices now complete.
 
 ## Milestone 1 Detail
 
@@ -2032,6 +2137,18 @@ throughout), UUID enumeration (128-bit space, already low risk).
   security-reviewer's one MEDIUM (a frontend error message re-leaking the
   email-registration status the backend was hardened to hide) fixed) — see
   "Milestone 7 Detail" above — are `pending_approval` under CONST-ARCH-001.
+- **M7 slice 8 (Export backend + frontend) decisions awaiting human-ack**:
+  decision 97 (assess_risk+spec, `BIW-DATA-008`/`BIW-API-012`, `medium`
+  risk) and 98 (slice 8 review remediation, linked to 97 — fastapi-
+  reviewer's one CRITICAL finding (CSV BOM corrupting the first cell,
+  fixed via `utf-8-sig` encoding plus a regression test) fixed;
+  security-reviewer's two MEDIUM findings (expired-token cleanup, fixed
+  via opportunistic delete; missing app-layer export encryption, documented
+  as a deliberately deferred gap narrower than PRD §22.2) and one MINOR
+  (missing frontend password `maxLength`) addressed; react-reviewer
+  approved with no blocking issues) — see "Milestone 7 Detail" above — are
+  `pending_approval` under CONST-ARCH-001. **This is the last M7 slice —
+  Milestone 7 is now fully complete.**
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all
   approved this way already.
