@@ -1,0 +1,53 @@
+/* App-specific overrides for the live notifications feature (header badge +
+   dropdown/list severity indicators). Kept separate from the vendored
+   template bundle in style.css. */
+
+.notify-bell {
+  position: relative;
+}
+
+.notify-bell .badge-count {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.notification .lists .item {
+  display: block;
+  border-bottom: 1px solid rgb(229, 234, 239);
+  border-left: 3px solid transparent;
+  padding: 10px 0px 10px 10px;
+}
+
+.notification .lists .item h5 {
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+.notification .lists .item p {
+  font-size: 12px;
+  opacity: 0.85;
+  margin-bottom: 0;
+}
+
+.notification .lists .item.severity-critical {
+  border-left-color: #ef4444;
+}
+
+.notification .lists .item.severity-warning {
+  border-left-color: #f59e0b;
+}
+
+.notification .lists .item.severity-info {
+  border-left-color: #3b82f6;
+}

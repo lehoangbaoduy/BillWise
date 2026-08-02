@@ -17,6 +17,7 @@ from app.api.exports import router as exports_router
 from app.api.goals import router as goals_router
 from app.api.household import router as household_router
 from app.api.net_worth import router as net_worth_router
+from app.api.notifications import router as notifications_router
 from app.api.ocr import router as ocr_router
 from app.api.payment_methods import router as payment_methods_router
 from app.api.recurring_bills import router as recurring_bills_router
@@ -54,6 +55,7 @@ app.include_router(household_router)
 app.include_router(exports_router)
 app.include_router(audit_logs_router)
 app.include_router(account_router)
+app.include_router(notifications_router)
 
 
 @app.get("/health")

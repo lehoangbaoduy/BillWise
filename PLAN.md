@@ -141,7 +141,7 @@ aren't already obvious from the code or the PRD.
       layout (44px tap targets) below 768px. See "Milestone 8 Detail"
       below. Formally `pending_approval` pending human-ack (decisions
       99-100).
-- [ ] **M9: Security Hardening** — IN PROGRESS. Slices 1-6 DONE: Persisted
+- [ ] **M9: Security Hardening** — IN PROGRESS. Slices 1-8 DONE: Persisted
       Audit Logs; Partner-scoped Dashboard & Budgets read access (closed a
       real PRD §21.4 gap); Account Deletion flow (previously entirely
       unimplemented — PRD §22.6/§25.14); Encryption review (added missing
@@ -149,11 +149,15 @@ aren't already obvious from the code or the PRD.
       AES-GCM wording as an accepted stronger deviation); Adversarial
       partner-authorization test sweep (9 new tests closing a coverage gap
       across 6 owner-only resources); Data validation review (bounded 18
-      previously-unbounded free-text request fields). See "Milestone 9
+      previously-unbounded free-text request fields); Production deployment
+      checklist (added missing `.dockerignore` files, closing a secret-baked-
+      into-image gap); Final QA sweep (removed 22 orphaned admin-template
+      pages, replaced `/notifications`' template mock content with a real
+      live notification feed — budget/recurring-bill/goal/AI-insight alerts
+      — plus a header badge, per explicit user direction). See "Milestone 9
       Detail" below. Formally `pending_approval` pending human-ack
-      (decisions 133-145, except 142/145 already self-certified
-      `approved`). Remaining slices: production deployment
-      checklist, final QA sweep for hardcoded/demo values.
+      (decisions 133-147, except 142/145/146 already self-certified
+      `approved`).
 
 ## Environment Notes
 
@@ -2400,6 +2404,103 @@ required) given the mechanical, uniform, fully-tested nature of the
 change. Full suite: **321/321 passing**. Decision 145 recorded,
 `approved`.
 
+### Slice 7: Production deployment checklist — DONE
+
+Audited both Dockerfiles for what `COPY . .` would bake into a built
+image. **Fixed a real gap**: neither `backend/` nor `frontend/` had a
+`.dockerignore`, so a production build would have copied `.env`/
+`.env.local` (both present on disk), `.git`, `node_modules`,
+`__pycache__`, and the `tests/` directory straight into the image.
+Added `backend/.dockerignore` (excludes `.env*` except `.env.example`,
+`.git`, `.pytest_cache`, `__pycache__`, `tests`, `venv`/`.venv`) and
+`frontend/.dockerignore` (excludes `.env*` except `.env.example`,
+`.git`, `node_modules`, `.next`).
+
+Verified via `docker compose build backend` + `docker run --rm
+billwise-backend:latest sh -c "ls /app/.env*; ls /app/tests; ls
+/app/.git"` — confirmed only `.env.example` present (real `.env`
+absent), `tests/` and `.git` absent from the built image. Confirmed the
+running dev container (which uses a bind mount, not `COPY`, so
+`.dockerignore` doesn't affect it) and the full test suite were
+unaffected. Self-certified (risk `high`, not `critical` — mechanical,
+verified-by-inspection change with no application code touched).
+Decision 146 recorded, `approved`.
+
+### Slice 8: Final QA sweep — DONE
+
+Full route audit: cross-referenced every `app/<route>/` directory in
+the Next.js frontend against every link actually used in
+`Sidebar.js`/`MobileNav.js`/`MobileMoreMenu.js` (the real app
+navigation) plus every other legitimately-reached route (auth pages,
+settings sub-pages, `/privacy`, `/profile`, `/404`). Found 23 pages
+reachable **only** from `app/demo/page.js`, a leftover admin-template
+showcase/sitemap page with zero BillWise relevance — `add-bank`,
+`add-card`, `add-new-account`, `affiliates`, `bank-add-successful`,
+`blank`, `id-front-and-back-upload`, `locked`, `otp-code`/`otp-phone`,
+`settings-api`, `settings-bank`, `settings-currencies`,
+`settings-session`, `support`/`support-create-ticket`/
+`support-ticket-details`/`support-tickets`, `verified-id`, `verify-id`,
+`verifying-id`, and `notifications`.
+
+`notifications` was the one exception: still linked from the live
+header (`Header1.js`'s notification bell), which rendered nothing but
+hardcoded "No new notifications" template mock content. Per explicit
+user direction: deleted the other 22 orphaned pages (`git rm -r`,
+confirmed via `npm run build` that no remaining route references any of
+them) and kept `/notifications`, replacing its template content with a
+real feature.
+
+**New feature: live notification feed + header badge (BIW-API-016,
+decision 147).** `GET /notifications` (`app/api/notifications.py` +
+`app/services/notification_service.py`) computes 5 notification types
+live on every request — no new table, consistent with this codebase's
+existing dashboard-style live-computed endpoints:
+- `budget_exceeded` / `budget_near_limit` (category spend vs. budget
+  this month, ≥90% triggers the near-limit warning) — reuses
+  `category_expense_spend` and `ensure_budget_rollover_as_owner` from
+  `app/api/dashboard.py`, partner-scoped via `shared_category_ids_
+  subquery` exactly like the dashboard endpoints already are.
+- `recurring_bill_overdue` / `recurring_bill_due_soon` (due within 3
+  days) — owner-only, reuses `ensure_recurring_bill_state`; gated on
+  `RecurringBill.reminder_enabled`, the first real consumer of that
+  previously-unused field.
+- `goal_target_date_passed` — target date passed and still underfunded;
+  partner-scoped to `is_shared` goals only.
+- `ai_insight` — surfaces undismissed `AIInsight` rows; owner-only,
+  matching the existing owner-only AI Insights endpoint.
+
+Items are sorted critical → warning → info. Frontend: `Header1.js` now
+polls `GET /notifications` every 60s via `useSWR`, shows a count badge
+on the bell icon (new `public/css/notifications.css`, kept separate
+from the vendored template bundle) and a live preview list in the
+dropdown; `app/notifications/page.js` rewritten to render the full real
+list with severity-colored rows and a genuine empty state.
+
+12 new tests (`tests/test_notifications.py`) cover all 5 notification
+types plus `TestPartnerNotificationVisibility` (partner sees a shared
+category's budget alert, never a private category's, never
+`recurring_bill_*` or `ai_insight` types, and never a non-shared goal's
+alert — including an owner-side sanity check proving those items would
+have appeared if role-scoping were broken). Frontend `npm run build`:
+clean, `/notifications` now ships real content (811 B vs. 180 B of empty
+markup before). Decision 147 recorded (risk `medium`, `assess_risk`
+gate: spec + tests + review:code).
+
+**Reviewer gate**: security-reviewer approved outright — correct PRD
+§21.4 partner scoping verified across all 5 notification types, no
+injection/IDOR/XSS risk, auth dependency consistent with the existing
+`dashboard.py` precedent (no new rate limit needed; matches how every
+other dashboard-style read endpoint is already exposed). fastapi-
+reviewer found two MEDIUM issues, both fixed: removed a dead
+`ConfigDict(from_attributes=True)` from `NotificationItem` (the service
+always constructs instances directly, never from ORM rows), and
+extended the partner-visibility test to explicitly assert recurring-bill
+and non-shared-goal exclusion (previously only budget/AI-insight
+scoping was asserted). Pagination and the cross-module-private-helper
+question were both raised and assessed as correct-as-is. Remediation
+recorded as decision 148 (linked to 147). Full suite after fixes:
+**345/345 passing**.
+
 ## Milestone 1 Detail
 
 ### Specs registered
@@ -2624,6 +2725,13 @@ throughout), UUID enumeration (128-bit space, already low risk).
 - **M9 Slice 6 (Data validation review) decision**: decision 145, already
   self-certified `approved` (risk `high`, not `critical`). No action
   needed.
+- **M9 Slice 7 (Production deployment checklist) decision**: decision 146,
+  already self-certified `approved` (risk `high`, not `critical`). No
+  action needed.
+- **M9 Slice 8 (Final QA sweep — orphaned pages + notifications feature)
+  decisions awaiting human-ack**: decision 147 (initial risk assessment +
+  spec `BIW-API-016`) and decision 148 (remediation — fastapi-reviewer's
+  two MEDIUM findings fixed) are both `pending_approval`.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — every other decision in the
   project (M1-M8, all slices, all remediations) has already been approved

@@ -2,14 +2,26 @@ import { Menu } from '@headlessui/react'
 import dynamic from 'next/dynamic'
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import useSWR from "swr"
 import { useAuth } from "@/hooks/useAuth"
-import { authApi } from "@/lib/api"
+import { authApi, notificationsApi } from "@/lib/api"
+
 const ThemeSwitch = dynamic(() => import('@/components/elements/ThemeSwitch'), {
     ssr: false
 })
+
+const NOTIFICATIONS_POLL_INTERVAL_MS = 60000
+const NOTIFICATIONS_PREVIEW_COUNT = 5
+
 export default function Header1({ isMobileMenu, handleMobileMenu }) {
     const router = useRouter()
     const { user } = useAuth()
+    const { data: notifications } = useSWR(
+        user ? "/notifications" : null,
+        () => notificationsApi.list(),
+        { refreshInterval: NOTIFICATIONS_POLL_INTERVAL_MS }
+    )
+    const notificationCount = notifications?.length ?? 0
 
     async function handleLogout() {
         try {
@@ -45,12 +57,24 @@ export default function Header1({ isMobileMenu, handleMobileMenu }) {
                                         <Menu.Button as="div" className="show">
                                             <div className="notify-bell icon-menu">
                                                 <span><i className="fi fi-rs-bells" /></span>
+                                                {notificationCount > 0 && (
+                                                    <span className="badge-count">{notificationCount > 9 ? "9+" : notificationCount}</span>
+                                                )}
                                             </div>
                                         </Menu.Button>
                                         <Menu.Items as="div" tabIndex={-1} role="menu" aria-hidden="true" className="dropdown-menu dropdown-menu-end show">
                                             <h4>Recent Notification</h4>
                                             <div className="lists">
-                                                <p className="text-center p-3 mb-0">No new notifications</p>
+                                                {notificationCount === 0 ? (
+                                                    <p className="text-center p-3 mb-0">No new notifications</p>
+                                                ) : (
+                                                    notifications.slice(0, NOTIFICATIONS_PREVIEW_COUNT).map((notification, index) => (
+                                                        <div className={`item severity-${notification.severity}`} key={`${notification.type}-${index}`}>
+                                                            <h5>{notification.title}</h5>
+                                                            <p>{notification.message}</p>
+                                                        </div>
+                                                    ))
+                                                )}
                                             </div>
                                             <div className="more">
                                                 <Link href="/notifications">More<i className="fi fi-bs-angle-right" /></Link>

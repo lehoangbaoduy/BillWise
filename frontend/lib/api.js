@@ -184,6 +184,10 @@ export const aiInsightsApi = {
   dismiss: (id) => request(`/ai-insights/${id}`, { method: "PATCH", body: JSON.stringify({ is_dismissed: true }) }),
 }
 
+export const notificationsApi = {
+  list: () => request("/notifications"),
+}
+
 export const householdApi = {
   get: () => request("/household"),
   invitePartner: (email, canAddTransactions) =>

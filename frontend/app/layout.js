@@ -1,6 +1,7 @@
 import { Rubik } from 'next/font/google'
 import 'react-perfect-scrollbar/dist/css/styles.css'
 import "/public/css/style.css"
+import "/public/css/notifications.css"
 
 const rubik = Rubik({
     weight: ['400', '500', '700'],
