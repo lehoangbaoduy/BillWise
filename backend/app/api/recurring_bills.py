@@ -1,7 +1,7 @@
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -180,13 +180,14 @@ async def deactivate_recurring_bill(
 
 @router.post("/{bill_id}/mark-paid", response_model=RecurringBillPublic)
 async def mark_recurring_bill_paid(
+    request: Request,
     bill_id: uuid.UUID,
     body: MarkPaidRequest,
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
 ) -> RecurringBillPublic:
     bill = await _get_owned_active_or_404(session, user, bill_id)
-    await mark_bill_paid(session, user, bill, body.paid_date or date.today(), body.amount_paid)
+    await mark_bill_paid(session, user, bill, body.paid_date or date.today(), body.amount_paid, request)
 
     payments = await _load_payments(session, bill.id)
     return _to_public(bill, payments)

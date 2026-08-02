@@ -1,10 +1,11 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import get_current_user, require_owner
+from app.core.audit import log_audit_event
 from app.core.db import get_session
 from app.models._common import utcnow
 from app.models.category import Category
@@ -88,6 +89,7 @@ async def deactivate_category(
 
 @router.patch("/{category_id}/sharing", response_model=CategoryPublic)
 async def update_category_sharing(
+    request: Request,
     category_id: uuid.UUID,
     body: CategorySharingUpdate,
     user: User = Depends(require_owner),
@@ -99,4 +101,8 @@ async def update_category_sharing(
     session.add(category)
     await session.commit()
     await session.refresh(category)
+    await log_audit_event(
+        session, "category.sharing_changed", user_id=user.id, entity_type="category", entity_id=category.id,
+        metadata={"is_shared": body.is_shared}, request=request,
+    )
     return category

@@ -1,10 +1,11 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlmodel import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import require_owner
+from app.core.audit import log_audit_event
 from app.core.db import get_session
 from app.models._common import utcnow
 from app.models.budget import Budget
@@ -48,6 +49,7 @@ async def list_budgets(
 
 @router.post("", response_model=BudgetPublic, status_code=status.HTTP_201_CREATED)
 async def create_budget(
+    request: Request,
     body: BudgetCreate,
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
@@ -74,11 +76,16 @@ async def create_budget(
     session.add(budget)
     await session.commit()
     await session.refresh(budget)
+    await log_audit_event(
+        session, "budget.created", user_id=user.id, entity_type="budget", entity_id=budget.id,
+        metadata={"category_id": str(budget.category_id), "budget_amount": str(budget.budget_amount)}, request=request,
+    )
     return budget
 
 
 @router.patch("/{budget_id}", response_model=BudgetPublic)
 async def update_budget(
+    request: Request,
     budget_id: uuid.UUID,
     body: BudgetUpdate,
     user: User = Depends(require_owner),
@@ -90,11 +97,16 @@ async def update_budget(
     session.add(budget)
     await session.commit()
     await session.refresh(budget)
+    await log_audit_event(
+        session, "budget.updated", user_id=user.id, entity_type="budget", entity_id=budget.id,
+        metadata={"budget_amount": str(budget.budget_amount)}, request=request,
+    )
     return budget
 
 
 @router.delete("/{budget_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_budget(
+    request: Request,
     budget_id: uuid.UUID,
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
@@ -102,3 +114,6 @@ async def delete_budget(
     budget = await _get_owned_or_404(session, user, budget_id)
     await session.delete(budget)
     await session.commit()
+    await log_audit_event(
+        session, "budget.deleted", user_id=user.id, entity_type="budget", entity_id=budget_id, request=request,
+    )

@@ -1,7 +1,7 @@
 import uuid
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -78,6 +78,7 @@ async def get_household(
 
 @router.post("/household/invite-partner", response_model=PendingInvitePublic, status_code=status.HTTP_201_CREATED)
 async def invite_partner(
+    request: Request,
     body: InvitePartnerRequest,
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
@@ -114,12 +115,17 @@ async def invite_partner(
     accept_url = f"{settings.frontend_base_url}/accept-invite?token={token}"
     send_partner_invite_email(body.email, accept_url)
 
-    log_audit_event("partner.invited", user_id=user.id, metadata={"email": body.email})
+    await log_audit_event(
+        session, "partner.invited", user_id=user.id, entity_type="partner_invite", entity_id=invite.id,
+        metadata={"email": body.email}, request=request,
+    )
     return invite
 
 
 @router.post("/household/accept-invite", response_model=UserPublic, status_code=status.HTTP_201_CREATED)
-async def accept_invite(body: AcceptInviteRequest, session: AsyncSession = Depends(get_session)) -> UserPublic:
+async def accept_invite(
+    request: Request, body: AcceptInviteRequest, session: AsyncSession = Depends(get_session)
+) -> UserPublic:
     token_hash = hash_token(body.token)
     invite = (await session.exec(select(PartnerInviteToken).where(PartnerInviteToken.token_hash == token_hash))).first()
 
@@ -155,12 +161,16 @@ async def accept_invite(body: AcceptInviteRequest, session: AsyncSession = Depen
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered") from None
     await session.refresh(partner)
 
-    log_audit_event("partner.invite_accepted", user_id=partner.id, metadata={"invited_by": str(invite.invited_by_user_id)})
+    await log_audit_event(
+        session, "partner.invite_accepted", user_id=partner.id, entity_type="user", entity_id=partner.id,
+        metadata={"invited_by": str(invite.invited_by_user_id)}, request=request,
+    )
     return to_user_public(partner)
 
 
 @router.delete("/household/partner/{partner_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_partner(
+    request: Request,
     partner_id: uuid.UUID,
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
@@ -176,7 +186,9 @@ async def remove_partner(
         partner.is_active = False
         session.add(partner)
         await session.commit()
-        log_audit_event("partner.revoked", user_id=user.id, metadata={"partner_id": str(partner_id)})
+        await log_audit_event(
+            session, "partner.revoked", user_id=user.id, entity_type="user", entity_id=partner_id, request=request,
+        )
         return
 
     invite = await session.get(PartnerInviteToken, partner_id)
@@ -185,7 +197,10 @@ async def remove_partner(
         invite.revoked_at = now
         session.add(invite)
         await session.commit()
-        log_audit_event("partner.invite_revoked", user_id=user.id, metadata={"invite_id": str(partner_id)})
+        await log_audit_event(
+            session, "partner.invite_revoked", user_id=user.id, entity_type="partner_invite", entity_id=partner_id,
+            request=request,
+        )
         return
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Partner or invite not found")
@@ -193,6 +208,7 @@ async def remove_partner(
 
 @router.patch("/household/partner/{partner_id}/permissions", response_model=PartnerPublic)
 async def update_partner_permissions(
+    request: Request,
     partner_id: uuid.UUID,
     body: UpdatePartnerPermissionsRequest,
     user: User = Depends(require_owner),
@@ -213,10 +229,14 @@ async def update_partner_permissions(
     session.add(permission)
     await session.commit()
 
-    log_audit_event(
+    await log_audit_event(
+        session,
         "partner.permissions_updated",
         user_id=user.id,
-        metadata={"partner_id": str(partner_id), "can_add_transactions": body.can_add_transactions},
+        entity_type="user",
+        entity_id=partner_id,
+        metadata={"can_add_transactions": body.can_add_transactions},
+        request=request,
     )
     return PartnerPublic(
         id=partner.id,

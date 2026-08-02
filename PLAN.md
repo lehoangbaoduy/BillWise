@@ -141,7 +141,13 @@ aren't already obvious from the code or the PRD.
       layout (44px tap targets) below 768px. See "Milestone 8 Detail"
       below. Formally `pending_approval` pending human-ack (decisions
       99-100).
-- [ ] **M9: Security Hardening**
+- [ ] **M9: Security Hardening** — IN PROGRESS. Slice 1 (Persisted Audit
+      Logs) DONE — see "Milestone 9 Detail" below. Formally
+      `pending_approval` pending human-ack (decisions 133-134). Remaining
+      slices: authorization testing (partner cross-household access
+      denial), data validation/upload security review, encryption review,
+      account deletion flow, production deployment checklist, final QA
+      sweep.
 
 ## Environment Notes
 
@@ -2041,6 +2047,115 @@ touched files, production `npm run build` clean, full backend suite still
 278/278 passing (untouched by this frontend-only sweep — no backend code
 was changed), and the Docker frontend image builds and runs.
 
+## Milestone 9 Detail (Security Hardening)
+
+### Slice 1: Persisted Audit Logs — DONE
+
+Read PRD §22 (Security and Privacy Requirements — §22.1 Sensitive Data
+Rules, §22.2 Encryption, §22.3 Audit Logs field list, §22.4 Data Retention,
+§22.5 Data Ownership, §22.6 Account Deletion narrative), §23.17
+(`audit_logs` table schema), and §25.11-25.14 (Exports/Audit
+Log/Household/Account Deletion endpoint lists) before implementing.
+
+`assess_risk` returned `critical` (honest keyword match on "payment" — the
+retrofit genuinely touches `payment_methods.py`). Required gates: spec,
+tests, review:security, human-ack.
+
+**Specs registered:**
+- `BIW-DATA-009` (id 44) — `audit_logs` table: `id` (uuid, PK), `user_id`
+  (uuid, FK users.id, nullable), `action` (string, not_null), `entity_type`
+  (string, nullable), `entity_id` (string, nullable), `metadata` (json,
+  not_null), `ip_address` (string, nullable), `user_agent` (string,
+  nullable), `created_at` (timestamptz, not_null).
+- `BIW-API-013` (id 45) — `GET /audit-logs`, owner-only, whole-household
+  visibility, optional filters (action, entity_type, date range).
+
+**Backend — DONE**
+- [x] `AuditLog` SQLModel (`app/models/audit_log.py`) — JSON metadata column
+  exposed as Python attribute `audit_metadata` (mapped to real DB column
+  `metadata`) to avoid colliding with SQLAlchemy's own reserved
+  `Base.metadata` class attribute. Composite index
+  `ix_audit_logs_user_id_created_at` on `(user_id, created_at)` added
+  during remediation (see below) alongside the individual `user_id` and
+  `action` indexes, supporting the `GET /audit-logs` query's `user_id IN
+  (...)` filter + `ORDER BY created_at DESC` sort.
+- [x] Migration `a48f1cf5adcf_add_audit_logs`.
+- [x] `core/audit.py`'s `log_audit_event()` rewritten from a fire-and-forget
+  log-line helper into an `async` function that both logs and persists a
+  row (`session.add(...)` + `await session.commit()`), self-committing
+  rather than joining the caller's transaction — safe because every call
+  site already invoked the old version strictly after its own primary
+  commit completed. Optionally captures `request.client.host` and the
+  `user-agent` header when a `Request` is passed.
+- [x] Retrofitted all 15 pre-existing call sites (`auth.py`, `household.py`,
+  `ai_insights.py`) to the new async signature, threading `request:
+  Request` through endpoint signatures where missing.
+- [x] Added ~15 new call sites for previously-unaudited actions:
+  `transactions.py` (create/update/delete), `budgets.py`
+  (create/update/delete), `payment_methods.py`
+  (create/update/deactivate), `ocr.py` (receipt processed +
+  OCR-confirmed transaction create), `exports.py` (export generated),
+  `goals.py` (create/update/sharing/deactivate/add-funds→
+  transaction.created), `categories.py` (sharing changed),
+  `recurring_bill_service.py`'s `mark_bill_paid` (conditional
+  transaction.created when auto-create fires). This closed 4
+  previously-inconsistent `transaction.created` paths (manual, receipt-OCR,
+  goal add-funds, recurring-bill mark-paid) so all 4 creation routes are
+  now audited identically.
+- [x] `GET /audit-logs` (`app/api/audit_logs.py`) — owner-only
+  (`require_owner`), returns the whole household's trail (owner + every
+  partner via `User.invited_by_user_id == owner.id`), optional
+  `action`/`entity_type`/`start_date`/`end_date` filters,
+  `limit`(default 50, max 200)/`offset` pagination, newest-first.
+  `AuditLogPublic` responses built explicitly field-by-field rather than
+  via automatic ORM attribute serialization, to correctly map
+  `audit_metadata` → the public `metadata` field.
+
+**Scope decisions (documented, not silently dropped):**
+- Recurring-bill CRUD (create/update/deactivate) and general category CRUD
+  are deliberately NOT audited — PRD §22.3's literal event list doesn't
+  name them — while the transaction side-effects those flows produce (which
+  the PRD does name) are audited.
+- `account.deletion_requested`/`account.deletion_completed` audit events
+  are deferred to the future Account Deletion slice, since those endpoints
+  don't exist yet.
+
+**Tests — DONE**
+- [x] `backend/tests/test_audit_logs.py` (NEW, 8 tests): auth required,
+  partner forbidden (403), login generates a persisted row, transaction
+  create is audited with correct entity reference, owner sees partner
+  actions too (household-scoped visibility), filter by entity_type,
+  pagination limit/offset, newest-first ordering.
+- [x] Fixed `test_ai_insights.py`'s `_fake_log_audit_event` mock signature
+  (the only test in the suite mocking `log_audit_event`) to match the new
+  async signature.
+- [x] Full backend suite: **286/286 passing** (278 pre-existing + 8 new).
+
+**Review gate — DONE.** security-reviewer and fastapi-reviewer dispatched
+in parallel.
+- fastapi-reviewer: CLEAN, zero findings — verified async/await correctness
+  across all 34 call sites, correct `Request` threading (no undefined-name
+  risk), sound `audit_metadata`/`metadata` mapping, efficient
+  single-upfront-query partner-id lookup, and non-tautological test
+  coverage.
+- security-reviewer: CLEAN on IDOR/cross-household leakage (traced the
+  `partner_ids`/`household_user_ids` filter — confirmed no cross-household
+  read is possible), SQL injection (fully parameterized ORM throughout),
+  sensitive-data leakage (audited all 22 `metadata` dicts across every call
+  site — no passwords/tokens/PII), IP/user-agent null-safety, DoS surface
+  (existing rate limits on login/OCR are adequate; extra commit overhead
+  accepted), and the `require_owner` (not `require_household_member`)
+  authorization gate choice. One **MEDIUM** finding: migration indexed
+  `user_id` and `action` individually but not `created_at`, which
+  `GET /audit-logs` both filters and sorts by — full-table-scan risk as the
+  table grows. **Fixed**: added composite index
+  `ix_audit_logs_user_id_created_at (user_id, created_at)` via
+  `__table_args__` on the model + the migration; applied to the dev DB;
+  re-ran the full suite (286/286 still passing).
+
+Decision 133 (critical-risk assessment) and decision 134 (remediation,
+linked to 133) recorded — both `pending_approval`.
+
 ## Milestone 1 Detail
 
 ### Specs registered
@@ -2242,9 +2357,11 @@ throughout), UUID enumeration (128-bit space, already low risk).
   confirmed via `audit_report`. ✅
 - **Pre-M9 gap sweep decision awaiting human-ack**: decision 119 (three real,
   previously-documented gaps closed before starting M9 — see "Pre-M9 Gap
-  Sweep" section below) is `pending_approval` under CONST-ARCH-001. This is
-  the only decision in the entire project not yet approved as of this
-  writing.
+  Sweep" section below) is `pending_approval` under CONST-ARCH-001.
+- **M9 Slice 1 (Persisted Audit Logs) decisions awaiting human-ack**:
+  decision 133 (initial critical-risk assessment + spec) and decision 134
+  (remediation — reviewer gate findings + composite-index fix) are both
+  `pending_approval`. See "Milestone 9 Detail" below.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — every other decision in the
   project (M1-M8, all slices, all remediations) has already been approved

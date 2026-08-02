@@ -164,7 +164,7 @@ class TestGetAIInsights:
         await _authed_client(client, session, unique_email)
         logged = []
 
-        def _fake_log_audit_event(action, *, user_id, metadata=None):
+        async def _fake_log_audit_event(session, action, *, user_id, entity_type=None, entity_id=None, metadata=None, request=None):
             logged.append((action, user_id, metadata))
 
         monkeypatch.setattr(ai_insights_api, "log_audit_event", _fake_log_audit_event)

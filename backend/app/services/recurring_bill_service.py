@@ -3,10 +3,11 @@ import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Request, status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.audit import log_audit_event
 from app.models.payment_method import PaymentMethod
 from app.models.recurring_bill import RecurringBill, RecurringBillPayment, RecurringBillPaymentStatus, RecurringFrequency
 from app.models.transaction import Transaction, TransactionSource, TransactionType
@@ -108,6 +109,7 @@ async def mark_bill_paid(
     bill: RecurringBill,
     paid_date: date,
     amount_paid: Decimal | None,
+    request: Request | None = None,
 ) -> tuple[RecurringBillPayment, Transaction | None]:
     """PRD §25.8 POST /recurring-bills/{id}/mark-paid. Targets the bill's earliest
     non-terminal period (upcoming or overdue) since the endpoint is parameterized
@@ -141,6 +143,11 @@ async def mark_bill_paid(
         period.transaction_id = transaction.id
         line_items = await load_line_items(session, transaction.id)
         await record_cashback_for_line_items(session, transaction, line_items)
+        await log_audit_event(
+            session, "transaction.created", user_id=user.id, entity_type="transaction", entity_id=transaction.id,
+            metadata={"source": "recurring_bill", "bill_id": str(bill.id), "total_amount": str(transaction.total_amount)},
+            request=request,
+        )
 
     period.status = RecurringBillPaymentStatus.PAID
     period.paid_date = paid_date

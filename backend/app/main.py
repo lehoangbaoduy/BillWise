@@ -6,6 +6,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.api.ai_insights import router as ai_insights_router
+from app.api.audit_logs import router as audit_logs_router
 from app.api.auth import router as auth_router
 from app.api.budgets import router as budgets_router
 from app.api.cashback import router as cashback_router
@@ -50,6 +51,7 @@ app.include_router(net_worth_router)
 app.include_router(ai_insights_router)
 app.include_router(household_router)
 app.include_router(exports_router)
+app.include_router(audit_logs_router)
 
 
 @app.get("/health")

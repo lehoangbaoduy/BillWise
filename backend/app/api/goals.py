@@ -1,11 +1,12 @@
 import uuid
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import household_owner_id, require_household_member, require_owner
+from app.core.audit import log_audit_event
 from app.core.db import get_session
 from app.models._common import utcnow
 from app.models.goal import SavingsGoal
@@ -78,6 +79,7 @@ async def list_goals(
 
 @router.post("", response_model=GoalPublic, status_code=status.HTTP_201_CREATED)
 async def create_goal(
+    request: Request,
     body: GoalCreate,
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
@@ -86,6 +88,10 @@ async def create_goal(
     session.add(goal)
     await session.commit()
     await session.refresh(goal)
+    await log_audit_event(
+        session, "goal.created", user_id=user.id, entity_type="goal", entity_id=goal.id,
+        metadata={"name": goal.name}, request=request,
+    )
     return _to_public(goal, Decimal("0"))
 
 
@@ -116,23 +122,30 @@ async def get_goal(
 
 @router.patch("/{goal_id}", response_model=GoalPublic)
 async def update_goal(
+    request: Request,
     goal_id: uuid.UUID,
     body: GoalUpdate,
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
 ) -> GoalPublic:
     goal = await _get_owned_active_or_404(session, user, goal_id)
-    for field, value in body.model_dump(exclude_unset=True).items():
+    updated_fields = body.model_dump(exclude_unset=True)
+    for field, value in updated_fields.items():
         setattr(goal, field, value)
     goal.updated_at = utcnow()
     session.add(goal)
     await session.commit()
     await session.refresh(goal)
+    await log_audit_event(
+        session, "goal.updated", user_id=user.id, entity_type="goal", entity_id=goal.id,
+        metadata={"fields": list(updated_fields.keys())}, request=request,
+    )
     return _to_public(goal, await _current_amount(session, goal.id))
 
 
 @router.patch("/{goal_id}/sharing", response_model=GoalPublic)
 async def update_goal_sharing(
+    request: Request,
     goal_id: uuid.UUID,
     body: GoalSharingUpdate,
     user: User = Depends(require_owner),
@@ -144,11 +157,16 @@ async def update_goal_sharing(
     session.add(goal)
     await session.commit()
     await session.refresh(goal)
+    await log_audit_event(
+        session, "goal.updated", user_id=user.id, entity_type="goal", entity_id=goal.id,
+        metadata={"fields": ["is_shared"], "is_shared": body.is_shared}, request=request,
+    )
     return _to_public(goal, await _current_amount(session, goal.id))
 
 
 @router.delete("/{goal_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def deactivate_goal(
+    request: Request,
     goal_id: uuid.UUID,
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
@@ -164,10 +182,14 @@ async def deactivate_goal(
         session.add(transaction)
 
     await session.commit()
+    await log_audit_event(
+        session, "goal.deactivated", user_id=user.id, entity_type="goal", entity_id=goal_id, request=request,
+    )
 
 
 @router.post("/{goal_id}/add-funds", response_model=GoalPublic, status_code=status.HTTP_201_CREATED)
 async def add_funds(
+    request: Request,
     goal_id: uuid.UUID,
     body: AddFundsRequest,
     user: User = Depends(require_owner),
@@ -200,5 +222,10 @@ async def add_funds(
         )
     )
     await session.commit()
+    await log_audit_event(
+        session, "transaction.created", user_id=user.id, entity_type="transaction", entity_id=transaction.id,
+        metadata={"source": "goal_add_funds", "goal_id": str(goal.id), "total_amount": str(transaction.total_amount)},
+        request=request,
+    )
 
     return _to_public(goal, await _current_amount(session, goal.id))

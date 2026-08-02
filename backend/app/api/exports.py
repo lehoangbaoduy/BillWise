@@ -1,10 +1,11 @@
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlmodel import delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import require_owner
+from app.core.audit import log_audit_event
 from app.core.config import settings
 from app.core.db import get_session
 from app.core.security import generate_token, hash_token
@@ -24,7 +25,12 @@ _CONTENT_TYPES = {
 
 
 async def _issue_link(
-    session: AsyncSession, user: User, export_type: ExportType, filename: str, content: bytes
+    session: AsyncSession,
+    user: User,
+    export_type: ExportType,
+    filename: str,
+    content: bytes,
+    request: Request,
 ) -> ExportLinkPublic:
     # No background sweep job exists in this codebase for any table, so rather
     # than introduce new scheduler infra just for this, each new export
@@ -35,42 +41,48 @@ async def _issue_link(
 
     token = generate_token()
     expires_at = utcnow() + timedelta(minutes=settings.export_token_expire_minutes)
-    session.add(
-        ExportToken(
-            user_id=user.id,
-            export_type=export_type,
-            filename=filename,
-            content_type=_CONTENT_TYPES[export_type],
-            content=content,
-            token_hash=hash_token(token),
-            expires_at=expires_at,
-        )
+    export_token = ExportToken(
+        user_id=user.id,
+        export_type=export_type,
+        filename=filename,
+        content_type=_CONTENT_TYPES[export_type],
+        content=content,
+        token_hash=hash_token(token),
+        expires_at=expires_at,
     )
+    session.add(export_token)
     await session.commit()
+    await session.refresh(export_token)
+    await log_audit_event(
+        session, "export.generated", user_id=user.id, entity_type="export", entity_id=export_token.id,
+        metadata={"export_type": export_type.value, "filename": filename}, request=request,
+    )
     return ExportLinkPublic(download_url=f"/exports/download/{token}", expires_at=expires_at)
 
 
 @router.get("/transactions.csv", response_model=ExportLinkPublic)
 async def export_transactions_csv(
-    user: User = Depends(require_owner), session: AsyncSession = Depends(get_session)
+    request: Request, user: User = Depends(require_owner), session: AsyncSession = Depends(get_session)
 ) -> ExportLinkPublic:
     content = await build_transactions_csv(session, user)
-    return await _issue_link(session, user, ExportType.CSV, "transactions.csv", content)
+    return await _issue_link(session, user, ExportType.CSV, "transactions.csv", content, request)
 
 
 @router.get("/monthly-report.xlsx", response_model=ExportLinkPublic)
 async def export_monthly_report_xlsx(
+    request: Request,
     month: int = Query(ge=1, le=12),
     year: int = Query(ge=2000, le=2100),
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
 ) -> ExportLinkPublic:
     content = await build_monthly_report_xlsx(session, user, month, year)
-    return await _issue_link(session, user, ExportType.XLSX, f"billwise-report-{year}-{month:02d}.xlsx", content)
+    return await _issue_link(session, user, ExportType.XLSX, f"billwise-report-{year}-{month:02d}.xlsx", content, request)
 
 
 @router.get("/monthly-report.pdf", response_model=ExportLinkPublic)
 async def export_monthly_report_pdf(
+    request: Request,
     month: int = Query(ge=1, le=12),
     year: int = Query(ge=2000, le=2100),
     password: str | None = Query(default=None, min_length=4, max_length=128),
@@ -78,7 +90,7 @@ async def export_monthly_report_pdf(
     session: AsyncSession = Depends(get_session),
 ) -> ExportLinkPublic:
     content = await build_monthly_report_pdf(session, user, month, year, password)
-    return await _issue_link(session, user, ExportType.PDF, f"billwise-report-{year}-{month:02d}.pdf", content)
+    return await _issue_link(session, user, ExportType.PDF, f"billwise-report-{year}-{month:02d}.pdf", content, request)
 
 
 @router.get("/download/{token}")

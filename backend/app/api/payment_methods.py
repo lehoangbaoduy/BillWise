@@ -1,10 +1,11 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import require_owner
+from app.core.audit import log_audit_event
 from app.core.db import get_session
 from app.models._common import utcnow
 from app.models.payment_method import PaymentMethod
@@ -33,6 +34,7 @@ async def list_payment_methods(
 
 @router.post("", response_model=PaymentMethodPublic, status_code=status.HTTP_201_CREATED)
 async def create_payment_method(
+    request: Request,
     body: PaymentMethodCreate,
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
@@ -41,6 +43,10 @@ async def create_payment_method(
     session.add(payment_method)
     await session.commit()
     await session.refresh(payment_method)
+    await log_audit_event(
+        session, "payment_method.created", user_id=user.id, entity_type="payment_method", entity_id=payment_method.id,
+        metadata={"name": payment_method.name}, request=request,
+    )
     return payment_method
 
 
@@ -55,23 +61,30 @@ async def get_payment_method(
 
 @router.patch("/{payment_method_id}", response_model=PaymentMethodPublic)
 async def update_payment_method(
+    request: Request,
     payment_method_id: uuid.UUID,
     body: PaymentMethodUpdate,
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
 ) -> PaymentMethod:
     payment_method = await _get_owned_or_404(session, user, payment_method_id)
-    for field, value in body.model_dump(exclude_unset=True).items():
+    updated_fields = body.model_dump(exclude_unset=True)
+    for field, value in updated_fields.items():
         setattr(payment_method, field, value)
     payment_method.updated_at = utcnow()
     session.add(payment_method)
     await session.commit()
     await session.refresh(payment_method)
+    await log_audit_event(
+        session, "payment_method.updated", user_id=user.id, entity_type="payment_method", entity_id=payment_method.id,
+        metadata={"fields": list(updated_fields.keys())}, request=request,
+    )
     return payment_method
 
 
 @router.delete("/{payment_method_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def deactivate_payment_method(
+    request: Request,
     payment_method_id: uuid.UUID,
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
@@ -81,3 +94,7 @@ async def deactivate_payment_method(
     payment_method.updated_at = utcnow()
     session.add(payment_method)
     await session.commit()
+    await log_audit_event(
+        session, "payment_method.deactivated", user_id=user.id, entity_type="payment_method",
+        entity_id=payment_method_id, request=request,
+    )

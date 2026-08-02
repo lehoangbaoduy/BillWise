@@ -1,12 +1,13 @@
 import uuid
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import extract
 from sqlmodel import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import household_owner_id, require_can_add_transactions, require_household_member, require_owner
+from app.core.audit import log_audit_event
 from app.core.db import get_session
 from app.models._common import utcnow
 from app.models.category import Category
@@ -118,6 +119,7 @@ async def list_transactions(
 
 @router.post("", response_model=TransactionPublic, status_code=status.HTTP_201_CREATED)
 async def create_transaction(
+    request: Request,
     body: TransactionCreate,
     user: User = Depends(require_can_add_transactions),
     session: AsyncSession = Depends(get_session),
@@ -125,6 +127,10 @@ async def create_transaction(
     transaction, possible_duplicate = await create_transaction_record(session, user, body, TransactionSource.MANUAL)
     line_items = await load_line_items(session, transaction.id)
     await record_cashback_for_line_items(session, transaction, line_items)
+    await log_audit_event(
+        session, "transaction.created", user_id=user.id, entity_type="transaction", entity_id=transaction.id,
+        metadata={"total_amount": str(transaction.total_amount)}, request=request,
+    )
     return await to_transaction_public(session, transaction, possible_duplicate=possible_duplicate)
 
 
@@ -140,6 +146,7 @@ async def get_transaction(
 
 @router.patch("/{transaction_id}", response_model=TransactionPublic)
 async def update_transaction(
+    request: Request,
     transaction_id: uuid.UUID,
     body: TransactionUpdate,
     user: User = Depends(require_owner),
@@ -204,11 +211,16 @@ async def update_transaction(
     if new_line_items is not None:
         await record_cashback_for_line_items(session, transaction, new_line_items)
 
+    await log_audit_event(
+        session, "transaction.updated", user_id=user.id, entity_type="transaction", entity_id=transaction.id,
+        metadata={"fields": list(updates.keys())}, request=request,
+    )
     return await to_transaction_public(session, transaction)
 
 
 @router.delete("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_transaction(
+    request: Request,
     transaction_id: uuid.UUID,
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
@@ -216,3 +228,7 @@ async def delete_transaction(
     transaction = await _get_owned_or_404(session, user, transaction_id)
     await session.delete(transaction)
     await session.commit()
+    await log_audit_event(
+        session, "transaction.deleted", user_id=user.id, entity_type="transaction", entity_id=transaction_id,
+        request=request,
+    )

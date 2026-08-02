@@ -56,7 +56,7 @@ def _set_session_cookie(response: Response, user: User) -> None:
 
 
 @router.post("/register", response_model=UserPublic, status_code=status.HTTP_201_CREATED)
-async def register(body: RegisterRequest, session: AsyncSession = Depends(get_session)) -> UserPublic:
+async def register(request: Request, body: RegisterRequest, session: AsyncSession = Depends(get_session)) -> UserPublic:
     if body.invite_token is not None:
         # Partner acceptance is its own endpoint (PRD §25.13: POST
         # /household/accept-invite, app/api/household.py) rather than a branch of
@@ -103,12 +103,15 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
     verify_url = f"{settings.frontend_base_url}/verify-email?token={token}"
     send_verification_email(user.email, verify_url)
 
-    log_audit_event("user.registered", user_id=user.id, metadata={"email": user.email})
+    await log_audit_event(
+        session, "user.registered", user_id=user.id, entity_type="user", entity_id=user.id,
+        metadata={"email": user.email}, request=request,
+    )
     return to_user_public(user)
 
 
 @router.post("/verify-email")
-async def verify_email(body: VerifyEmailRequest, session: AsyncSession = Depends(get_session)) -> dict:
+async def verify_email(request: Request, body: VerifyEmailRequest, session: AsyncSession = Depends(get_session)) -> dict:
     token_hash = hash_token(body.token)
     record = (
         await session.exec(select(EmailVerificationToken).where(EmailVerificationToken.token_hash == token_hash))
@@ -126,7 +129,7 @@ async def verify_email(body: VerifyEmailRequest, session: AsyncSession = Depends
     session.add(record)
     await session.commit()
 
-    log_audit_event("user.email_verified", user_id=user.id)
+    await log_audit_event(session, "user.email_verified", user_id=user.id, entity_type="user", entity_id=user.id, request=request)
     return {"verified": True}
 
 
@@ -140,15 +143,23 @@ async def login(
 ) -> UserPublic:
     user = (await session.exec(select(User).where(User.email == body.email))).first()
     if user is None or not verify_password(body.password, user.password_hash):
-        log_audit_event("user.login_failed", user_id=user.id if user else None, metadata={"email": body.email})
+        await log_audit_event(
+            session, "user.login_failed", user_id=user.id if user else None,
+            metadata={"email": body.email}, request=request,
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
     if user.email_verified_at is None:
-        log_audit_event("user.login_failed", user_id=user.id, metadata={"reason": "email_not_verified"})
+        await log_audit_event(
+            session, "user.login_failed", user_id=user.id,
+            metadata={"reason": "email_not_verified"}, request=request,
+        )
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified")
 
     if not user.is_active:
-        log_audit_event("user.login_failed", user_id=user.id, metadata={"reason": "inactive"})
+        await log_audit_event(
+            session, "user.login_failed", user_id=user.id, metadata={"reason": "inactive"}, request=request,
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
     user.last_login_at = utcnow()
@@ -157,14 +168,21 @@ async def login(
     await session.refresh(user)
 
     _set_session_cookie(response, user)
-    log_audit_event("user.login_succeeded", user_id=user.id)
+    await log_audit_event(session, "user.login_succeeded", user_id=user.id, entity_type="user", entity_id=user.id, request=request)
     return to_user_public(user)
 
 
 @router.post("/logout")
-async def logout(response: Response, current_user: User = Depends(get_current_user)) -> dict:
+async def logout(
+    request: Request,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
     response.delete_cookie(key=settings.cookie_name)
-    log_audit_event("user.logout", user_id=current_user.id)
+    await log_audit_event(
+        session, "user.logout", user_id=current_user.id, entity_type="user", entity_id=current_user.id, request=request,
+    )
     return {"ok": True}
 
 
@@ -193,7 +211,10 @@ async def request_password_reset(
         await session.commit()
         reset_url = f"{settings.frontend_base_url}/reset-password?token={token}"
         send_password_reset_email(user.email, reset_url)
-        log_audit_event("user.password_reset_requested", user_id=user.id)
+        await log_audit_event(
+            session, "user.password_reset_requested", user_id=user.id,
+            entity_type="user", entity_id=user.id, request=request,
+        )
 
     # Always 202, whether or not the email exists — avoids account enumeration.
     return {"accepted": True}
@@ -201,7 +222,7 @@ async def request_password_reset(
 
 @router.post("/password-reset/confirm")
 async def confirm_password_reset(
-    body: PasswordResetConfirmRequest, session: AsyncSession = Depends(get_session)
+    request: Request, body: PasswordResetConfirmRequest, session: AsyncSession = Depends(get_session)
 ) -> dict:
     token_hash = hash_token(body.token)
     record = (
@@ -220,5 +241,7 @@ async def confirm_password_reset(
     session.add(record)
     await session.commit()
 
-    log_audit_event("user.password_reset_completed", user_id=user.id)
+    await log_audit_event(
+        session, "user.password_reset_completed", user_id=user.id, entity_type="user", entity_id=user.id, request=request,
+    )
     return {"ok": True}

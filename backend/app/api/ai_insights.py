@@ -1,7 +1,7 @@
 import uuid
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -28,7 +28,7 @@ async def _latest_generated_at(session: AsyncSession, user: User):
     return (await session.exec(select(func.max(AIInsight.generated_at)).where(AIInsight.user_id == user.id))).one()
 
 
-async def _generate_and_persist(session: AsyncSession, user: User) -> None:
+async def _generate_and_persist(session: AsyncSession, user: User, request: Request | None) -> None:
     today = utcnow().date()
     aggregates = await gather_insight_inputs(session, user, today.month, today.year)
     try:
@@ -51,17 +51,18 @@ async def _generate_and_persist(session: AsyncSession, user: User) -> None:
             )
         )
     await session.commit()
-    log_audit_event("ai_insight.generated", user_id=user.id, metadata={"count": len(items)})
+    await log_audit_event(session, "ai_insight.generated", user_id=user.id, metadata={"count": len(items)}, request=request)
 
 
 @router.get("/dashboard/ai-insights", response_model=list[AIInsightPublic])
 async def get_ai_insights(
+    request: Request,
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
 ) -> list[AIInsight]:
     latest_generated_at = await _latest_generated_at(session, user)
     if latest_generated_at is None or utcnow() - latest_generated_at > _REGENERATION_INTERVAL:
-        await _generate_and_persist(session, user)
+        await _generate_and_persist(session, user, request)
         latest_generated_at = await _latest_generated_at(session, user)
 
     if latest_generated_at is None:

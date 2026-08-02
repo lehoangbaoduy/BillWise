@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, stat
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import require_owner
+from app.core.audit import log_audit_event
 from app.core.config import settings
 from app.core.db import get_session
 from app.core.rate_limit import limiter
@@ -74,9 +75,12 @@ async def scan_receipt(
     request: Request,
     file: UploadFile,
     user: User = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
 ) -> ReceiptExtractionResult:
     file_bytes, content_type = await _read_and_validate_upload(request, file)
-    return await _run_with_ocr_timeout(lambda: _extract_receipt(file_bytes, content_type))
+    result = await _run_with_ocr_timeout(lambda: _extract_receipt(file_bytes, content_type))
+    await log_audit_event(session, "ocr.receipt_processed", user_id=user.id, request=request)
+    return result
 
 
 @router.post("/statement", response_model=StatementExtractionResult)
@@ -109,4 +113,8 @@ async def confirm_transaction(
     )
     line_items = await load_line_items(session, transaction.id)
     await record_cashback_for_line_items(session, transaction, line_items)
+    await log_audit_event(
+        session, "transaction.created", user_id=user.id, entity_type="transaction", entity_id=transaction.id,
+        metadata={"source": "receipt_ocr", "total_amount": str(transaction.total_amount)}, request=request,
+    )
     return await to_transaction_public(session, transaction, possible_duplicate=possible_duplicate)
