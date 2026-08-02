@@ -63,14 +63,18 @@ aren't already obvious from the code or the PRD.
       once it recovered) and fixed, plus the Cashback-rules
       GET-endpoint gap-fill. Formally `pending_approval` pending human-ack
       (decisions 76-82).
-- [~] **M7: Net Worth, AI Insights, Household & Exports** — slice 1 of 8 DONE.
-      Backend: Net Worth (new tables, full CRUD gap-filled from the PRD's
-      §24.11 requirement since §25 has no dedicated Net Worth CRUD section,
-      complete-snapshot validation rule, dashboard aggregation reusing a
-      shared batch-loading helper) — 23 new tests, 219 total passing. See
-      "Milestone 7 Detail" below. Formally `pending_approval` pending
-      human-ack (decisions 83-84). Remaining slices (frontend Net Worth, AI
-      Insights, Household, Exports) not yet started.
+- [~] **M7: Net Worth, AI Insights, Household & Exports** — slices 1-2 of 8
+      DONE. Backend: Net Worth (new tables, full CRUD gap-filled from the
+      PRD's §24.11 requirement since §25 has no dedicated Net Worth CRUD
+      section, complete-snapshot validation rule, dashboard aggregation
+      reusing a shared batch-loading helper) — 23 new tests, 219 total
+      passing. Frontend: Net Worth screen (dashboard-style summary, account
+      management, snapshot entry form structurally enforcing the
+      complete-snapshot rule) — a real UTC/local timezone date bug found and
+      fixed via live testing, plus a second instance of the same bug class
+      caught by react-reviewer. See "Milestone 7 Detail" below. Formally
+      `pending_approval` pending human-ack (decisions 83-86). Remaining
+      slices (AI Insights, Household, Exports) not yet started.
 - [ ] **M8: Mobile Layout**
 - [ ] **M9: Security Hardening**
 
@@ -1316,8 +1320,74 @@ suite after the rename: 219/219 still passing.
 
 Formally `pending_approval` pending human-ack (decisions 83-84).
 
+### Slice 2: Frontend Net Worth screen (BIW-INFRA-016, decisions 85-86)
+
+New `frontend/app/net-worth/page.js` (net-new UI, no template equivalent).
+Dashboard-style layout matching the Cashback screen's precedent (PRD frames
+Net Worth as a summary/trend view per §18.7/§24.11, not a nav+detail CRUD
+screen like Goals/Budgets/Recurring Bills): three stat tiles (current net
+worth with change-vs-previous, total assets, total liabilities), a latest-
+breakdown list, a history table, an accounts-management section
+(create/edit/deactivate), and a snapshot-entry form.
+
+**Design choice**: the snapshot form renders one required balance input per
+currently-active account (fetched from `GET /net-worth-accounts`) rather
+than a generic add-a-row form, so the backend's "every active account needs
+a balance" 422 rule (decision 83/84) is structurally impossible to violate
+from this UI instead of being discovered via a failed submit. The "New
+snapshot" button is disabled until at least one account exists.
+
+`netWorthApi` (list/create/update/remove accounts, list/create snapshots)
+and `dashboardApi.netWorth()` added to `lib/api.js`; Sidebar nav entry added
+between Cashback and Profile using the pre-verified `fi-rr-stats` icon.
+
+**Same error-isolation lesson applied proactively**: given this bug class
+has now hit two prior slices (Recurring Bills, Cashback), the three error
+states (`createAccountError`/`editAccountError`/`snapshotError`) were split
+from the start rather than discovered as a bug — confirmed correct by both
+manual testing and the react-reviewer agent.
+
+**Real bug found and fixed via live Playwright testing** (not by either
+reviewer): `formatDate()` parsed date-only `"YYYY-MM-DD"` strings with
+`new Date(value)`, which parses as UTC midnight — in a timezone behind UTC
+(this environment runs EDT) the displayed date rolls back a day. Reproduced
+live: recorded a snapshot dated 2026-08-02, History table showed "Aug 01,
+2026". Fixed by building the `Date` from its Y/M/D components directly
+instead of letting the runtime interpret the ISO string's timezone. Note:
+`cashback/page.js`'s `formatDate` (for rule start/end dates) has the
+identical bug pattern, pre-existing and not touched in this slice — flagged
+here as a known gap, not fixed, since it's out of scope for a Net Worth
+slice.
+
+**react-reviewer — fixed immediately**: HIGH — `todayIso()` (the snapshot
+form's default date) had the mirror-image version of the same bug:
+`new Date().toISOString().slice(0, 10)` reports the *UTC* date, which can be
+a day ahead of the user's local date near midnight. Fixed with the same
+Y/M/D-component approach used in `formatDate`. MEDIUM — the icon-only
+edit/delete buttons in the accounts list had no accessible name for screen
+readers; fixed with `aria-label` including the account name (e.g. "Edit
+account: Primary Checking"). Both fixes re-verified live via Playwright
+after rebuild.
+
+**security-reviewer**: clean, no findings — confirmed no XSS (all rendering
+via JSX auto-escaping, no `dangerouslySetInnerHTML`), no client-side-only
+validation relied upon for security (the snapshot form's "one input per
+active account" UI constraint is UX only; the backend's 422 check is the
+real enforcement), credentials handled via the existing `credentials:
+"include"` pattern shared by every other API module.
+
+**Verification**: `eslint` clean, production `npm run build` clean, live
+Playwright pass covering account create/edit/deactivate, two-snapshot
+recording with correct asset/liability/net-worth math verified against the
+real backend ($5000 assets − $1200 liabilities = $3800 net worth; second
+snapshot's change-vs-previous computed correctly as +$1300), history table
+ordering, and the "every active account required" constraint working
+end-to-end (deactivating an account correctly dropped the required-balance
+count from 2 to 1 for future snapshots without touching historical data).
+Full backend suite re-run post-slice: 219/219 passing (frontend-only slice,
+confirmed no regression).
+
 ### Remaining M7 slices (not yet started)
-- Slice 2: Frontend Net Worth screen
 - Slices 3-4: AI Insights backend + frontend
 - Slices 5-6: Household backend + frontend (partner invite/accept/revoke/
   permissions endpoints; every existing endpoint in this codebase is
@@ -1565,6 +1635,12 @@ throughout), UUID enumeration (128-bit space, already low risk).
   remediation, linked to 83 — security-reviewer's one HIGH finding was a
   verified false positive, fastapi-reviewer's one MEDIUM finding was fixed)
   — see "Milestone 7 Detail" above — are `pending_approval` under
+  CONST-ARCH-001.
+- **M7 slice 2 (frontend Net Worth) decisions awaiting human-ack**: decision
+  85 (assess_risk+spec, `BIW-INFRA-016`) and 86 (slice 2 review remediation,
+  linked to 85 — security-reviewer clean, react-reviewer's one HIGH
+  (`todayIso()` timezone bug) and one MEDIUM (missing aria-labels) both
+  fixed) — see "Milestone 7 Detail" above — are `pending_approval` under
   CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all

@@ -66,6 +66,14 @@ export default function Sidebar() {
                                 <span className="nav-text">Cashback</span>
                             </Link>
                         </li>
+                        <li className={pathname == "/net-worth" ? "active" : ""}>
+                            <Link href="/net-worth">
+                                <span>
+                                    <i className="fi fi-rr-stats" />
+                                </span>
+                                <span className="nav-text">Net Worth</span>
+                            </Link>
+                        </li>
                         <li className={pathname == "/profile" ? "active" : ""}>
                             <Link href="/profile">
                                 <span>

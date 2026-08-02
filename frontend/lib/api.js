@@ -174,4 +174,14 @@ export const dashboardApi = {
   categoryBreakdown: (month, year) => request(`/dashboard/category-breakdown?month=${month}&year=${year}`),
   paymentMethodBreakdown: (month, year) => request(`/dashboard/payment-method-breakdown?month=${month}&year=${year}`),
   cashFlow: (month, year) => request(`/dashboard/cash-flow?month=${month}&year=${year}`),
+  netWorth: () => request("/dashboard/net-worth"),
+}
+
+export const netWorthApi = {
+  listAccounts: () => request("/net-worth-accounts"),
+  createAccount: (data) => request("/net-worth-accounts", { method: "POST", body: JSON.stringify(data) }),
+  updateAccount: (id, data) => request(`/net-worth-accounts/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  removeAccount: (id) => request(`/net-worth-accounts/${id}`, { method: "DELETE" }),
+  listSnapshots: () => request("/net-worth-snapshots"),
+  createSnapshot: (data) => request("/net-worth-snapshots", { method: "POST", body: JSON.stringify(data) }),
 }
