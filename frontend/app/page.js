@@ -1,5 +1,5 @@
 'use client'
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import Link from "next/link"
 import useSWR from "swr"
 import CircularProgress from "@/components/elements/CircularProgress"
@@ -7,9 +7,19 @@ import DashboardCategoryDonut from "@/components/chart/DashboardCategoryDonut"
 import DashboardSpendTrendChart from "@/components/chart/DashboardSpendTrendChart"
 import EmptyState from "@/components/elements/EmptyState"
 import Layout from "@/components/layout/Layout"
-import { dashboardApi, goalsApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
+import { aiInsightsApi, dashboardApi, goalsApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
 
 const MONTH_ABBREVIATIONS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+const INSIGHT_ICONS = {
+    category_spending_change: "fi fi-rr-chart-pie-alt",
+    over_budget_alert: "fi fi-rr-exclamation",
+    multi_month_trend: "fi fi-rr-chart-line-up",
+    top_cashback_card: "fi fi-rr-badge-percent",
+    recurring_bill_share: "fi fi-rr-calendar-clock",
+    cash_flow_change: "fi fi-rr-money-bill-wave-alt",
+    goal_progress: "fi fi-rr-piggy-bank",
+}
 
 function formatCurrency(value) {
     return `$${Number(value ?? 0).toFixed(2)}`
@@ -43,6 +53,22 @@ export default function Home() {
         ["/transactions", periodKey],
         () => transactionsApi.list({ month: periodKey })
     )
+    const { data: insights, mutate: mutateInsights } = useSWR("/dashboard/ai-insights", () => dashboardApi.aiInsights())
+    const [dismissError, setDismissError] = useState(null)
+
+    async function handleDismissInsight(id) {
+        setDismissError(null)
+        mutateInsights((current) => (current ?? []).filter((insight) => insight.id !== id), { revalidate: false })
+        try {
+            await aiInsightsApi.dismiss(id)
+        } catch (error) {
+            setDismissError(error.message)
+            // Revalidate from the server rather than restoring a captured local
+            // snapshot — if another dismissal is in flight concurrently, a
+            // restored snapshot could resurrect that one too.
+            mutateInsights()
+        }
+    }
 
     const totalBalance = (paymentMethods ?? []).reduce((sum, method) => sum + Number(method.current_balance ?? 0), 0)
     const topCategories = useMemo(
@@ -85,6 +111,40 @@ export default function Home() {
                         <h6>Total Period Income</h6>
                         <h3>{formatCurrency(monthly?.total_income)}</h3>
                         <p className="text-muted mb-0">This month</p>
+                    </div>
+                </div>
+            </div>
+            <div className="row">
+                <div className="col-xl-12">
+                    <div className="card">
+                        <div className="card-header">
+                            <h4 className="card-title">AI Insights</h4>
+                        </div>
+                        <div className="card-body">
+                            {dismissError && <div className="text-danger mb-3" role="alert">{dismissError}</div>}
+                            {(insights ?? []).length === 0 ? (
+                                <EmptyState icon="fi fi-rr-lightbulb-on" message="No new insights right now — check back after adding more transactions." />
+                            ) : (
+                                <ul className="list-group list-group-flush">
+                                    {insights.map((insight) => (
+                                        <li key={insight.id} className="list-group-item d-flex justify-content-between align-items-start gap-3">
+                                            <div className="d-flex align-items-start gap-2">
+                                                <i className={INSIGHT_ICONS[insight.insight_type] || "fi fi-rr-lightbulb-on"} aria-hidden="true" />
+                                                <span>{insight.message}</span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                className="btn btn-sm btn-outline-secondary"
+                                                aria-label={`Dismiss insight: ${insight.message.slice(0, 60)}`}
+                                                onClick={() => handleDismissInsight(insight.id)}
+                                            >
+                                                <i className="fi fi-rr-cross-small" />
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>

@@ -175,6 +175,11 @@ export const dashboardApi = {
   paymentMethodBreakdown: (month, year) => request(`/dashboard/payment-method-breakdown?month=${month}&year=${year}`),
   cashFlow: (month, year) => request(`/dashboard/cash-flow?month=${month}&year=${year}`),
   netWorth: () => request("/dashboard/net-worth"),
+  aiInsights: () => request("/dashboard/ai-insights"),
+}
+
+export const aiInsightsApi = {
+  dismiss: (id) => request(`/ai-insights/${id}`, { method: "PATCH", body: JSON.stringify({ is_dismissed: true }) }),
 }
 
 export const netWorthApi = {

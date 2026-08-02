@@ -63,7 +63,7 @@ aren't already obvious from the code or the PRD.
       once it recovered) and fixed, plus the Cashback-rules
       GET-endpoint gap-fill. Formally `pending_approval` pending human-ack
       (decisions 76-82).
-- [~] **M7: Net Worth, AI Insights, Household & Exports** — slices 1-3 of 8
+- [~] **M7: Net Worth, AI Insights, Household & Exports** — slices 1-4 of 8
       DONE. Backend: Net Worth (new tables, full CRUD gap-filled from the
       PRD's §24.11 requirement since §25 has no dedicated Net Worth CRUD
       section, complete-snapshot validation rule, dashboard aggregation
@@ -76,10 +76,14 @@ aren't already obvious from the code or the PRD.
       pipeline to Claude Haiku reusing existing dashboard/cashback/goals
       aggregation logic, 24h-per-user generation cache, dismiss endpoint
       gap-filled) — 16 new tests, one HIGH security finding (no size cap on
-      AI output) fixed. 235 total backend tests passing. See "Milestone 7
-      Detail" below. Formally `pending_approval` pending human-ack
-      (decisions 83-88). Remaining slices (AI Insights frontend, Household,
-      Exports) not yet started.
+      AI output) fixed. Frontend: AI Insights dashboard card, live-verified
+      against the real Anthropic API end-to-end (a genuine insight generated
+      from real account data, dismissed, confirmed to persist across a full
+      reload) — an accessibility HIGH (non-distinguishing dismiss button
+      label) and a dismiss-rollback race condition both fixed. 235 total
+      backend tests passing. See "Milestone 7 Detail" below. Formally
+      `pending_approval` pending human-ack (decisions 83-90). Remaining
+      slices (Household, Exports) not yet started.
 - [ ] **M8: Mobile Layout**
 - [ ] **M9: Security Hardening**
 
@@ -1459,8 +1463,51 @@ identical pattern (ORM-type return annotation + `Public` schema
 inconsistent with the rest of the codebase rather than fix anything —
 documented as a reviewed false positive.
 
+### Slice 4: Frontend AI Insights (BIW-INFRA-017, decisions 89-90)
+
+Added an "AI Insights" card to the existing Dashboard (`frontend/app/page.js`,
+built in M4 slice 4) per PRD §24.3, placed full-width right after the four
+stat-widget cards. Lists the current insight batch from
+`GET /dashboard/ai-insights` with a per-`insight_type` icon (mapped via an
+`INSIGHT_ICONS` lookup covering all 7 enum values) and a dismiss (X) button
+calling `PATCH /ai-insights/{id}`. `aiInsightsApi` and `dashboardApi.aiInsights()`
+added to `lib/api.js`.
+
+**Live-verified against the real Anthropic API, not mocked**: the very
+first dashboard load in this session's test account triggered real
+generation and produced a genuine, data-grounded insight ("You have $100.00
+in recurring monthly bills. This includes your Card Payment
+subscription...") from that account's actual recurring bill. Dismissed it,
+confirmed the optimistic UI update, then reloaded the full page and
+confirmed the dismissal persisted server-side (no regeneration occurred
+within the 24h per-user cache window). Separately verified the cache-expiry
+path by directly backdating the row's `generated_at` via `psql` — a fresh
+insight generated correctly on the next load.
+
+**react-reviewer — fixed immediately**: HIGH — the dismiss button's
+`aria-label` was the generic "Dismiss this insight" for every row,
+indistinguishable to screen-reader users when multiple insights are shown
+at once; fixed by including a message excerpt in the label (re-verified
+live: the accessibility tree now shows e.g. "Dismiss insight: You have one
+recurring monthly bill..."). MEDIUM — the decorative type icon lacked
+`aria-hidden`; added it as a new-code good-practice improvement (no existing
+icon usage anywhere else in this app currently does this, so this isn't
+"matching convention" — just not worth blocking on a broader retrofit that's
+out of scope here). A second MEDIUM — the optimistic-dismiss failure path
+restored a captured local snapshot, which could resurrect an already-settled
+concurrent dismissal if two insights were dismissed in quick succession and
+the first one's request failed — fixed by switching to an unconditional SWR
+revalidation on failure instead, which is both simpler and correct under
+concurrency. One MINOR (no distinct loading-vs-empty state) was reviewed and
+not applied, since it would make this card behave differently from all
+seven sibling widgets on the same page, which share the identical
+undefined-collapses-to-empty-state pattern.
+
+**Verification**: `eslint` clean, production `npm run build` clean, full
+backend suite re-run post-slice (235/235 passing — this is a frontend-only
+slice, confirmed no regression).
+
 ### Remaining M7 slices (not yet started)
-- Slice 4: Frontend AI Insights
 - Slices 5-6: Household backend + frontend (partner invite/accept/revoke/
   permissions endpoints; every existing endpoint in this codebase is
   currently `require_owner`-only, so a household-scoping auth dependency
@@ -1721,6 +1768,14 @@ throughout), UUID enumeration (128-bit space, already low risk).
   addressed via documentation, one suggested change ruled out as
   inconsistent with established codebase convention) — see "Milestone 7
   Detail" above — are `pending_approval` under CONST-ARCH-001.
+- **M7 slice 4 (frontend AI Insights) decisions awaiting human-ack**:
+  decision 89 (assess_risk+spec, `BIW-INFRA-017`) and 90 (slice 4 review
+  remediation, linked to 89 — react-reviewer's HIGH (non-distinguishing
+  dismiss button label) and two MEDIUM findings (missing aria-hidden on a
+  decorative icon, a concurrent-dismiss rollback race condition) all fixed;
+  one MINOR ruled out as inconsistent with the other 7 widgets on the same
+  dashboard page) — see "Milestone 7 Detail" above — are `pending_approval`
+  under CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all
   approved this way already.
