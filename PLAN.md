@@ -142,12 +142,14 @@ aren't already obvious from the code or the PRD.
       below. Formally `pending_approval` pending human-ack (decisions
       99-100).
 - [ ] **M9: Security Hardening** — IN PROGRESS. Slice 1 (Persisted Audit
-      Logs) DONE — see "Milestone 9 Detail" below. Formally
-      `pending_approval` pending human-ack (decisions 133-134). Remaining
-      slices: authorization testing (partner cross-household access
-      denial), data validation/upload security review, encryption review,
-      account deletion flow, production deployment checklist, final QA
-      sweep.
+      Logs) and Slice 2 (Partner-scoped Dashboard & Budgets read access —
+      closed a real PRD §21.4 gap where partners were 403'd from dashboard
+      and budgets entirely instead of getting a shared-category-filtered
+      view) DONE — see "Milestone 9 Detail" below. Formally
+      `pending_approval` pending human-ack (decisions 133-136). Remaining
+      slices: further adversarial authorization testing, data
+      validation/upload security review, encryption review, account
+      deletion flow, production deployment checklist, final QA sweep.
 
 ## Environment Notes
 
@@ -2156,6 +2158,92 @@ in parallel.
 Decision 133 (critical-risk assessment) and decision 134 (remediation,
 linked to 133) recorded — both `pending_approval`.
 
+### Slice 2: Partner-scoped Dashboard & Budgets read access — DONE
+
+A gap sweep against PRD §21.4 ("Partner dashboards/budgets/reports are
+filtered to shared categories only") and the §30 acceptance criterion
+("Partner dashboard never shows a private category or goal, verified by
+automated test") found a real functional gap, not just a testing gap: `GET
+/dashboard/{monthly,yearly,category-breakdown,cash-flow}` and `GET
+/budgets` were all `require_owner`-only — partners were 403'd entirely
+rather than given the shared-category-filtered view the PRD specifies.
+
+`assess_risk` returned `critical` (financial-data keyword match). Spec
+`BIW-API-014` (id 46) registered documenting the auth/scoping change for
+all 7 dashboard/budget GET endpoints.
+
+**Backend — DONE**
+- [x] New shared helper `backend/app/services/partner_visibility.py` —
+  extracts the pre-existing `transactions.py` `list_transactions` rule
+  (a transaction is excluded outright, never partially redacted, if any
+  line item touches a private category — showing a subset of line items
+  under the real `total_amount` would itself leak that a hidden
+  private-category amount exists) into `apply_partner_transaction_visibility()`
+  and `shared_category_ids_subquery()`, reused by `transactions.py`,
+  `dashboard.py`, and `budgets.py` to prevent the visibility rule from
+  drifting between the transaction list and the dashboard/budget
+  aggregates.
+- [x] `dashboard.py`'s `monthly_overview`, `yearly_overview`,
+  `category_breakdown`, `cash_flow` switched from `require_owner` to
+  `require_household_member`; every internal query rescoped from `user.id`
+  to `household_owner_id(user)` (critical distinction — for a partner,
+  `user.id` is the partner's own id, not the household's data owner).
+  `top_payment_method` (monthly) and `spend_by_payment_method` (yearly) are
+  omitted for partners — payment methods stay owner-only regardless of
+  sharing (PRD §21.4). `payment_method_breakdown` and `net_worth_dashboard`
+  unchanged, still `require_owner`.
+- [x] `budgets.py`'s `list_budgets` switched to `require_household_member`,
+  scoped to `household_owner_id(user)`, filtered to shared categories for
+  partners via `shared_category_ids_subquery`. Budget create/update/delete
+  remain `require_owner` — PRD only requires partners to view budgets.
+- [x] Caught and fixed a real bug before it shipped: `ensure_budget_rollover`
+  writes `Budget` rows scoped to `user.id` — calling it for a partner would
+  have created rollover rows misattributed to the partner's own account
+  instead of the household owner. Extracted a guarded wrapper
+  `ensure_budget_rollover_as_owner()` (in `budget_rollover.py`) that only
+  rolls over when the caller is the owner; a partner reads whatever
+  rollover the owner already triggered.
+- [x] `transactions.py`'s `list_transactions` refactored to call the new
+  shared helper instead of its old inline logic (behaviorally identical,
+  confirmed by both reviewers).
+
+**Tests — DONE**
+- [x] `test_dashboard.py`'s new `TestPartnerDashboardVisibility` (5 tests):
+  owner-only endpoints (payment-method-breakdown, net-worth) 403 a partner;
+  monthly overview excludes private-category spend and the payment-method
+  field; category-breakdown never includes a private category; yearly
+  overview omits the payment-method breakdown for partners; cash-flow
+  excludes private-category transactions.
+- [x] `test_budgets.py`'s `TestListBudgets` gained 2 tests: partner only
+  sees budgets on shared categories; partner read never triggers a
+  rollover misattributed to the partner's own id (asserts zero `Budget`
+  rows exist with `user_id == partner.id` after the read).
+- [x] Full backend suite: **293/293 passing** (286 pre-existing + 7 new).
+
+**Review gate — DONE.** security-reviewer and fastapi-reviewer dispatched
+in parallel.
+- security-reviewer: CLEAN, zero findings — confirmed no partner-reachable
+  query still scopes by bare `user.id`, the rollover-misattribution guard
+  is complete, the whole-transaction-exclusion redaction strategy is safe
+  under edge cases (empty line items, a category flipped shared→private
+  after the transaction was created, mixed income/expense line items), and
+  all 7 new tests exercise real security-relevant behavior.
+- fastapi-reviewer: no security issues. One **HIGH** (the
+  `if user.role != UserRole.PARTNER: ensure_budget_rollover(...)` guard was
+  duplicated identically across 3 call sites) and two **MEDIUM** (the two
+  scoping conventions coexisting in `dashboard.py` had no module-level doc
+  explaining which a new endpoint should follow; a redundant inline
+  `Budget` import in one new test). **Fixed**: extracted
+  `ensure_budget_rollover_as_owner()` as the single guarded call site used
+  everywhere; added a module docstring to `dashboard.py` documenting the
+  two scoping conventions; removed the redundant import. A MINOR
+  (unused-variable) finding was confirmed to be pre-existing code outside
+  this slice's diff and left untouched. Full suite re-run after fixes:
+  293/293 still passing.
+
+Decision 135 (critical-risk assessment) and decision 136 (remediation,
+linked to 135) recorded — both `pending_approval`.
+
 ## Milestone 1 Detail
 
 ### Specs registered
@@ -2362,6 +2450,10 @@ throughout), UUID enumeration (128-bit space, already low risk).
   decision 133 (initial critical-risk assessment + spec) and decision 134
   (remediation — reviewer gate findings + composite-index fix) are both
   `pending_approval`. See "Milestone 9 Detail" below.
+- **M9 Slice 2 (Partner-scoped Dashboard & Budgets) decisions awaiting
+  human-ack**: decision 135 (initial critical-risk assessment + spec
+  BIW-API-014) and decision 136 (remediation — reviewer gate findings) are
+  both `pending_approval`. See "Milestone 9 Detail" below.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — every other decision in the
   project (M1-M8, all slices, all remediations) has already been approved

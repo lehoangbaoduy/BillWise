@@ -153,6 +153,71 @@ class TestListBudgets:
         assert response.status_code == 200
         assert response.json() == []
 
+    async def test_partner_only_sees_budgets_on_shared_categories(self, client, session, unique_email):
+        """PRD §21.4: partner budgets view is filtered to shared categories only."""
+        owner = await _authed_client(client, session, unique_email)
+        shared_category = await _make_category(session, owner, name="Shared Grocery")
+        shared_category.is_shared = True
+        session.add(shared_category)
+        await session.commit()
+        private_category = await _make_category(session, owner, name="Private Gambling")
+
+        await client.post(
+            "/budgets", json={"category_id": str(shared_category.id), "month": 7, "year": 2026, "budget_amount": "300.00"}
+        )
+        await client.post(
+            "/budgets", json={"category_id": str(private_category.id), "month": 7, "year": 2026, "budget_amount": "999.00"}
+        )
+
+        partner = User(
+            email=f"partner-{unique_email}",
+            password_hash=hash_password(VALID_PASSWORD),
+            display_name="Partner User",
+            role=UserRole.PARTNER,
+            invited_by_user_id=owner.id,
+            email_verified_at=utcnow(),
+        )
+        session.add(partner)
+        await session.commit()
+        await _login(client, partner.email)
+
+        response = await client.get("/budgets", params={"month": 7, "year": 2026})
+        assert response.status_code == 200
+        amounts = {b["budget_amount"] for b in response.json()}
+        assert amounts == {"300.00"}
+
+    async def test_partner_read_does_not_trigger_rollover_under_partner_id(self, client, session, unique_email):
+        """ensure_budget_rollover writes rows scoped to user_id — must never run
+        as the partner, or it would create owner-domain budget rows misattributed
+        to the partner's own id."""
+        owner = await _authed_client(client, session, unique_email)
+        shared_category = await _make_category(session, owner, name="Shared")
+        shared_category.is_shared = True
+        session.add(shared_category)
+        await session.commit()
+        await client.post(
+            "/budgets", json={"category_id": str(shared_category.id), "month": 6, "year": 2026, "budget_amount": "150.00"}
+        )
+
+        partner = User(
+            email=f"partner-{unique_email}",
+            password_hash=hash_password(VALID_PASSWORD),
+            display_name="Partner User",
+            role=UserRole.PARTNER,
+            invited_by_user_id=owner.id,
+            email_verified_at=utcnow(),
+        )
+        session.add(partner)
+        await session.commit()
+        await _login(client, partner.email)
+
+        response = await client.get("/budgets", params={"month": 7, "year": 2026})
+        assert response.status_code == 200
+        assert response.json() == []
+
+        partner_scoped_rows = (await session.exec(select(Budget).where(Budget.user_id == partner.id))).all()
+        assert partner_scoped_rows == []
+
 
 class TestUpdateBudget:
     async def test_updates_amount(self, client, session, unique_email):

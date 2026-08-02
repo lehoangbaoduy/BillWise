@@ -10,11 +10,11 @@ from app.api.deps import household_owner_id, require_can_add_transactions, requi
 from app.core.audit import log_audit_event
 from app.core.db import get_session
 from app.models._common import utcnow
-from app.models.category import Category
 from app.models.transaction import Transaction, TransactionLineItem, TransactionSource, TransactionType
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.transaction import TransactionCreate, TransactionPublic, TransactionUpdate
 from app.services.cashback_service import record_cashback_for_line_items
+from app.services.partner_visibility import apply_partner_transaction_visibility
 from app.services.transaction_validation import (
     create_transaction_record,
     load_line_items,
@@ -47,20 +47,7 @@ async def list_transactions(
 ) -> list[TransactionPublic]:
     owner_id = household_owner_id(user)
     conditions = [Transaction.user_id == owner_id]
-    if user.role == UserRole.PARTNER:
-        # A partner only sees transactions where every line item's category is
-        # shared with them — a transaction touching any private category is
-        # excluded outright rather than partially redacted, since showing a
-        # subset of line items under the real total_amount would itself leak
-        # that a hidden private-category amount exists.
-        private_category_ids = select(Category.id).where(Category.user_id == owner_id, Category.is_shared == False)  # noqa: E712
-        conditions.append(
-            Transaction.id.not_in(
-                select(TransactionLineItem.transaction_id).where(
-                    TransactionLineItem.category_id.in_(private_category_ids)
-                )
-            )
-        )
+    apply_partner_transaction_visibility(conditions, user, owner_id)
     if month is not None:
         year, mon = month.split("-")
         conditions.append(and_(extract("year", Transaction.date) == int(year), extract("month", Transaction.date) == int(mon)))

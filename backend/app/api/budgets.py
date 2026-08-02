@@ -4,15 +4,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlmodel import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import require_owner
+from app.api.deps import household_owner_id, require_household_member, require_owner
 from app.core.audit import log_audit_event
 from app.core.db import get_session
 from app.models._common import utcnow
 from app.models.budget import Budget
 from app.models.category import Category, CategoryType
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.budget import BudgetCreate, BudgetPublic, BudgetUpdate
-from app.services.budget_rollover import ensure_budget_rollover
+from app.services.budget_rollover import ensure_budget_rollover_as_owner
+from app.services.partner_visibility import shared_category_ids_subquery
 
 router = APIRouter(prefix="/budgets", tags=["budgets"])
 
@@ -39,11 +40,15 @@ async def _get_owned_or_404(session: AsyncSession, user: User, budget_id: uuid.U
 async def list_budgets(
     month: int = Query(ge=1, le=12),
     year: int = Query(ge=2000, le=2100),
-    user: User = Depends(require_owner),
+    user: User = Depends(require_household_member),
     session: AsyncSession = Depends(get_session),
 ) -> list[Budget]:
-    await ensure_budget_rollover(session, user, month, year)
-    statement = select(Budget).where(and_(Budget.user_id == user.id, Budget.month == month, Budget.year == year))
+    owner_id = household_owner_id(user)
+    await ensure_budget_rollover_as_owner(session, user, month, year)
+    conditions = [Budget.user_id == owner_id, Budget.month == month, Budget.year == year]
+    if user.role == UserRole.PARTNER:
+        conditions.append(Budget.category_id.in_(shared_category_ids_subquery(owner_id)))  # type: ignore[union-attr]
+    statement = select(Budget).where(and_(*conditions))
     return (await session.exec(statement)).all()
 
 

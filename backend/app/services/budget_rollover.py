@@ -3,7 +3,7 @@ from sqlmodel import and_, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.models.budget import Budget
-from app.models.user import User
+from app.models.user import User, UserRole
 
 
 async def ensure_budget_rollover(session: AsyncSession, user: User, month: int, year: int) -> None:
@@ -37,3 +37,14 @@ async def ensure_budget_rollover(session: AsyncSession, user: User, month: int, 
         constraint_name = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
         if constraint_name != "uq_budget_category_period":
             raise
+
+
+async def ensure_budget_rollover_as_owner(session: AsyncSession, user: User, month: int, year: int) -> None:
+    """Guards ensure_budget_rollover against ever running with a partner's
+    own id — it writes Budget rows scoped to user.id, and a partner's id is
+    never the household's data owner. A partner reads whatever rollover the
+    owner already triggered rather than creating owner-domain rows
+    misattributed to their own account. Called from the Dashboard and
+    Budgets routers, which both now accept partner reads."""
+    if user.role != UserRole.PARTNER:
+        await ensure_budget_rollover(session, user, month, year)
