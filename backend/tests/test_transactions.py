@@ -1,6 +1,7 @@
 from app.core.security import hash_password
 from app.models._common import utcnow
 from app.models.category import Category, CategoryType
+from app.models.partner_permission import PartnerPermission
 from app.models.payment_method import PaymentMethod, PaymentMethodType
 from app.models.user import User, UserRole
 
@@ -39,12 +40,36 @@ async def _make_payment_method(session, user, type_=PaymentMethodType.CASH):
     return pm
 
 
-async def _make_category(session, user, category_type=CategoryType.EXPENSE, name="Grocery"):
-    category = Category(user_id=user.id, name=name, category_type=category_type)
+async def _make_category(session, user, category_type=CategoryType.EXPENSE, name="Grocery", is_shared=False):
+    category = Category(user_id=user.id, name=name, category_type=category_type, is_shared=is_shared)
     session.add(category)
     await session.commit()
     await session.refresh(category)
     return category
+
+
+async def _create_verified_user(session, email, role=UserRole.OWNER, invited_by_user_id=None):
+    user = User(
+        email=email,
+        password_hash=hash_password(VALID_PASSWORD),
+        display_name="Test User",
+        role=role,
+        invited_by_user_id=invited_by_user_id,
+        email_verified_at=utcnow(),
+    )
+    session.add(user)
+    await session.flush()
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+async def _make_partner(session, owner, unique_email, can_add_transactions=False):
+    partner_email = f"partner-{unique_email}"
+    partner = await _create_verified_user(session, partner_email, role=UserRole.PARTNER, invited_by_user_id=owner.id)
+    session.add(PartnerPermission(partner_user_id=partner.id, can_add_transactions=can_add_transactions))
+    await session.commit()
+    return partner, partner_email
 
 
 class TestCreateTransaction:
@@ -472,6 +497,162 @@ class TestListTransactions:
         assert response.status_code == 200
         merchants = {t["merchant"] for t in response.json()}
         assert merchants == {"Costco Wholesale"}
+
+    async def test_partner_only_sees_transactions_fully_in_shared_categories(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, owner)
+        shared_category = await _make_category(session, owner, name="Shared Cat", is_shared=True)
+        private_category = await _make_category(session, owner, name="Private Cat", is_shared=False)
+
+        await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Shared Purchase",
+                "total_amount": "10.00",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(shared_category.id), "item_name": "x", "amount": "10.00"}],
+            },
+        )
+        await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Private Purchase",
+                "total_amount": "10.00",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(private_category.id), "item_name": "x", "amount": "10.00"}],
+            },
+        )
+        await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Mixed Purchase",
+                "total_amount": "20.00",
+                "transaction_type": "Expense",
+                "line_items": [
+                    {"category_id": str(shared_category.id), "item_name": "x", "amount": "10.00"},
+                    {"category_id": str(private_category.id), "item_name": "y", "amount": "10.00"},
+                ],
+            },
+        )
+
+        _, partner_email = await _make_partner(session, owner, unique_email)
+        await _login(client, partner_email)
+
+        response = await client.get("/transactions")
+        assert response.status_code == 200
+        merchants = {t["merchant"] for t in response.json()}
+        assert merchants == {"Shared Purchase"}
+
+
+class TestPartnerCreateTransaction:
+    async def test_partner_without_permission_is_forbidden(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, owner)
+        category = await _make_category(session, owner, is_shared=True)
+        _, partner_email = await _make_partner(session, owner, unique_email, can_add_transactions=False)
+        await _login(client, partner_email)
+
+        response = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Costco",
+                "total_amount": "10.00",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(category.id), "item_name": "x", "amount": "10.00"}],
+            },
+        )
+        assert response.status_code == 403
+
+    async def test_partner_with_permission_creates_transaction_attributed_to_them(
+        self, client, session, unique_email
+    ):
+        owner = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, owner)
+        category = await _make_category(session, owner, is_shared=True)
+        partner, partner_email = await _make_partner(session, owner, unique_email, can_add_transactions=True)
+        await _login(client, partner_email)
+
+        response = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Costco",
+                "total_amount": "10.00",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(category.id), "item_name": "x", "amount": "10.00"}],
+            },
+        )
+        assert response.status_code == 201
+        body = response.json()
+        assert body["created_by_user_id"] == str(partner.id)
+
+        from app.models.transaction import Transaction
+
+        stored = await session.get(Transaction, body["id"])
+        assert stored.user_id == owner.id
+        assert stored.created_by_user_id == partner.id
+
+    async def test_partner_cannot_use_unshared_category(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, owner)
+        private_category = await _make_category(session, owner, is_shared=False)
+        _, partner_email = await _make_partner(session, owner, unique_email, can_add_transactions=True)
+        await _login(client, partner_email)
+
+        response = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Costco",
+                "total_amount": "10.00",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(private_category.id), "item_name": "x", "amount": "10.00"}],
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_revoked_partner_transaction_survives_with_attribution_intact(
+        self, client, session, unique_email
+    ):
+        owner = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, owner)
+        category = await _make_category(session, owner, is_shared=True)
+        partner, partner_email = await _make_partner(session, owner, unique_email, can_add_transactions=True)
+        await _login(client, partner_email)
+
+        create_response = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Costco",
+                "total_amount": "10.00",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(category.id), "item_name": "x", "amount": "10.00"}],
+            },
+        )
+        transaction_id = create_response.json()["id"]
+
+        partner.is_active = False
+        session.add(partner)
+        await session.commit()
+
+        await _login(client, unique_email)
+        response = await client.get("/transactions")
+        assert response.status_code == 200
+        matching = [t for t in response.json() if t["id"] == transaction_id]
+        assert len(matching) == 1
+        assert matching[0]["created_by_user_id"] == str(partner.id)
 
 
 class TestGetTransaction:

@@ -7,7 +7,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.models.cashback import CashbackRecord, CashbackRecordStatus, CashbackRule
 from app.models.transaction import Transaction, TransactionLineItem
-from app.models.user import User
 from app.services.transaction_validation import EXPENSE_LIKE_TYPES, quantize
 
 _CENTS = Decimal("0.01")
@@ -43,7 +42,7 @@ async def resolve_cashback_rate(
 
 
 async def record_cashback_for_line_items(
-    session: AsyncSession, user: User, transaction: Transaction, line_items: list[TransactionLineItem]
+    session: AsyncSession, transaction: Transaction, line_items: list[TransactionLineItem]
 ) -> None:
     """Computed per line item (PRD §17.3), only for expense-like transactions
     (cashback is earned on spending, not Income/Adjustment). Called explicitly
@@ -53,6 +52,12 @@ async def record_cashback_for_line_items(
     Not wired into Goal add-funds, which doesn't go through
     create_transaction_record at all (pre-existing M4 architecture) —
     documented gap, not silently dropped.
+
+    Scoped by transaction.user_id (always the household owner — see
+    app.api.deps.household_owner_id) rather than the acting user, since cashback
+    rules and payment methods are owner-managed; this also makes cashback
+    resolve correctly for a partner-entered transaction without needing the
+    acting user passed in at all.
 
     Accepted residual risk: this commits separately from the transaction it's
     computing cashback for (create_transaction_record already committed by the
@@ -64,11 +69,13 @@ async def record_cashback_for_line_items(
     if transaction.transaction_type not in EXPENSE_LIKE_TYPES:
         return
     for item in line_items:
-        rate = await resolve_cashback_rate(session, user.id, transaction.payment_method_id, item.category_id, transaction.date)
+        rate = await resolve_cashback_rate(
+            session, transaction.user_id, transaction.payment_method_id, item.category_id, transaction.date
+        )
         estimated = quantize(item.amount * rate / Decimal("100")) if rate else Decimal("0.00")
         session.add(
             CashbackRecord(
-                user_id=user.id,
+                user_id=transaction.user_id,
                 transaction_id=transaction.id,
                 line_item_id=item.id,
                 payment_method_id=transaction.payment_method_id,

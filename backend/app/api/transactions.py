@@ -6,11 +6,12 @@ from sqlalchemy import extract
 from sqlmodel import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import require_owner
+from app.api.deps import household_owner_id, require_can_add_transactions, require_household_member, require_owner
 from app.core.db import get_session
 from app.models._common import utcnow
+from app.models.category import Category
 from app.models.transaction import Transaction, TransactionLineItem, TransactionSource, TransactionType
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.transaction import TransactionCreate, TransactionPublic, TransactionUpdate
 from app.services.cashback_service import record_cashback_for_line_items
 from app.services.transaction_validation import (
@@ -40,10 +41,25 @@ async def list_transactions(
     amount_min: Decimal | None = None,
     amount_max: Decimal | None = None,
     search: str | None = None,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_household_member),
     session: AsyncSession = Depends(get_session),
 ) -> list[TransactionPublic]:
-    conditions = [Transaction.user_id == user.id]
+    owner_id = household_owner_id(user)
+    conditions = [Transaction.user_id == owner_id]
+    if user.role == UserRole.PARTNER:
+        # A partner only sees transactions where every line item's category is
+        # shared with them — a transaction touching any private category is
+        # excluded outright rather than partially redacted, since showing a
+        # subset of line items under the real total_amount would itself leak
+        # that a hidden private-category amount exists.
+        private_category_ids = select(Category.id).where(Category.user_id == owner_id, Category.is_shared == False)  # noqa: E712
+        conditions.append(
+            Transaction.id.not_in(
+                select(TransactionLineItem.transaction_id).where(
+                    TransactionLineItem.category_id.in_(private_category_ids)
+                )
+            )
+        )
     if month is not None:
         year, mon = month.split("-")
         conditions.append(and_(extract("year", Transaction.date) == int(year), extract("month", Transaction.date) == int(mon)))
@@ -94,6 +110,7 @@ async def list_transactions(
             notes=t.notes,
             line_items=line_items_by_transaction[t.id],
             possible_duplicate=False,
+            created_by_user_id=t.created_by_user_id,
         )
         for t in transactions
     ]
@@ -102,12 +119,12 @@ async def list_transactions(
 @router.post("", response_model=TransactionPublic, status_code=status.HTTP_201_CREATED)
 async def create_transaction(
     body: TransactionCreate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_can_add_transactions),
     session: AsyncSession = Depends(get_session),
 ) -> TransactionPublic:
     transaction, possible_duplicate = await create_transaction_record(session, user, body, TransactionSource.MANUAL)
     line_items = await load_line_items(session, transaction.id)
-    await record_cashback_for_line_items(session, user, transaction, line_items)
+    await record_cashback_for_line_items(session, transaction, line_items)
     return await to_transaction_public(session, transaction, possible_duplicate=possible_duplicate)
 
 
@@ -185,7 +202,7 @@ async def update_transaction(
     # PRD §27.5 "Manual override persists, not overwritten by recalculation" —
     # documented scope choice, not a silent gap.
     if new_line_items is not None:
-        await record_cashback_for_line_items(session, user, transaction, new_line_items)
+        await record_cashback_for_line_items(session, transaction, new_line_items)
 
     return await to_transaction_public(session, transaction)
 

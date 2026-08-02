@@ -63,7 +63,7 @@ aren't already obvious from the code or the PRD.
       once it recovered) and fixed, plus the Cashback-rules
       GET-endpoint gap-fill. Formally `pending_approval` pending human-ack
       (decisions 76-82).
-- [~] **M7: Net Worth, AI Insights, Household & Exports** — slices 1-5 of 8
+- [~] **M7: Net Worth, AI Insights, Household & Exports** — slices 1-6 of 8
       DONE. Backend: Net Worth (new tables, full CRUD gap-filled from the
       PRD's §24.11 requirement since §25 has no dedicated Net Worth CRUD
       section, complete-snapshot validation rule, dashboard aggregation
@@ -87,11 +87,20 @@ aren't already obvious from the code or the PRD.
       handling both an accepted partner and a still-pending invite from one
       PRD-literal endpoint) — 24 new tests, one MEDIUM security finding
       (invite-partner leaking email-registration status via a 409, unlike
-      this codebase's own password-reset precedent) found and fixed. 260
+      this codebase's own password-reset precedent) found and fixed. Backend:
+      partner authorization retrofit (a require_household_member/
+      household_owner_id/require_can_add_transactions dependency layer,
+      retrofitted onto goals list and transactions list+create; a new
+      Transaction.created_by_user_id column so a partner's past transactions
+      stay attributed to them after revocation per PRD §21.3; a partner's
+      transaction list wholly excludes any transaction touching a non-shared
+      category rather than partially redacting it) — 6 new tests, critical-risk
+      classification (first cross-user access to financial data), one MEDIUM
+      fastapi finding (a type-contract violation in household_owner_id under a
+      data-integrity edge case) found and fixed, zero security findings. 266
       total backend tests passing. See "Milestone 7 Detail" below. Formally
-      `pending_approval` pending human-ack (decisions 83-92). Remaining
-      slices (Household frontend, partner-scoped authorization retrofit,
-      Exports) not yet started.
+      `pending_approval` pending human-ack (decisions 83-94). Remaining
+      slices (Household frontend, Exports) not yet started.
 - [ ] **M8: Mobile Layout**
 - [ ] **M9: Security Hardening**
 
@@ -1582,16 +1591,90 @@ retrofit. Every existing endpoint in this codebase is currently
 every other route — that's Slice 6, a comparably-sized independent piece of
 work deserving its own governance cycle, not silently bundled in here.
 
+### Slice 6: Backend partner authorization retrofit (BIW-DOM-002, decisions 93-94)
+
+`app/api/deps.py` gained three pieces: `require_household_member` (accepts
+either an owner or an active partner — relies entirely on the existing
+`get_current_user`'s `is_active` DB check to already exclude a revoked
+partner, so no separate role check is needed at this layer);
+`household_owner_id(user)` (a pure function resolving the id all of a
+household's owned data is scoped under — the owner's own id for an owner,
+`invited_by_user_id` for a partner); and `require_can_add_transactions`
+(403s a partner without a `PartnerPermission.can_add_transactions=True` row,
+passes owners through unconditionally).
+
+`categories.py`'s `list_categories` already had correct partner filtering
+from an earlier milestone — untouched. Retrofitted onto `goals.py`'s
+`list_goals` (mirrors that same pattern: `is_shared=True` filter for a
+partner) and `transactions.py`'s `list_transactions`/`create_transaction`.
+All other goal/transaction endpoints (create/update/delete/sharing/
+add-funds/get-single) deliberately stay `require_owner`-only, unchanged —
+out of this slice's PRD-derived scope.
+
+**New column, not originally scoped but required for correctness**:
+`Transaction.created_by_user_id` (nullable FK to users.id). PRD §21.3: "the
+partner's previously-added transactions remain, attributed to them" after
+revocation. `Transaction.user_id` stays the household owner's id always (so
+every existing owner-facing aggregation — dashboard, budgets, cashback, net
+worth — keeps working unchanged and now correctly includes partner-added
+spending); `created_by_user_id` separately records a partner creator, null
+for owner-created rows. `transaction_validation.py`'s `validate_payment_method`,
+`validate_goal`, `validate_line_items`, `detect_duplicate`, and
+`create_transaction_record` were all reworked to resolve
+`household_owner_id(user)` instead of using the acting user's own id
+directly, with new `is_shared` gates rejecting a partner's use of a private
+category or goal. `cashback_service.py`'s `record_cashback_for_line_items`
+dropped its `user` parameter entirely, deriving its scoping id from
+`transaction.user_id` (always the owner) instead — this also fixed what
+would otherwise have been a bug: cashback rules and payment methods are
+owner-managed, so resolving them against a partner's own id would have
+silently produced zero-rate lookups for every partner-created transaction.
+
+`list_transactions`'s partner view excludes any transaction with even one
+line item in a non-shared category — a whole-transaction exclusion, not
+partial redaction, since showing a subset of line items under the real
+`total_amount` would itself leak that a hidden private-category amount
+exists.
+
+6 new tests (`tests/test_goals.py`, `tests/test_transactions.py`) covering
+shared-category exclusion, mixed-category transaction exclusion,
+permission-gated create (403 without `can_add_transactions`), cross-owner
+category/goal rejection (422), and revoked-partner attribution survival.
+While writing the attribution test, caught and fixed a real bug before
+review: `list_transactions`'s inline `TransactionPublic(...)` construction
+was missing the new `created_by_user_id` field (only `to_transaction_public`,
+used by get/create, had been updated) — a partner-created transaction was
+silently showing `created_by_user_id: null` in the list view. Full suite:
+266/266 passing.
+
+**security-reviewer** (mandatory gate — `assess_risk` returned `critical`,
+an honest auto-critical match on this being the first cross-user
+access-control change to financial data) — checked all 7 specifically
+requested points and found no CRITICAL/HIGH/MEDIUM issues: household-scoping
+has no cross-tenant leak path; the shared-category exclusion subquery is
+correct against empty-set, mixed-category, and deactivated-category edge
+cases; the permission gate is unbypassable; payment-method validation
+correctly scopes to the owner regardless of caller role; revoking a partner
+(`is_active=False`) leaves their past transactions' attribution intact with
+no cascade risk (the new FK is RESTRICT, not CASCADE). Approved for merge.
+
+**fastapi-reviewer — one MEDIUM found and fixed**: `household_owner_id()`
+was typed to return `uuid.UUID` but could silently return `None` for a
+`PARTNER` whose `invited_by_user_id` is `None` — reachable only via a data
+integrity violation (no DB constraint ties `invited_by_user_id` to
+`role=partner`, only `household.accept_invite`'s application code always
+sets it), but a real latent contract violation that would degrade into
+silently-empty query results instead of a clear error. Fixed by raising a
+500 explicitly when a partner's `invited_by_user_id` is `None`, matching
+this codebase's own convention of service/dependency functions raising
+`HTTPException` directly rather than propagating unchecked. Also confirmed:
+no third missed `TransactionPublic` construction site beyond the one already
+caught during implementation; the `transaction_validation.py` → `app.api.deps`
+import is consistent with this codebase's existing cross-layer import
+precedent; the `not_in` subquery is an appropriate, efficient construct at
+this app's scale; no unused imports or orphaned code.
+
 ### Remaining M7 slices (not yet started)
-- Slice 6: partner-scoped authorization retrofit (`require_household_member`
-  auth dependency accepting either an owner or an active partner; partner-
-  scoped shared-category filtering on categories/goals/transactions list,
-  gated additionally by `can_add_transactions` for creates) — needed for the
-  already-built `is_shared` toggles on Category/SavingsGoal to have any
-  effect, and for Household to be a non-inert feature. Full adversarial
-  authorization testing remains explicit M9 scope per the PRD's own
-  milestone split, but this slice must include tests proving basic partner
-  isolation (e.g. a partner cannot see an unshared category).
 - Slice 7: Household frontend (invite form, pending-invite list with
   cancel, partner list with revoke and permission toggle, category/goal
   sharing toggles — the sharing endpoints already exist from earlier
@@ -1864,6 +1947,16 @@ throughout), UUID enumeration (128-bit space, already low risk).
   registration status via a 409, unlike this codebase's own password-reset
   precedent) fixed; fastapi-reviewer found no bugs) — see "Milestone 7
   Detail" above — are `pending_approval` under CONST-ARCH-001.
+- **M7 slice 6 (backend partner authorization retrofit) decisions awaiting
+  human-ack**: decision 93 (assess_risk+spec, `BIW-DOM-002`, `critical` risk —
+  an honest auto-critical match, this being the first cross-user
+  access-control change to financial data endpoints) and 94 (slice 6 review
+  remediation, linked to 93 — security-reviewer found zero findings across
+  all 7 requested verification points; fastapi-reviewer's one MEDIUM
+  (`household_owner_id()`'s `uuid.UUID` return-type contract silently
+  violable under a data-integrity edge case) fixed by raising explicitly
+  instead of degrading) — see "Milestone 7 Detail" above — are
+  `pending_approval` under CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all
   approved this way already.

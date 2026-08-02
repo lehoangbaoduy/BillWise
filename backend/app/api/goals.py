@@ -5,12 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import require_owner
+from app.api.deps import household_owner_id, require_household_member, require_owner
 from app.core.db import get_session
 from app.models._common import utcnow
 from app.models.goal import SavingsGoal
 from app.models.transaction import Transaction, TransactionLineItem, TransactionSource, TransactionType
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.goal import AddFundsRequest, GoalContributionPublic, GoalCreate, GoalDetail, GoalPublic, GoalSharingUpdate, GoalUpdate
 from app.schemas.transaction import TransactionLineItemCreate
 from app.services.transaction_validation import validate_line_items, validate_payment_method
@@ -59,12 +59,19 @@ def _to_public(goal: SavingsGoal, current_amount: Decimal) -> GoalPublic:
 
 @router.get("", response_model=list[GoalPublic])
 async def list_goals(
-    user: User = Depends(require_owner),
+    user: User = Depends(require_household_member),
     session: AsyncSession = Depends(get_session),
 ) -> list[GoalPublic]:
-    goals = (
-        await session.exec(select(SavingsGoal).where(SavingsGoal.user_id == user.id, SavingsGoal.is_active == True))  # noqa: E712
-    ).all()
+    owner_id = household_owner_id(user)
+    if user.role == UserRole.PARTNER:
+        statement = select(SavingsGoal).where(
+            SavingsGoal.user_id == owner_id,
+            SavingsGoal.is_shared == True,  # noqa: E712
+            SavingsGoal.is_active == True,  # noqa: E712
+        )
+    else:
+        statement = select(SavingsGoal).where(SavingsGoal.user_id == owner_id, SavingsGoal.is_active == True)  # noqa: E712
+    goals = (await session.exec(statement)).all()
     amounts = await _current_amounts(session, [g.id for g in goals])
     return [_to_public(goal, amounts.get(goal.id, Decimal("0"))) for goal in goals]
 

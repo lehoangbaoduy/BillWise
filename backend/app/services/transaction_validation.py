@@ -6,11 +6,12 @@ from fastapi import HTTPException, status
 from sqlmodel import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.api.deps import household_owner_id
 from app.models.category import Category, CategoryType
 from app.models.goal import SavingsGoal
 from app.models.payment_method import PaymentMethod
 from app.models.transaction import Transaction, TransactionLineItem, TransactionSource, TransactionType
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.transaction import TransactionCreate, TransactionLineItemPublic, TransactionPublic
 
 _CENTS = Decimal("0.01")
@@ -23,15 +24,23 @@ def quantize(amount: Decimal) -> Decimal:
 
 
 async def validate_payment_method(session: AsyncSession, user: User, payment_method_id: UUID) -> None:
+    """Payment methods stay owner-managed regardless of household sharing (PRD
+    §21.4), but a partner permitted to add transactions still selects from the
+    household's existing payment methods — scoped by household_owner_id, not
+    the acting user's own id, so this check passes identically for owner and
+    partner callers."""
+    owner_id = household_owner_id(user)
     payment_method = await session.get(PaymentMethod, payment_method_id)
-    if payment_method is None or payment_method.user_id != user.id or not payment_method.is_active:
+    if payment_method is None or payment_method.user_id != owner_id or not payment_method.is_active:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid payment method")
 
 
 async def validate_goal(
     session: AsyncSession, user: User, transaction_type: TransactionType, goal_id: UUID | None
 ) -> None:
-    """Shared by the Transactions router and the OCR confirm-transaction endpoint."""
+    """Shared by the Transactions router and the OCR confirm-transaction endpoint.
+    A partner may only contribute to a goal shared with them (PRD §21.4: goals
+    follow the same is_shared pattern as categories)."""
     if goal_id is None:
         return
     if transaction_type not in GOAL_ELIGIBLE_TYPES:
@@ -39,8 +48,11 @@ async def validate_goal(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="goal_id is only valid for Saving expense or Adjustment transactions",
         )
+    owner_id = household_owner_id(user)
     goal = await session.get(SavingsGoal, goal_id)
-    if goal is None or goal.user_id != user.id or not goal.is_active:
+    if goal is None or goal.user_id != owner_id or not goal.is_active:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid goal")
+    if user.role == UserRole.PARTNER and not goal.is_shared:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid goal")
 
 
@@ -53,9 +65,12 @@ async def detect_duplicate(
     payment_method_id: UUID,
     exclude_id: UUID | None = None,
 ) -> bool:
-    """Shared by the Transactions router and the OCR confirm-transaction endpoint."""
+    """Shared by the Transactions router and the OCR confirm-transaction endpoint.
+    Scoped to the whole household's ledger, not just the acting user's own
+    entries, since a partner and owner share one transaction list."""
+    owner_id = household_owner_id(user)
     conditions = [
-        Transaction.user_id == user.id,
+        Transaction.user_id == owner_id,
         Transaction.merchant == merchant,
         Transaction.date == date,
         Transaction.total_amount == total_amount,
@@ -76,7 +91,10 @@ async def validate_line_items(
     line_items: list,
 ) -> None:
     """Shared by the Transactions router (manual entry/edit) and the Goals router's
-    add-funds endpoint, which synthesizes a single-line-item transaction."""
+    add-funds endpoint, which synthesizes a single-line-item transaction. A
+    partner permitted to add transactions may only use categories shared with
+    them (PRD §21.4)."""
+    owner_id = household_owner_id(user)
     line_item_sum = sum((item.amount for item in line_items), Decimal("0"))
     if quantize(line_item_sum) != quantize(total_amount):
         raise HTTPException(
@@ -99,7 +117,9 @@ async def validate_line_items(
     )
     for item in line_items:
         category = await session.get(Category, item.category_id)
-        if category is None or category.user_id != user.id or not category.is_active:
+        if category is None or category.user_id != owner_id or not category.is_active:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid category")
+        if user.role == UserRole.PARTNER and not category.is_shared:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid category")
         if expected_category_type is not None and category.category_type != expected_category_type:
             raise HTTPException(
@@ -132,6 +152,7 @@ async def to_transaction_public(
         notes=transaction.notes,
         line_items=[TransactionLineItemPublic.model_validate(item) for item in line_items],
         possible_duplicate=possible_duplicate,
+        created_by_user_id=transaction.created_by_user_id,
     )
 
 
@@ -139,18 +160,22 @@ async def create_transaction_record(
     session: AsyncSession, user: User, body: TransactionCreate, source: TransactionSource
 ) -> tuple[Transaction, bool]:
     """Validates and persists a Transaction plus its TransactionLineItems. Shared by manual
-    entry (POST /transactions) and OCR confirmation (POST /ocr/confirm-transaction) — the
-    only difference between the two call sites is which `source` value gets recorded."""
+    entry (POST /transactions), OCR confirmation (POST /ocr/confirm-transaction, owner-only),
+    and now a permitted partner's manual entry — the only difference between call sites is
+    which `source` value gets recorded. `Transaction.user_id` is always the household owner's
+    id (see household_owner_id); `created_by_user_id` separately records a partner creator."""
     await validate_payment_method(session, user, body.payment_method_id)
     await validate_line_items(session, user, body.transaction_type, body.total_amount, body.line_items)
     await validate_goal(session, user, body.transaction_type, body.goal_id)
 
+    owner_id = household_owner_id(user)
     possible_duplicate = await detect_duplicate(
         session, user, body.merchant, body.date, body.total_amount, body.payment_method_id
     )
 
     transaction = Transaction(
-        user_id=user.id,
+        user_id=owner_id,
+        created_by_user_id=user.id if user.id != owner_id else None,
         payment_method_id=body.payment_method_id,
         goal_id=body.goal_id,
         date=body.date,

@@ -29,6 +29,13 @@ class Transaction(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(foreign_key="users.id", nullable=False, index=True)
+    # The household this transaction's data belongs to (owner's id, always — see
+    # app.api.deps.household_owner_id). created_by_user_id separately records who
+    # actually entered it: null for the owner, the partner's own id for a
+    # partner-entered transaction. PRD §21.3: revoking a partner's access doesn't
+    # remove or reassign their past transactions — this column is what lets that
+    # attribution survive the revoke.
+    created_by_user_id: uuid.UUID | None = Field(default=None, foreign_key="users.id")
     payment_method_id: uuid.UUID = Field(foreign_key="payment_methods.id", nullable=False)
     goal_id: uuid.UUID | None = Field(default=None, foreign_key="savings_goals.id", index=True)
     date: date_type

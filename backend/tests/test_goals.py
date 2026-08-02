@@ -21,6 +21,22 @@ async def _create_verified_owner(session, email):
     return user
 
 
+async def _create_verified_user(session, email, role=UserRole.OWNER, invited_by_user_id=None):
+    user = User(
+        email=email,
+        password_hash=hash_password(VALID_PASSWORD),
+        display_name="Test User",
+        role=role,
+        invited_by_user_id=invited_by_user_id,
+        email_verified_at=utcnow(),
+    )
+    session.add(user)
+    await session.flush()
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
 async def _login(client, email):
     return await client.post("/auth/login", json={"email": email, "password": VALID_PASSWORD})
 
@@ -77,6 +93,23 @@ class TestListGoals:
         assert response.status_code == 200
         names = {g["name"] for g in response.json()}
         assert names == {"Emergency Fund"}
+
+    async def test_partner_sees_only_shared_goals(self, client, session, unique_email):
+        from app.models.goal import SavingsGoal
+
+        owner = await _authed_client(client, session, unique_email)
+        session.add(SavingsGoal(user_id=owner.id, name="Private Goal", target_amount="500.00", is_shared=False))
+        session.add(SavingsGoal(user_id=owner.id, name="Shared Goal", target_amount="1000.00", is_shared=True))
+        await session.commit()
+
+        partner_email = f"partner-{unique_email}"
+        await _create_verified_user(session, partner_email, role=UserRole.PARTNER, invited_by_user_id=owner.id)
+        await _login(client, partner_email)
+
+        response = await client.get("/goals")
+        assert response.status_code == 200
+        names = {g["name"] for g in response.json()}
+        assert names == {"Shared Goal"}
 
 
 class TestAddFunds:

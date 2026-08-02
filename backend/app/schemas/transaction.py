@@ -71,3 +71,4 @@ class TransactionPublic(BaseModel):
     notes: str | None
     line_items: list[TransactionLineItemPublic]
     possible_duplicate: bool = False
+    created_by_user_id: uuid.UUID | None = None

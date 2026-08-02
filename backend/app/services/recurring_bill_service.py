@@ -140,7 +140,7 @@ async def mark_bill_paid(
         transaction, _ = await create_transaction_record(session, user, body, TransactionSource.RECURRING_BILL)
         period.transaction_id = transaction.id
         line_items = await load_line_items(session, transaction.id)
-        await record_cashback_for_line_items(session, user, transaction, line_items)
+        await record_cashback_for_line_items(session, transaction, line_items)
 
     period.status = RecurringBillPaymentStatus.PAID
     period.paid_date = paid_date

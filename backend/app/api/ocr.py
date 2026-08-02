@@ -108,5 +108,5 @@ async def confirm_transaction(
         session, user, body, TransactionSource.RECEIPT_OCR
     )
     line_items = await load_line_items(session, transaction.id)
-    await record_cashback_for_line_items(session, user, transaction, line_items)
+    await record_cashback_for_line_items(session, transaction, line_items)
     return await to_transaction_public(session, transaction, possible_duplicate=possible_duplicate)
