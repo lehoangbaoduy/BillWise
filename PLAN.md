@@ -129,7 +129,18 @@ aren't already obvious from the code or the PRD.
       (CSV/XLSX/PDF all downloaded and opened successfully). See "Milestone
       7 Detail" below. Formally `pending_approval` pending human-ack
       (decisions 83-98).
-- [ ] **M8: Mobile Layout**
+- [x] **M8: Mobile Layout** — DONE. A CSS-only breakpoint (768px, the
+      template's existing Bootstrap `md` convention) swap between the
+      desktop Sidebar and a new MobileNav bottom bar (Dashboard,
+      Transactions, floating Add button, Budgets, More) + MobileMoreMenu
+      drawer, wired into the shared Layout.js wrapper so every existing
+      page gets correct chrome automatically with zero per-page changes and
+      no remount — live-verified via Playwright that in-progress Add
+      Transaction form state survives a 390px→1440px resize with zero data
+      loss. The Transactions list gained a touch-friendly stacked-card
+      layout (44px tap targets) below 768px. See "Milestone 8 Detail"
+      below. Formally `pending_approval` pending human-ack (decisions
+      99-100).
 - [ ] **M9: Security Hardening**
 
 ## Environment Notes
@@ -1853,6 +1864,118 @@ successfully with real transaction data.
 Decision 98 (`pending_approval`, linked to 97) records this remediation.
 This was the final slice of Milestone 7 — all 8 slices now complete.
 
+## Milestone 8 Detail (Mobile Layout)
+
+### Specs registered
+- `BIW-INFRA-019` (infra) — MobileNav, MobileMoreMenu, Layout (modified),
+  TransactionRow mobile variant. `assess_risk` returned `high` via a
+  keyword false-positive (the request description's own "no new auth/
+  authorization logic" negation tripped the deterministic auto-high-keyword
+  rule on the bare words "auth"/"authorization") — honored anyway, ran all
+  required gates (spec, tests, review:security) plus react-reviewer per
+  this codebase's standing convention. Decision 99 (`pending_approval`)
+  recorded before implementation.
+
+### Design
+PRD §9.4/§28.2-28.4 requires a separate bottom-navigation layout below
+768px (the template's own existing Bootstrap `md` breakpoint), reusing the
+same cards/colors/components as desktop with only the navigation chrome
+differing. Investigation found the Ekash template's own compiled CSS
+already responsively collapses `.sidebar` into a 50px bottom bar below
+767px — but with all 12 of the desktop Sidebar's items crammed in, far too
+dense for the PRD's 5-item design. Rather than reuse that collapse, a new
+`.mobile-nav` component/stylesheet was built and `.sidebar` is hidden
+outright below the breakpoint instead.
+
+CSS changes were authored in the project's actual SCSS source
+(`public/scss/layout/_mobile-nav.scss`, imported into `_layout.scss`) since
+a real `sass --watch` pipeline already exists (`npm run sass`) — not
+hand-edited into the generated `public/css/style.css` directly. However,
+running a full recompile produced a ~460-line unrelated diff (the installed
+`node_modules` Bootstrap is 5.3.8 vs. whatever 5.3.2-era Sass toolchain
+originally generated the committed CSS, which emits different `color-mix`
+`rgb()` output for the same design tokens). To keep the diff scoped to this
+slice, the new rules were compiled once, hand-extracted, and spliced into
+the existing committed `style.css` at the appropriate location — the SCSS
+source itself is the correct, forward-looking artifact for any future real
+recompile, and this discrepancy is flagged here rather than silently
+absorbed into an unrelated 460-line diff.
+
+The breakpoint swap between desktop Sidebar and MobileNav is pure CSS
+(`@media` visibility), not JS viewport detection — both components are
+always mounted simultaneously as siblings inside the shared `Layout.js`
+wrapper, so the wrapped page `children` never remount across the
+breakpoint. This was the explicit PRD §27.7 acceptance bar ("must not lose
+in-progress form state") and was live-verified via Playwright: a filled
+Add Transaction Merchant field survived a 390px→1440px resize unchanged.
+
+The Transactions list (`analytics-transaction-history/page.js`) gained a
+CSS-only responsive-card transformation (`table-mobile-cards` class +
+`data-label` attributes on each `<td>`) rather than a literal swipe-gesture
+library — read PRD §28.3's "swipe-friendly transaction list" as
+touch-appropriate row layout + large tap targets (the existing
+`.table-responsive` wrapper already provides horizontal-scroll swipe for
+anything that doesn't fit), not a literal swipe-to-delete gesture, which
+PRD doesn't otherwise specify and would require a new gesture-library
+dependency for a single, narrow interaction.
+
+Scope decision: PRD §28.4's More-menu item list includes "Audit Logs," but
+no Audit Logs page/endpoint exists yet — it's explicitly M9 scope (deferred
+from M7 earlier this session). Omitted that one nav entry rather than
+linking to a route that doesn't exist; will add it when M9 ships the page.
+All other 9 More-menu items (Savings Goals, Recurring Bills, Cashback, Net
+Worth, Payment Methods, Categories, Household, Exports, Settings) are
+included, Household gated owner-only matching the desktop Sidebar's
+existing precedent.
+
+Scope decision: PRD §1's one-line mention of asking the user "which
+platform... PC or Mobile" at login has no further detail anywhere else in
+the PRD (no mockup, no flow, no storage model) and is superseded by the
+more detailed, testable §9.4/§28/Final-MVP-#20 spec, which describes
+automatic viewport-based switching, not a manual login-time choice.
+
+### Implementation
+`MobileNav.js` (new) — 5-item bottom bar with a floating "Add" button;
+`MobileMoreMenu.js` (new) — bottom-sheet drawer; `Layout.js` (modified) —
+renders `MobileNav` as an always-mounted sibling of `Sidebar`;
+`analytics-transaction-history/page.js` (modified) — mobile card-row
+treatment. Live-verified end-to-end via Playwright across Dashboard,
+Transactions (mobile cards with real seeded data), Add Transaction (form
+reflow + state-preservation across the breakpoint), Budgets, Wallets,
+Categories, and the More drawer (open/close, navigation, owner-gated
+Household entry) at a 390×844 mobile viewport, then re-confirmed desktop
+chrome at 1440×900.
+
+**security-reviewer — clean, zero findings.** Confirmed no XSS vectors (all
+`data-label` values are hardcoded literals, no `dangerouslySetInnerHTML`),
+the client-side owner-only Household gate matches the existing Sidebar.js
+precedent with the backend's `require_owner` dependency as the real
+boundary, and `useAuth()`'s loading/null state is handled safely with no
+premature content flash.
+
+**react-reviewer — 2 HIGH, 3 MEDIUM found and fixed; 2 MINOR ruled out as
+out of scope.** Fixed: the More drawer had no Escape-key handler despite
+behaving like a modal (added a `keydown` listener via `useEffect`); the
+dialog was missing `aria-modal="true"` and `aria-labelledby`; the More
+button lacked `aria-controls` linking it to the drawer; the Household
+array-splice insertion index was a bare magic number (extracted to a named,
+commented constant); and there was no focus management on drawer
+open/close (added focus-to-close-button on open, focus-return-to-trigger on
+close via a ref passed from `MobileNav`) — all live-verified via Playwright
+(Escape closes the drawer and returns focus to the More button). Two MINOR
+findings (a pre-existing `wowjs` dynamic-require pattern and an ambiguous
+pre-existing `isMobileMenu` state name in `Layout.js`) both touch template
+code that predates and is unrelated to this slice's diff — left as-is
+rather than scope-creeping into an unrelated rename. An ESLint
+`react-hooks/exhaustive-deps` warning surfaced while fixing the focus-return
+finding (a stale-ref-in-cleanup risk) and was fixed by capturing the ref
+value in a local `const` before the cleanup closure captured it.
+
+Decision 100 (`pending_approval`, linked to 99) records this remediation.
+This was the only slice of Milestone 8 (the PRD describes M8 in a single
+paragraph, unlike M7's four distinct PRD-listed features) — Milestone 8 is
+now fully complete.
+
 ## Milestone 1 Detail
 
 ### Specs registered
@@ -2149,6 +2272,18 @@ throughout), UUID enumeration (128-bit space, already low risk).
   approved with no blocking issues) — see "Milestone 7 Detail" above — are
   `pending_approval` under CONST-ARCH-001. **This is the last M7 slice —
   Milestone 7 is now fully complete.**
+- **M8 (Mobile Layout) decisions awaiting human-ack**: decision 99
+  (assess_risk+spec, `BIW-INFRA-019`, `high` risk — a keyword false-positive
+  on the request description's own "no new auth/authorization logic"
+  negation, honored anyway) and 100 (M8 review remediation, linked to 99 —
+  security-reviewer clean with zero findings; react-reviewer's 2 HIGH
+  (missing Escape-key handler, missing `aria-modal`) and 3 MEDIUM (missing
+  `aria-controls`/`aria-labelledby`, a magic-number array-splice index, no
+  focus management on drawer open/close) all fixed and live-verified via
+  Playwright; 2 MINOR findings touching unrelated pre-existing template
+  code ruled out as out of scope) — see "Milestone 8 Detail" above — are
+  `pending_approval` under CONST-ARCH-001. **Milestone 8 is now fully
+  complete.**
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all
   approved this way already.

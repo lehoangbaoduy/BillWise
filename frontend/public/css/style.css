@@ -14582,6 +14582,173 @@ div {
   }
 }
 
+/* M8 mobile bottom-nav: MobileNav replaces the sidebar's own bottom-bar
+   collapse below 767px (too many items to fit), so hide it outright here. */
+@media only screen and (max-width: 767px) {
+  .sidebar {
+    display: none;
+  }
+}
+
+.mobile-nav {
+  display: none;
+}
+@media only screen and (max-width: 767px) {
+  .mobile-nav {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    height: 50px;
+    align-items: center;
+    justify-content: space-around;
+    background: #2F2CD8;
+    box-shadow: rgba(145, 158, 171, 0.3) 0px 0px 2px 0px, rgba(145, 158, 171, 0.12) 0px 12px 24px -4px;
+  }
+}
+.mobile-nav .mobile-nav-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 4px;
+  border: 0;
+  background: none;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 10px;
+  line-height: 1.2;
+}
+.mobile-nav .mobile-nav-link i {
+  font-size: 18px;
+  line-height: 1;
+  opacity: 0.85;
+}
+.mobile-nav .mobile-nav-link.active {
+  color: #fff;
+}
+.mobile-nav .mobile-nav-link.active i {
+  opacity: 1;
+}
+.mobile-nav .mobile-nav-add {
+  position: relative;
+  margin-top: -30px;
+}
+.mobile-nav .mobile-nav-add .mobile-nav-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #fff;
+  color: #2F2CD8;
+  font-size: 22px;
+  box-shadow: 0 1rem 3rem rgba(35, 38, 45, 0.275);
+}
+.mobile-nav .mobile-nav-add span {
+  display: none;
+}
+
+.mobile-more-menu {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+.mobile-more-menu.open {
+  display: block;
+}
+.mobile-more-menu .mobile-more-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  padding: 0;
+  background: rgba(15, 23, 42, 0.5);
+}
+.mobile-more-menu .mobile-more-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  padding: 12px 8px 66px;
+}
+.mobile-more-menu .mobile-more-sheet h5, .mobile-more-menu .mobile-more-sheet .h5 {
+  padding: 4px 8px 12px;
+  margin: 0;
+}
+.mobile-more-menu .mobile-more-sheet ul {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+.mobile-more-menu .mobile-more-sheet li a {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 64px;
+  padding: 10px 4px;
+  border-radius: 6px;
+  color: #1f2c73;
+  text-align: center;
+}
+.mobile-more-menu .mobile-more-sheet li a i {
+  font-size: 20px;
+  color: #2F2CD8;
+}
+.mobile-more-menu .mobile-more-sheet li a span {
+  font-size: 12px;
+}
+
+@media only screen and (max-width: 767px) {
+  .table-mobile-cards thead {
+    display: none;
+  }
+  .table-mobile-cards tbody tr {
+    display: block;
+    margin-bottom: 12px;
+    border: 1px solid rgb(229, 234, 239);
+    border-radius: 6px;
+    padding: 8px 12px;
+  }
+  .table-mobile-cards tbody td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border: 0;
+    padding: 6px 0;
+    text-align: right;
+  }
+  .table-mobile-cards tbody td[data-label]:not([data-label=""])::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: #1f2c73;
+    text-align: left;
+  }
+  .table-mobile-cards tbody td.mobile-cards-actions {
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .table-mobile-cards tbody td.mobile-cards-actions .btn {
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
 .brand-logo {
   margin: 20px 20px 20px;
   text-align: center;

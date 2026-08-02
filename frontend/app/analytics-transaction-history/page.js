@@ -21,13 +21,13 @@ function TransactionRow({ transaction, categoriesById, paymentMethodsById, onDel
 
     return (
         <tr>
-            <td>{transaction.date}</td>
-            <td>{transaction.merchant}</td>
-            <td>{categoryNames || "—"}</td>
-            <td>{paymentMethodsById[transaction.payment_method_id]?.name || "—"}</td>
-            <td>{transaction.transaction_type}</td>
-            <td className="text-end">{formatCurrency(transaction.total_amount)}</td>
-            <td className="text-end">
+            <td data-label="Date">{transaction.date}</td>
+            <td data-label="Merchant">{transaction.merchant}</td>
+            <td data-label="Category">{categoryNames || "—"}</td>
+            <td data-label="Payment method">{paymentMethodsById[transaction.payment_method_id]?.name || "—"}</td>
+            <td data-label="Type">{transaction.transaction_type}</td>
+            <td className="text-end" data-label="Amount">{formatCurrency(transaction.total_amount)}</td>
+            <td className="text-end mobile-cards-actions" data-label="">
                 <Link
                     className="btn btn-sm btn-outline-secondary me-2"
                     href={`/add-transaction?edit=${transaction.id}`}
@@ -208,7 +208,7 @@ function TransactionHistoryContent() {
                                         <EmptyState icon="fi fi-rr-receipt" message="No transactions match these filters." />
                                     ) : (
                                         <div className="table-responsive">
-                                            <table className="table table-hover">
+                                            <table className="table table-hover table-mobile-cards">
                                                 <thead>
                                                     <tr>
                                                         <th>Date</th>

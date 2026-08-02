@@ -1,0 +1,197 @@
+// Mobile bottom-navigation layout (M8, PRD §9.4/§28.3).
+//
+// The desktop .sidebar already collapses into a 50px bottom bar below the
+// "sm" breakpoint (see _sidebar.scss), but with all 12 of its items crammed
+// in — too dense for the PRD's 5-item bottom nav + More menu design. Rather
+// than reuse that collapse, .sidebar is hidden outright below "sm" and
+// .mobile-nav takes over as a separate component, so each stays simple.
+.sidebar {
+    @include respond("sm") {
+        display: none;
+    }
+}
+
+.mobile-nav {
+    display: none;
+
+    @include respond("sm") {
+        display: flex;
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 10;
+        height: 50px;
+        align-items: center;
+        justify-content: space-around;
+        background: $primary;
+        box-shadow: $shadow;
+    }
+
+    .mobile-nav-link {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        min-width: 48px;
+        min-height: 48px;
+        padding: 4px;
+        border: 0;
+        background: none;
+        color: rgba(255, 255, 255, 0.65);
+        font-size: 10px;
+        line-height: 1.2;
+
+        i {
+            font-size: 18px;
+            line-height: 1;
+            opacity: 0.85;
+        }
+
+        &.active {
+            color: $white;
+
+            i {
+                opacity: 1;
+            }
+        }
+    }
+
+    .mobile-nav-add {
+        position: relative;
+        margin-top: -30px;
+
+        .mobile-nav-add-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: $white;
+            color: $primary;
+            font-size: 22px;
+            box-shadow: $shadow-lg;
+        }
+
+        span {
+            display: none;
+        }
+    }
+}
+
+.mobile-more-menu {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+
+    &.open {
+        display: block;
+    }
+
+    .mobile-more-backdrop {
+        position: absolute;
+        inset: 0;
+        border: 0;
+        padding: 0;
+        background: rgba(15, 23, 42, 0.5);
+    }
+
+    .mobile-more-sheet {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        max-height: 70vh;
+        overflow-y: auto;
+        background: $white;
+        border-radius: 16px 16px 0 0;
+        padding: 12px 8px calc(50px + 16px);
+
+        h5 {
+            padding: 4px 8px 12px;
+            margin: 0;
+        }
+
+        ul {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 4px;
+        }
+
+        li a {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            min-height: 64px;
+            padding: 10px 4px;
+            border-radius: $radius;
+            color: $headings-color;
+            text-align: center;
+
+            i {
+                font-size: 20px;
+                color: $primary;
+            }
+
+            span {
+                font-size: 12px;
+            }
+        }
+    }
+}
+
+// Transaction list: stacked, touch-friendly rows below "sm" instead of a
+// cramped 7-column table (PRD §28.3 "swipe-friendly transaction list" —
+// read here as touch-appropriate row layout + large tap targets; the
+// existing .table-responsive wrapper already provides horizontal-scroll
+// swipe for anything that doesn't fit).
+.table-mobile-cards {
+    @include respond("sm") {
+        thead {
+            display: none;
+        }
+
+        tbody tr {
+            display: block;
+            margin-bottom: 12px;
+            border: 1px solid $border-color;
+            border-radius: $radius;
+            padding: 8px 12px;
+        }
+
+        tbody td {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            border: 0;
+            padding: 6px 0;
+            text-align: right;
+        }
+
+        tbody td[data-label]:not([data-label=""])::before {
+            content: attr(data-label);
+            font-weight: 600;
+            color: $headings-color;
+            text-align: left;
+        }
+
+        tbody td.mobile-cards-actions {
+            justify-content: flex-end;
+            gap: 8px;
+
+            .btn {
+                min-width: 44px;
+                min-height: 44px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+        }
+    }
+}

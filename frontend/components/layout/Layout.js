@@ -5,6 +5,7 @@ import AuthGuard from "@/components/auth/AuthGuard"
 import Breadcrumb from './Breadcrumb'
 import PageHead from './PageHead'
 import Sidebar from "./Sidebar"
+import MobileNav from "./MobileNav"
 import Footer1 from './footer/Footer1'
 import Header1 from "./header/Header1"
 
@@ -33,6 +34,7 @@ export default function Layout({ headerStyle, footerStyle, headTitle, breadcrumb
             <div id="main-wrapper">
                 <Header1 scroll={scroll} isMobileMenu={isMobileMenu} handleMobileMenu={handleMobileMenu} />
                 <Sidebar />
+                <MobileNav />
 
                 <div className="content-body">
                     <div className="container">
