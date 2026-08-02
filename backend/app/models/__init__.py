@@ -2,6 +2,7 @@ from app.models.budget import Budget
 from app.models.cashback import CashbackRecord, CashbackRule
 from app.models.category import Category
 from app.models.goal import SavingsGoal
+from app.models.net_worth import NetWorthAccount, NetWorthBalance, NetWorthSnapshot
 from app.models.partner_permission import PartnerPermission
 from app.models.payment_method import PaymentMethod
 from app.models.recurring_bill import RecurringBill, RecurringBillPayment
@@ -13,6 +14,9 @@ __all__ = [
     "CashbackRecord",
     "CashbackRule",
     "Category",
+    "NetWorthAccount",
+    "NetWorthBalance",
+    "NetWorthSnapshot",
     "PartnerPermission",
     "PaymentMethod",
     "RecurringBill",

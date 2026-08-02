@@ -11,6 +11,7 @@ from app.api.cashback import router as cashback_router
 from app.api.categories import router as categories_router
 from app.api.dashboard import router as dashboard_router
 from app.api.goals import router as goals_router
+from app.api.net_worth import router as net_worth_router
 from app.api.ocr import router as ocr_router
 from app.api.payment_methods import router as payment_methods_router
 from app.api.recurring_bills import router as recurring_bills_router
@@ -42,6 +43,7 @@ app.include_router(dashboard_router)
 app.include_router(ocr_router)
 app.include_router(recurring_bills_router)
 app.include_router(cashback_router)
+app.include_router(net_worth_router)
 
 
 @app.get("/health")

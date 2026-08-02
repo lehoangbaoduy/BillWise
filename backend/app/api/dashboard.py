@@ -7,9 +7,11 @@ from sqlmodel import and_, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import require_owner
+from app.api.net_worth import load_balances_by_snapshot, to_snapshot_public
 from app.core.db import get_session
 from app.models.budget import Budget
 from app.models.category import Category
+from app.models.net_worth import NetWorthSnapshot
 from app.models.payment_method import PaymentMethod
 from app.models.transaction import Transaction, TransactionLineItem, TransactionType
 from app.models.user import User
@@ -27,6 +29,7 @@ from app.schemas.dashboard import (
     TopPaymentMethod,
     YearlyOverview,
 )
+from app.schemas.net_worth import NetWorthDashboard
 from app.services.budget_rollover import ensure_budget_rollover
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -328,3 +331,39 @@ async def cash_flow(
     income = await _sum_by_type(session, user, month, year, TransactionType.INCOME)
     expenses = await _sum_by_type(session, user, month, year, TransactionType.EXPENSE)
     return CashFlow(month=month, year=year, income=income, expenses=expenses, net=income - expenses)
+
+
+@router.get("/net-worth", response_model=NetWorthDashboard)
+async def net_worth_dashboard(
+    user: User = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
+) -> NetWorthDashboard:
+    snapshots = (
+        await session.exec(
+            select(NetWorthSnapshot).where(NetWorthSnapshot.user_id == user.id).order_by(NetWorthSnapshot.snapshot_date)
+        )
+    ).all()
+    if not snapshots:
+        return NetWorthDashboard(
+            current_net_worth=None,
+            total_assets=None,
+            total_liabilities=None,
+            change_vs_previous=None,
+            breakdown=[],
+            history=[],
+        )
+
+    balances_by_snapshot = await load_balances_by_snapshot(session, [snapshot.id for snapshot in snapshots])
+    history = [to_snapshot_public(snapshot, balances_by_snapshot[snapshot.id]) for snapshot in snapshots]
+
+    latest = snapshots[-1]
+    previous = snapshots[-2] if len(snapshots) > 1 else None
+
+    return NetWorthDashboard(
+        current_net_worth=latest.net_worth,
+        total_assets=latest.total_assets,
+        total_liabilities=latest.total_liabilities,
+        change_vs_previous=(latest.net_worth - previous.net_worth) if previous else None,
+        breakdown=balances_by_snapshot[latest.id],
+        history=history,
+    )

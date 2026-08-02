@@ -63,7 +63,14 @@ aren't already obvious from the code or the PRD.
       once it recovered) and fixed, plus the Cashback-rules
       GET-endpoint gap-fill. Formally `pending_approval` pending human-ack
       (decisions 76-82).
-- [ ] **M7: Net Worth, AI Insights, Household & Exports**
+- [~] **M7: Net Worth, AI Insights, Household & Exports** — slice 1 of 8 DONE.
+      Backend: Net Worth (new tables, full CRUD gap-filled from the PRD's
+      §24.11 requirement since §25 has no dedicated Net Worth CRUD section,
+      complete-snapshot validation rule, dashboard aggregation reusing a
+      shared batch-loading helper) — 23 new tests, 219 total passing. See
+      "Milestone 7 Detail" below. Formally `pending_approval` pending
+      human-ack (decisions 83-84). Remaining slices (frontend Net Worth, AI
+      Insights, Household, Exports) not yet started.
 - [ ] **M8: Mobile Layout**
 - [ ] **M9: Security Hardening**
 
@@ -1233,6 +1240,95 @@ aggregates (stat tiles, by-card, by-category) together, the monthly/yearly
 toggle, and the error-isolation fix described above — all exercised against
 the real backend, not mocked.
 
+## Milestone 7 Detail (Net Worth, AI Insights, Household & Exports)
+
+### Slice 1: Backend Net Worth (BIW-DATA-006, BIW-API-009, decisions 83-84)
+
+**PRD gap found and filled**: PRD §25 has no dedicated Net Worth CRUD
+section — only `GET /dashboard/net-worth` is listed under §25.10 — despite
+§24.11 explicitly requiring "manual asset/liability entry" and a "monthly
+snapshot". Designed the full CRUD API from scratch by pattern-matching every
+other resource's shape in §25 (payment methods, categories, budgets, goals,
+recurring bills): `GET/POST /net-worth-accounts`, `PATCH/DELETE
+/net-worth-accounts/{id}`, `POST/GET /net-worth-snapshots`. This is a
+gap-fill, not scope creep — same category as M6's `GET /cashback-rules` fill.
+
+New tables (`backend/app/models/net_worth.py`): `net_worth_accounts`
+(user-owned, `asset`/`liability` type, soft-deactivate via `is_active`),
+`net_worth_snapshots` (point-in-time `total_assets`/`total_liabilities`/
+`net_worth` + optional notes), `net_worth_balances` (per-account balance
+within a snapshot, cascade-deletes with either parent). Plain `Decimal`
+fields, no explicit precision — matches `budget.py`/`recurring_bill.py`
+convention (initially over-specified with `max_digits`/`decimal_places`,
+corrected before running anything).
+
+**Design decision**: `POST /net-worth-snapshots` requires the submitted
+`balances` list to *exactly* match the user's currently-active accounts —
+every active account must have a balance entry, and no unknown/inactive
+account IDs are accepted — returning 422 otherwise with a detail message
+listing which accounts are missing/unknown. Rationale: a partial snapshot
+would silently understate net worth, which the PRD's simple
+Total-Assets-minus-Total-Liabilities framing (§18.7) doesn't intend.
+Deactivating an account removes it from the required set for future
+snapshots (a closed account shouldn't block snapshotting going forward).
+
+`GET /dashboard/net-worth` added to the existing `backend/app/api/dashboard.py`
+(consistent with that file's other aggregation endpoints): returns current
+net worth, total assets/liabilities, change vs. the previous snapshot
+(`None` if fewer than 2 snapshots exist), a breakdown of the latest
+snapshot's per-account balances, and the full snapshot history. Shares a
+`load_balances_by_snapshot()` batch-loading helper with
+`GET /net-worth-snapshots` (in `net_worth.py`) to avoid N+1 queries and to
+avoid duplicating the snapshot-to-schema conversion logic between the two
+routers.
+
+23 new tests (`backend/tests/test_net_worth.py`): auth-required on every
+endpoint, account CRUD (create asset/liability, reject invalid type, list
+excludes deactivated, update rejects clearing required fields, 404 for
+other users' accounts and for deactivated accounts), snapshot validation
+(no active accounts → 422, missing account → 422 naming it, unknown account
+→ 422 naming it, deactivated accounts excluded from the required set),
+correct asset/liability aggregation math, snapshot listing ordered by date
+and scoped to the owner, and dashboard aggregation (empty state, two-snapshot
+change calculation, single-snapshot `null` change). 219/219 backend tests
+passing (was 196; +23 for this slice, no regressions).
+
+**Security review (security-reviewer agent)**: raised one HIGH finding —
+`NetWorthBalanceInput.balance: Decimal` has no explicit constraint, and
+Pydantic's `Decimal` type was claimed to accept `"Infinity"`/`"NaN"` string
+input, which could corrupt snapshot totals. Verified empirically against
+this app's actual Pydantic version (2.13) with a throwaway script: `Decimal`
+fields already reject non-finite values by default via Pydantic's built-in
+`finite_number` validator (`Infinity`, `-Infinity`, `NaN`, `inf` all raise a
+422 validation error out of the box). False positive — no code change
+needed; documented rather than blindly patched.
+
+**FastAPI review (fastapi-reviewer agent) — fixed immediately**: MEDIUM —
+`dashboard.py` was importing an underscore-prefixed "private" helper
+(`_to_snapshot_public`) from `net_worth.py`, breaking that module's privacy
+convention and creating a hidden cross-module dependency (no other router in
+this codebase imports from another router's internals). Fixed by renaming
+to a public `to_snapshot_public`, since the cross-module reuse itself is
+legitimate here (it avoids duplicating snapshot-to-schema conversion logic
+between the snapshot-list and dashboard endpoints) — the fix was to make the
+already-intentional sharing explicit, not to eliminate it. Re-ran the full
+suite after the rename: 219/219 still passing.
+
+Formally `pending_approval` pending human-ack (decisions 83-84).
+
+### Remaining M7 slices (not yet started)
+- Slice 2: Frontend Net Worth screen
+- Slices 3-4: AI Insights backend + frontend
+- Slices 5-6: Household backend + frontend (partner invite/accept/revoke/
+  permissions endpoints; every existing endpoint in this codebase is
+  currently `require_owner`-only, so a household-scoping auth dependency
+  plus partner-scoped read filtering will be needed for the already-built
+  `is_shared` toggles on Category/SavingsGoal to have any effect — full
+  adversarial authorization testing is explicit M9 scope per the PRD's own
+  milestone split, not M7's)
+- Slices 7-8: Export backend + frontend (CSV/Excel/PDF via short-lived
+  signed URLs per PRD §20.4)
+
 ## Milestone 1 Detail
 
 ### Specs registered
@@ -1462,6 +1558,14 @@ throughout), UUID enumeration (128-bit space, already low risk).
   81 — react-reviewer was available again this slice and caught the
   identical shared-error-state bug class as slice 3's decision 80) — see
   "Milestone 6 Detail" above — are `pending_approval` under CONST-ARCH-001.
+- **M7 slice 1 (backend Net Worth) decisions awaiting human-ack**: decision 83
+  (assess_risk+spec, `BIW-DATA-006`/`BIW-API-009` — assess_risk returned
+  `critical` on a false-positive keyword match, "payment" appearing in an
+  unrelated clause of the risk description) and 84 (slice 1 review
+  remediation, linked to 83 — security-reviewer's one HIGH finding was a
+  verified false positive, fastapi-reviewer's one MEDIUM finding was fixed)
+  — see "Milestone 7 Detail" above — are `pending_approval` under
+  CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all
   approved this way already.
