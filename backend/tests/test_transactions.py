@@ -328,6 +328,25 @@ class TestCreateTransaction:
         )
         assert response.status_code == 422
 
+    async def test_rejects_oversized_notes(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+
+        response = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Costco",
+                "total_amount": "10.00",
+                "transaction_type": "Expense",
+                "notes": "x" * 1001,
+                "line_items": [{"category_id": str(category.id), "item_name": "x", "amount": "10.00"}],
+            },
+        )
+        assert response.status_code == 422
+
     async def test_flags_possible_duplicate_non_blocking(self, client, session, unique_email):
         user = await _authed_client(client, session, unique_email)
         pm = await _make_payment_method(session, user)

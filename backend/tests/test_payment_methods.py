@@ -36,6 +36,13 @@ class TestCreatePaymentMethod:
         )
         assert response.status_code == 401
 
+    async def test_rejects_oversized_issuer(self, client, session, unique_email):
+        await _authed_client(client, session, unique_email)
+        response = await client.post(
+            "/payment-methods", json={"name": "Chase Sapphire", "type": "Credit Card", "issuer": "x" * 101}
+        )
+        assert response.status_code == 422
+
     async def test_creates_card_alias(self, client, session, unique_email):
         await _authed_client(client, session, unique_email)
         response = await client.post(

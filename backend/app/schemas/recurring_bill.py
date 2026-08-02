@@ -18,7 +18,7 @@ class RecurringBillCreate(BaseModel):
     due_date: date_type | None = None
     auto_create_transaction: bool = False
     reminder_enabled: bool = False
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=1000)
 
 
 class RecurringBillUpdate(BaseModel):
@@ -32,7 +32,7 @@ class RecurringBillUpdate(BaseModel):
     due_date: date_type | None = None
     auto_create_transaction: bool | None = None
     reminder_enabled: bool | None = None
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=1000)
 
 
 class MarkPaidRequest(BaseModel):

@@ -15,7 +15,7 @@ class CashbackRuleCreate(BaseModel):
     cashback_rate: Decimal = Field(ge=0, le=100)
     start_date: date_type
     end_date: date_type | None = None
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=1000)
 
 
 class CashbackRuleUpdate(BaseModel):
@@ -25,7 +25,7 @@ class CashbackRuleUpdate(BaseModel):
     cashback_rate: Decimal | None = Field(default=None, ge=0, le=100)
     start_date: date_type | None = None
     end_date: date_type | None = None
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=1000)
 
 
 class CashbackRulePublic(BaseModel):

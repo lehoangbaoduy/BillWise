@@ -41,7 +41,7 @@ class NetWorthSnapshotCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     snapshot_date: date_type
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=1000)
     balances: list[NetWorthBalanceInput] = Field(min_length=1)
 
 

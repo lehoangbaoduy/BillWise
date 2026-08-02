@@ -77,6 +77,13 @@ class TestCreateGoal:
         assert body["current_amount"] == "0"
         assert body["is_active"] is True
 
+    async def test_rejects_oversized_icon(self, client, session, unique_email):
+        await _authed_client(client, session, unique_email)
+        response = await client.post(
+            "/goals", json={"name": "Emergency Fund", "target_amount": "1000.00", "icon": "x" * 21}
+        )
+        assert response.status_code == 422
+
 
 class TestListGoals:
     async def test_only_returns_own_active_goals(self, client, session, unique_email):

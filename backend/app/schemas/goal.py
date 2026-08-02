@@ -13,8 +13,8 @@ class GoalCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     target_amount: Decimal = Field(ge=0)
     target_date: date_type | None = None
-    icon: str | None = None
-    color: str | None = None
+    icon: str | None = Field(default=None, max_length=20)
+    color: str | None = Field(default=None, max_length=20)
     is_shared: bool = False
 
 
@@ -24,8 +24,8 @@ class GoalUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     target_amount: Decimal | None = Field(default=None, ge=0)
     target_date: date_type | None = None
-    icon: str | None = None
-    color: str | None = None
+    icon: str | None = Field(default=None, max_length=20)
+    color: str | None = Field(default=None, max_length=20)
 
 
 class GoalSharingUpdate(BaseModel):
@@ -42,7 +42,7 @@ class AddFundsRequest(BaseModel):
     category_id: uuid.UUID
     date: date_type
     merchant: str = Field(default="Goal contribution", min_length=1, max_length=200)
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=1000)
 
 
 class GoalPublic(BaseModel):

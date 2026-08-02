@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 def _normalize_email(value: str) -> str:
@@ -6,7 +6,7 @@ def _normalize_email(value: str) -> str:
 
 
 class AccountDeletionRequestRequest(BaseModel):
-    password: str
+    password: str = Field(max_length=128)
 
 
 class AccountDeletionConfirmRequest(BaseModel):

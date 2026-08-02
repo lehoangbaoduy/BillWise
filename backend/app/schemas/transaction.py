@@ -14,7 +14,7 @@ class TransactionLineItemCreate(BaseModel):
     item_name: str = Field(min_length=1, max_length=200)
     amount: Decimal
     quantity: Decimal | None = Decimal("1")
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=1000)
 
 
 class TransactionLineItemPublic(BaseModel):
@@ -35,10 +35,10 @@ class TransactionCreate(BaseModel):
     goal_id: uuid.UUID | None = None
     date: date_type
     merchant: str = Field(min_length=1, max_length=200)
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=500)
     total_amount: Decimal
     transaction_type: TransactionType
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=1000)
     line_items: list[TransactionLineItemCreate] = Field(min_length=1)
 
 
@@ -49,10 +49,10 @@ class TransactionUpdate(BaseModel):
     goal_id: uuid.UUID | None = None
     date: date_type | None = None
     merchant: str | None = Field(default=None, min_length=1, max_length=200)
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=500)
     total_amount: Decimal | None = None
     transaction_type: TransactionType | None = None
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=1000)
     line_items: list[TransactionLineItemCreate] | None = Field(default=None, min_length=1)
 
 

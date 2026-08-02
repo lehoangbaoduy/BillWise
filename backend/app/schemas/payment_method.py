@@ -15,7 +15,7 @@ class PaymentMethodCreate(BaseModel):
 
     name: str = Field(min_length=1, max_length=100)
     type: PaymentMethodType
-    issuer: str | None = None
+    issuer: str | None = Field(default=None, max_length=100)
     last_four_optional: str | None = Field(default=None, max_length=4, min_length=4)
     due_day_optional: int | None = Field(default=None, ge=1, le=31)
     statement_day_optional: int | None = Field(default=None, ge=1, le=31)
@@ -27,7 +27,7 @@ class PaymentMethodUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = Field(default=None, min_length=1, max_length=100)
-    issuer: str | None = None
+    issuer: str | None = Field(default=None, max_length=100)
     last_four_optional: str | None = Field(default=None, max_length=4, min_length=4)
     due_day_optional: int | None = Field(default=None, ge=1, le=31)
     statement_day_optional: int | None = Field(default=None, ge=1, le=31)
