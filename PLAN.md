@@ -1976,6 +1976,71 @@ This was the only slice of Milestone 8 (the PRD describes M8 in a single
 paragraph, unlike M7's four distinct PRD-listed features) — Milestone 8 is
 now fully complete.
 
+## Pre-M9 Gap Sweep (decision 119)
+
+Before starting Milestone 9, audited every "gap"/"deferred"/"not yet"/"TODO"
+marker across this entire PLAN.md (M1-M8) plus the harness-os `audit_report`
+to separate genuine actionable gaps from (a) deliberate PRD-silent design
+decisions already correctly documented (no action needed — e.g. recurring
+bills' "no separate skip endpoint," the accepted `asyncio.to_thread`
+residual risk), and (b) items explicitly scoped to M9 itself (the persisted
+`audit_logs` table, session revocation, account deletion flow, adversarial
+partner-auth testing — these are M9's own task list, not pre-M9 gaps).
+Three real, closeable gaps were found and fixed:
+
+**1. UTC-vs-local timezone date bug, spread across the app.** M7's Net
+Worth slice fixed this bug pattern in `net-worth/page.js` and flagged an
+identical instance in `cashback/page.js`'s `formatDate()` as "a known gap,
+not fixed, since it's out of scope for a Net Worth slice." Auditing every
+`formatDate()`/`toISOString()` call site in the frontend found the same two
+bug variants (`new Date(dateString)` parsing as UTC midnight; `new
+Date().toISOString().slice(0,10)` reporting the UTC "today") still live in
+`cashback/page.js`, `page.js` (dashboard), `goals/page.js`,
+`recurring-bills/page.js`, and `add-transaction/page.js` — five files,
+including the single most-used page in the app (Add Transaction's default
+date field). Fixed all five using the same Y/M/D-component-construction
+pattern already established and reviewer-approved in `net-worth/page.js`
+and `household/page.js`. Live-verified via Playwright that Recurring
+Bills' Paid-date field and Due-date display both now show the correct
+local date.
+
+**2. Missing react-reviewer coverage on M6 slice 3 (Recurring Bills
+frontend).** PLAN.md explicitly recorded this as "a known gap in this
+slice's review coverage until harness-os/react-reviewer capacity resets"
+— the agent hit its weekly usage limit twice during that slice, so only a
+manual by-hand review ever happened (security-reviewer did run cleanly).
+Since react-reviewer has run successfully many times already this session,
+capacity is clearly available — dispatched a full backfill review against
+`recurring-bills/page.js` and `lib/api.js`'s `recurringBillsApi` surface.
+Found 1 MEDIUM (Edit button missing `aria-expanded`/`aria-controls`,
+inconsistent with the Add-bill button's existing pattern in the same file)
+— fixed and live-verified via Playwright (`aria-expanded` toggles
+false→true correctly, `aria-controls` correctly references the now-id'd
+edit form). One HIGH finding (`useState(todayISO)` allegedly not calling
+the initializer function) was investigated and **ruled out as a reviewer
+error**: React's `useState` accepts a bare zero-arg function as a lazy
+initializer and calls it automatically — documented Hooks API behavior,
+not a bug, and the identical idiom passed react-reviewer's own review
+earlier this session in `settings-exports/page.js`. Confirmed empirically
+via live Playwright: the Paid-date field correctly showed today's actual
+local date, not a function object or blank value. Not applying that "fix."
+
+**3. Frontend Dockerfile never actually built or run.** Flagged since M1:
+"the Docker path should get a real build check before anyone relies on
+it" — this session used native `npm run dev` exclusively for all 8
+milestones' worth of Playwright verification, so the Docker path had zero
+real verification in ~8 milestones. Ran `docker compose build frontend`
+(succeeded) and `docker compose up -d frontend` (container started, logs
+showed a real "✓ Ready in 2.1s" Next.js startup, curl against the mapped
+port returned 200) — confirms the deployment-parity Dockerfile from PRD
+§7.7 actually works, not just exists. Stopped the container afterward and
+restored the native dev-server workflow.
+
+Re-verification after all fixes: frontend eslint clean across all 6
+touched files, production `npm run build` clean, full backend suite still
+278/278 passing (untouched by this frontend-only sweep — no backend code
+was changed), and the Docker frontend image builds and runs.
+
 ## Milestone 1 Detail
 
 ### Specs registered
@@ -2167,123 +2232,20 @@ throughout), UUID enumeration (128-bit space, already low risk).
   and run `harness reconcile-config` if tighter mechanical enforcement is wanted.
 - **M4 (all 4 slices) approved 2026-07-31** via `harness approve` — decisions 37-44
   all have matching `approve_decision` log entries. ✅
-- **M3 + Wallets-restyle decisions still awaiting human-ack**: decisions 31
-  (M3 backend assess_risk+spec), 32 (M3 backend review remediation — N+1 fix,
-  category filter pushed into SQL, missing index, 5 new tests), 33 (M3 frontend
-  assess_risk+spec), 34 (M3 frontend review remediation — SWR cache-key fix, stable
-  line-item keys), 35 (Wallets restyle assess_risk+spec), 36 (Wallets restyle review
-  remediation — both reviews clean) are still `pending_approval` under
-  CONST-ARCH-001. Required reviews have already run for every one of these and all
-  findings are fixed and re-verified. Not blocking further work, just outstanding.
-- **M5 (all 3 slices + bugfix + statement-import UI) decisions awaiting human-ack**:
-  decision 53 (backend receipt OCR + confirm-transaction assess_risk+spec), 54
-  (slice 1 review remediation), 55 (backend statement OCR assess_risk+spec), 56
-  (slice 2 review remediation), 57 (frontend Receipt Review screen
-  assess_risk+spec), 58 (slice 3 review remediation), 71 (markdown-fence
-  JSON-parsing bugfix, linked to 54), 72 (statement-import UI assess_risk+spec),
-  73 (statement-import UI review remediation, linked to 72) — see "Milestone 5
-  Detail" above for the full list of security/fastapi/react findings fixed,
-  "Post-M5 bugfix" for decision 71, and "Statement-import frontend UI" for
-  decisions 72-73 — are all `pending_approval` under
-  CONST-ARCH-001.
-- **Wallets enhancement decisions awaiting human-ack**: decision 74 (assess_risk+spec,
-  `BIW-INFRA-013`), 75 (review remediation, linked to 74) — see "Wallets enhancement"
-  above — are `pending_approval` under CONST-ARCH-001.
-- **M6 slices 1-4 (backend Recurring Bills + Cashback, frontend Recurring
-  Bills + Cashback) decisions awaiting human-ack**: decision 76
-  (assess_risk+spec, `BIW-DATA-004`/`BIW-API-007`), 77 (slice 1 review
-  remediation, linked to 76), 78 (slice 2 — assess_risk+spec
-  `BIW-DATA-005`/`BIW-API-008` + review remediation combined), 79 (slice 3 —
-  assess_risk+spec `BIW-INFRA-014`), 80 (slice 3 review remediation, linked
-  to 79 — the react-reviewer agent hit its weekly usage limit on both
-  attempts during this slice, so the two bugs it would likely have caught
-  were instead found and fixed via manual Playwright verification; this
-  decision was recorded retroactively after the harness-os MCP server
-  reconnected mid-session), 81 (slice 4 — assess_risk+spec `BIW-INFRA-015`,
-  also recorded retroactively since the server was disconnected for this
-  slice's entire implementation), 82 (slice 4 review remediation, linked to
-  81 — react-reviewer was available again this slice and caught the
-  identical shared-error-state bug class as slice 3's decision 80) — see
-  "Milestone 6 Detail" above — are `pending_approval` under CONST-ARCH-001.
-- **M7 slice 1 (backend Net Worth) decisions awaiting human-ack**: decision 83
-  (assess_risk+spec, `BIW-DATA-006`/`BIW-API-009` — assess_risk returned
-  `critical` on a false-positive keyword match, "payment" appearing in an
-  unrelated clause of the risk description) and 84 (slice 1 review
-  remediation, linked to 83 — security-reviewer's one HIGH finding was a
-  verified false positive, fastapi-reviewer's one MEDIUM finding was fixed)
-  — see "Milestone 7 Detail" above — are `pending_approval` under
-  CONST-ARCH-001.
-- **M7 slice 2 (frontend Net Worth) decisions awaiting human-ack**: decision
-  85 (assess_risk+spec, `BIW-INFRA-016`) and 86 (slice 2 review remediation,
-  linked to 85 — security-reviewer clean, react-reviewer's one HIGH
-  (`todayIso()` timezone bug) and one MEDIUM (missing aria-labels) both
-  fixed) — see "Milestone 7 Detail" above — are `pending_approval` under
-  CONST-ARCH-001.
-- **M7 slice 3 (backend AI Insights) decisions awaiting human-ack**: decision
-  87 (assess_risk+spec, `BIW-DATA-007`/`BIW-API-010`) and 88 (slice 3 review
-  remediation, linked to 87 — security-reviewer's one HIGH finding (missing
-  size caps on AI output) fixed, fastapi-reviewer's two MEDIUM findings
-  addressed via documentation, one suggested change ruled out as
-  inconsistent with established codebase convention) — see "Milestone 7
-  Detail" above — are `pending_approval` under CONST-ARCH-001.
-- **M7 slice 4 (frontend AI Insights) decisions awaiting human-ack**:
-  decision 89 (assess_risk+spec, `BIW-INFRA-017`) and 90 (slice 4 review
-  remediation, linked to 89 — react-reviewer's HIGH (non-distinguishing
-  dismiss button label) and two MEDIUM findings (missing aria-hidden on a
-  decorative icon, a concurrent-dismiss rollback race condition) all fixed;
-  one MINOR ruled out as inconsistent with the other 7 widgets on the same
-  dashboard page) — see "Milestone 7 Detail" above — are `pending_approval`
-  under CONST-ARCH-001.
-- **M7 slice 5 (backend Household) decisions awaiting human-ack**: decision
-  91 (assess_risk+spec, `BIW-DOM-001`, `high` risk on an honest auth/password/
-  token keyword match) and 92 (slice 5 review remediation, linked to 91 —
-  security-reviewer's one MEDIUM finding (invite-partner leaking email-
-  registration status via a 409, unlike this codebase's own password-reset
-  precedent) fixed; fastapi-reviewer found no bugs) — see "Milestone 7
-  Detail" above — are `pending_approval` under CONST-ARCH-001.
-- **M7 slice 6 (backend partner authorization retrofit) decisions awaiting
-  human-ack**: decision 93 (assess_risk+spec, `BIW-DOM-002`, `critical` risk —
-  an honest auto-critical match, this being the first cross-user
-  access-control change to financial data endpoints) and 94 (slice 6 review
-  remediation, linked to 93 — security-reviewer found zero findings across
-  all 7 requested verification points; fastapi-reviewer's one MEDIUM
-  (`household_owner_id()`'s `uuid.UUID` return-type contract silently
-  violable under a data-integrity edge case) fixed by raising explicitly
-  instead of degrading) — see "Milestone 7 Detail" above — are
-  `pending_approval` under CONST-ARCH-001.
-- **M7 slice 7 (frontend Household) decisions awaiting human-ack**: decision
-  95 (assess_risk+spec, `BIW-INFRA-018`, `high` risk — an honest match, the
-  new `/accept-invite` page collects a password over an unauthenticated
-  route) and 96 (slice 7 review remediation, linked to 95 —
-  react-reviewer's one MEDIUM (toggle-button aria-labels describing the
-  action inconsistently with the visible state text) fixed;
-  security-reviewer's one MEDIUM (a frontend error message re-leaking the
-  email-registration status the backend was hardened to hide) fixed) — see
-  "Milestone 7 Detail" above — are `pending_approval` under CONST-ARCH-001.
-- **M7 slice 8 (Export backend + frontend) decisions awaiting human-ack**:
-  decision 97 (assess_risk+spec, `BIW-DATA-008`/`BIW-API-012`, `medium`
-  risk) and 98 (slice 8 review remediation, linked to 97 — fastapi-
-  reviewer's one CRITICAL finding (CSV BOM corrupting the first cell,
-  fixed via `utf-8-sig` encoding plus a regression test) fixed;
-  security-reviewer's two MEDIUM findings (expired-token cleanup, fixed
-  via opportunistic delete; missing app-layer export encryption, documented
-  as a deliberately deferred gap narrower than PRD §22.2) and one MINOR
-  (missing frontend password `maxLength`) addressed; react-reviewer
-  approved with no blocking issues) — see "Milestone 7 Detail" above — are
-  `pending_approval` under CONST-ARCH-001. **This is the last M7 slice —
-  Milestone 7 is now fully complete.**
-- **M8 (Mobile Layout) decisions awaiting human-ack**: decision 99
-  (assess_risk+spec, `BIW-INFRA-019`, `high` risk — a keyword false-positive
-  on the request description's own "no new auth/authorization logic"
-  negation, honored anyway) and 100 (M8 review remediation, linked to 99 —
-  security-reviewer clean with zero findings; react-reviewer's 2 HIGH
-  (missing Escape-key handler, missing `aria-modal`) and 3 MEDIUM (missing
-  `aria-controls`/`aria-labelledby`, a magic-number array-splice index, no
-  focus management on drawer open/close) all fixed and live-verified via
-  Playwright; 2 MINOR findings touching unrelated pre-existing template
-  code ruled out as out of scope) — see "Milestone 8 Detail" above — are
-  `pending_approval` under CONST-ARCH-001. **Milestone 8 is now fully
-  complete.**
+- **M3, Wallets-restyle, M5 (all slices + bugfix + statement-import UI), M7
+  (all 8 slices), and M8 approved** — confirmed via `audit_report`: decisions
+  31-36 (M3 + Wallets-restyle), 53-58 + 71-73 (M5 backend/frontend OCR +
+  bugfix + statement-import UI), and 83-100 (M7 slices 1-8 + M8) all have
+  matching `approve_decision` log entries (batch-approved via `harness
+  approve`, TTY-confirmed). ✅
+- **Wallets enhancement (74-75) and M6 slices 1-4 (76-82) approved** —
+  confirmed via `audit_report`. ✅
+- **Pre-M9 gap sweep decision awaiting human-ack**: decision 119 (three real,
+  previously-documented gaps closed before starting M9 — see "Pre-M9 Gap
+  Sweep" section below) is `pending_approval` under CONST-ARCH-001. This is
+  the only decision in the entire project not yet approved as of this
+  writing.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
-  outstanding decision, or batch through them — M1, M2, and M4's decisions were all
-  approved this way already.
+  outstanding decision, or batch through them — every other decision in the
+  project (M1-M8, all slices, all remediations) has already been approved
+  this way.

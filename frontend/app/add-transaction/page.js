@@ -10,7 +10,12 @@ import { categoriesApi, ocrApi, paymentMethodsApi, transactionsApi } from "@/lib
 const TRANSACTION_TYPES = ["Expense", "Income", "Saving expense", "Adjustment"]
 
 function todayISO() {
-    return new Date().toISOString().slice(0, 10)
+    // toISOString() reports the UTC date, which can be a day ahead of/behind
+    // the user's local date near midnight — build from local Y/M/D instead.
+    const today = new Date()
+    const month = String(today.getMonth() + 1).padStart(2, "0")
+    const day = String(today.getDate()).padStart(2, "0")
+    return `${today.getFullYear()}-${month}-${day}`
 }
 
 function makeLineItemKey() {

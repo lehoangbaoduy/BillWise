@@ -6,13 +6,26 @@ import Layout from "@/components/layout/Layout"
 import EmptyState from "@/components/elements/EmptyState"
 import { categoriesApi, goalsApi, paymentMethodsApi } from "@/lib/api"
 
+function todayISO() {
+    // toISOString() reports the UTC date, which can be a day ahead of/behind
+    // the user's local date near midnight — build from local Y/M/D instead.
+    const today = new Date()
+    const month = String(today.getMonth() + 1).padStart(2, "0")
+    const day = String(today.getDate()).padStart(2, "0")
+    return `${today.getFullYear()}-${month}-${day}`
+}
+
 function formatCurrency(value) {
     return `$${Number(value ?? 0).toFixed(2)}`
 }
 
 function formatDate(value) {
     if (!value) return "—"
-    return new Date(value).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })
+    // Date-only strings ("YYYY-MM-DD") parse as UTC midnight; rendering that
+    // in a timezone behind UTC rolls the displayed date back a day. Build the
+    // Date from the Y/M/D components directly so it's always local-midnight.
+    const [year, month, day] = value.slice(0, 10).split("-").map(Number)
+    return new Date(year, month - 1, day).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })
 }
 
 function progressPercent(goal) {
@@ -60,7 +73,7 @@ export default function Goals() {
     const [fundsAmount, setFundsAmount] = useState("")
     const [fundsPaymentMethodId, setFundsPaymentMethodId] = useState("")
     const [fundsCategoryId, setFundsCategoryId] = useState("")
-    const [fundsDate, setFundsDate] = useState(() => new Date().toISOString().slice(0, 10))
+    const [fundsDate, setFundsDate] = useState(todayISO)
     const [fundsNotes, setFundsNotes] = useState("")
 
     const activeGoalId = selectedId ?? (goals ?? [])[0]?.id ?? null
@@ -133,7 +146,7 @@ export default function Goals() {
             })
             await refreshDetail()
             setFundsAmount("")
-            setFundsDate(new Date().toISOString().slice(0, 10))
+            setFundsDate(todayISO())
             setFundsNotes("")
         } catch (error) {
             setFormError(error.message)

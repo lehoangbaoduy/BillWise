@@ -13,7 +13,20 @@ function formatCurrency(value) {
 
 function formatDate(value) {
     if (!value) return "—"
-    return new Date(value).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })
+    // Date-only strings ("YYYY-MM-DD") parse as UTC midnight; rendering that
+    // in a timezone behind UTC rolls the displayed date back a day. Build the
+    // Date from the Y/M/D components directly so it's always local-midnight.
+    const [year, month, day] = value.slice(0, 10).split("-").map(Number)
+    return new Date(year, month - 1, day).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })
+}
+
+function todayISO() {
+    // toISOString() reports the UTC date, which can be a day ahead of/behind
+    // the user's local date near midnight — build from local Y/M/D instead.
+    const today = new Date()
+    const month = String(today.getMonth() + 1).padStart(2, "0")
+    const day = String(today.getDate()).padStart(2, "0")
+    return `${today.getFullYear()}-${month}-${day}`
 }
 
 function capitalize(value) {
@@ -198,7 +211,7 @@ export default function RecurringBills() {
     const [detailError, setDetailError] = useState(null)
     const [isSubmitting, setIsSubmitting] = useState(false)
 
-    const [paidDate, setPaidDate] = useState(() => new Date().toISOString().slice(0, 10))
+    const [paidDate, setPaidDate] = useState(todayISO)
     const [amountPaid, setAmountPaid] = useState("")
 
     const activeBillId = selectedId ?? (bills ?? [])[0]?.id ?? null
@@ -209,7 +222,7 @@ export default function RecurringBills() {
         setDetailError(null)
         setIsEditFormOpen(false)
         setAmountPaid("")
-        setPaidDate(new Date().toISOString().slice(0, 10))
+        setPaidDate(todayISO())
     }
 
     async function handleCreate(payload) {
@@ -342,6 +355,8 @@ export default function RecurringBills() {
                                                     setIsEditFormOpen((open) => !open)
                                                     setDetailError(null)
                                                 }}
+                                                aria-expanded={isEditFormOpen}
+                                                aria-controls="edit-bill-form"
                                             >
                                                 <i className="fi fi-rr-pencil" /> Edit
                                             </button>
@@ -353,7 +368,7 @@ export default function RecurringBills() {
                                     {detailError && <div className="text-danger mb-3" role="alert">{detailError}</div>}
 
                                     {isEditFormOpen && (
-                                        <div className="row mb-3">
+                                        <div className="row mb-3" id="edit-bill-form">
                                             <div className="col-xl-12">
                                                 <div className="card">
                                                     <div className="card-header">

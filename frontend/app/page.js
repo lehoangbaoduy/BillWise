@@ -27,7 +27,11 @@ function formatCurrency(value) {
 
 function formatDate(value) {
     if (!value) return "—"
-    return new Date(value).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })
+    // Date-only strings ("YYYY-MM-DD") parse as UTC midnight; rendering that
+    // in a timezone behind UTC rolls the displayed date back a day. Build the
+    // Date from the Y/M/D components directly so it's always local-midnight.
+    const [year, month, day] = value.slice(0, 10).split("-").map(Number)
+    return new Date(year, month - 1, day).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })
 }
 
 function progressPercent(current, target) {
