@@ -62,7 +62,7 @@ aren't already obvious from the code or the PRD.
       react-reviewer agent hit a usage-limit wall, once by the agent itself
       once it recovered) and fixed, plus the Cashback-rules
       GET-endpoint gap-fill. Formally `pending_approval` pending human-ack
-      (decisions 76-80).
+      (decisions 76-82).
 - [ ] **M7: Net Worth, AI Insights, Household & Exports**
 - [ ] **M8: Mobile Layout**
 - [ ] **M9: Security Hardening**
@@ -1093,7 +1093,7 @@ no matching rule), recompute-on-line-item-replacement, the manual-override-
 persists-on-unrelated-edit case, record update, and summary aggregation by
 month vs. year. Full backend suite: 193/193 passing, no regressions.
 
-### Slice 3: Frontend Recurring Bills screen (BIW-INFRA-014, decision 79)
+### Slice 3: Frontend Recurring Bills screen (BIW-INFRA-014, decisions 79-80)
 New `frontend/app/recurring-bills/page.js` (net-new UI, no template equivalent
 per PRD §9's screen inventory) — mirrors the existing `goals/page.js`
 two-column nav+detail layout for visual consistency with the Ekash-derived
@@ -1163,7 +1163,7 @@ date 422 paths), select, edit pre-fill and 422 surfacing, mark-paid
 and deactivate with confirm-dialog handling — all exercised against the real
 backend, not mocked.
 
-### Slice 4: Frontend Cashback screen (BIW-INFRA-015, decision 80)
+### Slice 4: Frontend Cashback screen (BIW-INFRA-015, decisions 81-82)
 New `frontend/app/cashback/page.js` (net-new UI, no template equivalent).
 Unlike the nav+detail layout used by goals/budgets/recurring-bills, this is a
 dashboard-style page (matches PRD §17.4/§24.10's framing: "monthly/yearly
@@ -1451,16 +1451,17 @@ throughout), UUID enumeration (128-bit space, already low risk).
   (assess_risk+spec, `BIW-DATA-004`/`BIW-API-007`), 77 (slice 1 review
   remediation, linked to 76), 78 (slice 2 — assess_risk+spec
   `BIW-DATA-005`/`BIW-API-008` + review remediation combined), 79 (slice 3 —
-  assess_risk+spec `BIW-INFRA-014`; the react-reviewer half of this slice's
-  review was never recorded as a completed remediation decision since the
-  agent hit its weekly usage limit on both attempts — the two bugs it would
-  likely have caught were instead found and fixed via manual Playwright
-  verification, documented in "Milestone 6 Detail" above), 80 (slice 4 —
-  assess_risk+spec `BIW-INFRA-015` + review remediation; harness-os's MCP
-  server was disconnected for the entire duration of slice 4's work, so this
-  decision could not be recorded through the normal tool and is only
-  reflected here in PLAN.md pending reconnection) — see "Milestone 6 Detail"
-  above — are `pending_approval` under CONST-ARCH-001.
+  assess_risk+spec `BIW-INFRA-014`), 80 (slice 3 review remediation, linked
+  to 79 — the react-reviewer agent hit its weekly usage limit on both
+  attempts during this slice, so the two bugs it would likely have caught
+  were instead found and fixed via manual Playwright verification; this
+  decision was recorded retroactively after the harness-os MCP server
+  reconnected mid-session), 81 (slice 4 — assess_risk+spec `BIW-INFRA-015`,
+  also recorded retroactively since the server was disconnected for this
+  slice's entire implementation), 82 (slice 4 review remediation, linked to
+  81 — react-reviewer was available again this slice and caught the
+  identical shared-error-state bug class as slice 3's decision 80) — see
+  "Milestone 6 Detail" above — are `pending_approval` under CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all
   approved this way already.
