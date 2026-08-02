@@ -2451,8 +2451,8 @@ them) and kept `/notifications`, replacing its template content with a
 real feature.
 
 **New feature: live notification feed + header badge (BIW-API-016,
-decision 147).** `GET /notifications` (`app/api/notifications.py` +
-`app/services/notification_service.py`) computes 5 notification types
+decisions 147, 149, 150).** `GET /notifications` (`app/api/notifications.py`
++ `app/services/notification_service.py`) computes 6 notification types
 live on every request — no new table, consistent with this codebase's
 existing dashboard-style live-computed endpoints:
 - `budget_exceeded` / `budget_near_limit` (category spend vs. budget
@@ -2468,6 +2468,16 @@ existing dashboard-style live-computed endpoints:
   partner-scoped to `is_shared` goals only.
 - `ai_insight` — surfaces undismissed `AIInsight` rows; owner-only,
   matching the existing owner-only AI Insights endpoint.
+- `duplicate_transaction` — added per follow-up user request. Flags
+  groups of 2+ transactions sharing merchant/date/amount/payment-method
+  within a rolling 14-day window. Deliberately mirrors the match
+  signature of the existing `detect_duplicate()` helper
+  (`transaction_validation.py`, used to set `possible_duplicate` on the
+  transaction-create response) rather than inventing a narrower
+  definition — any transaction type, not just expenses — for
+  consistency with the one duplicate concept this codebase already has.
+  Reuses `apply_partner_transaction_visibility`. No `entity_id` (a
+  duplicate is inherently a set, not a single entity).
 
 Items are sorted critical → warning → info. Frontend: `Header1.js` now
 polls `GET /notifications` every 60s via `useSWR`, shows a count badge
@@ -2476,21 +2486,22 @@ from the vendored template bundle) and a live preview list in the
 dropdown; `app/notifications/page.js` rewritten to render the full real
 list with severity-colored rows and a genuine empty state.
 
-12 new tests (`tests/test_notifications.py`) cover all 5 notification
-types plus `TestPartnerNotificationVisibility` (partner sees a shared
+17 tests (`tests/test_notifications.py`) cover all 6 notification types
+plus `TestPartnerNotificationVisibility` (partner sees a shared
 category's budget alert, never a private category's, never
-`recurring_bill_*` or `ai_insight` types, and never a non-shared goal's
-alert — including an owner-side sanity check proving those items would
-have appeared if role-scoping were broken). Frontend `npm run build`:
-clean, `/notifications` now ships real content (811 B vs. 180 B of empty
-markup before). Decision 147 recorded (risk `medium`, `assess_risk`
-gate: spec + tests + review:code).
+`recurring_bill_*`/`ai_insight`/a private-category `duplicate_transaction`,
+and never a non-shared goal's alert — including an owner-side sanity
+check proving those items would have appeared if role-scoping were
+broken). Frontend `npm run build`: clean, `/notifications` now ships
+real content (811 B vs. 180 B of empty markup before). Decisions 147,
+149 recorded (risk `medium`, `assess_risk` gate: spec + tests +
+review:code).
 
-**Reviewer gate**: security-reviewer approved outright — correct PRD
-§21.4 partner scoping verified across all 5 notification types, no
-injection/IDOR/XSS risk, auth dependency consistent with the existing
-`dashboard.py` precedent (no new rate limit needed; matches how every
-other dashboard-style read endpoint is already exposed). fastapi-
+**Reviewer gate (initial 5 types)**: security-reviewer approved outright
+— correct PRD §21.4 partner scoping verified across all 5 notification
+types, no injection/IDOR/XSS risk, auth dependency consistent with the
+existing `dashboard.py` precedent (no new rate limit needed; matches how
+every other dashboard-style read endpoint is already exposed). fastapi-
 reviewer found two MEDIUM issues, both fixed: removed a dead
 `ConfigDict(from_attributes=True)` from `NotificationItem` (the service
 always constructs instances directly, never from ORM rows), and
@@ -2499,7 +2510,26 @@ and non-shared-goal exclusion (previously only budget/AI-insight
 scoping was asserted). Pagination and the cross-module-private-helper
 question were both raised and assessed as correct-as-is. Remediation
 recorded as decision 148 (linked to 147). Full suite after fixes:
-**345/345 passing**.
+**333/333 passing**.
+
+**Reviewer gate (duplicate_transaction addition)**: security-reviewer
+approved outright — verified `apply_partner_transaction_visibility` is
+applied before the `GROUP BY` so a partner's duplicate count only ever
+reflects transactions they can already see (no inference of a hidden
+private-category transaction's existence), no injection risk, 14-day
+window reasonable. fastapi-reviewer raised a claimed CRITICAL — that
+`payment_method_id` must appear in the `SELECT` list because it's in
+`GROUP BY` — which is incorrect: standard SQL (and Postgres) only
+requires `SELECT`'s non-aggregated columns to appear in `GROUP BY`, not
+the reverse; the reviewer self-reported it hadn't run the tests in its
+environment. Verified empirically against real Postgres — all 17 tests
+in `test_notifications.py`, including the one exercising this exact
+query, pass both before and after this review round — and rejected the
+finding as a false positive rather than making an incorrect "fix."
+Accepted-but-deferred a MEDIUM suggestion to add a composite index for
+the `GROUP BY` columns, which the reviewer itself framed as unnecessary
+at expected household-scale. Remediation recorded as decision 150
+(linked to 149). Full suite: **338/338 passing**.
 
 ## Milestone 1 Detail
 
@@ -2730,8 +2760,12 @@ throughout), UUID enumeration (128-bit space, already low risk).
   action needed.
 - **M9 Slice 8 (Final QA sweep — orphaned pages + notifications feature)
   decisions awaiting human-ack**: decision 147 (initial risk assessment +
-  spec `BIW-API-016`) and decision 148 (remediation — fastapi-reviewer's
-  two MEDIUM findings fixed) are both `pending_approval`.
+  spec `BIW-API-016`), decision 148 (remediation — fastapi-reviewer's two
+  MEDIUM findings fixed), decision 149 (added `duplicate_transaction` as
+  a 6th notification type, per follow-up user request), and decision 150
+  (remediation — a claimed CRITICAL from fastapi-reviewer rejected as a
+  false positive after empirical verification against real Postgres) are
+  all `pending_approval`.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — every other decision in the
   project (M1-M8, all slices, all remediations) has already been approved

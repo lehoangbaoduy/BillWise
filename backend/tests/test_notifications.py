@@ -296,6 +296,70 @@ class TestAIInsightNotifications:
         assert not any(item["type"] == "ai_insight" for item in response.json())
 
 
+class TestDuplicateTransactionNotifications:
+    async def test_flags_same_merchant_amount_and_date(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        today = date.today()
+        await _create_expense(client, pm.id, category.id, "42.00", today.isoformat(), merchant="Costco")
+        await _create_expense(client, pm.id, category.id, "42.00", today.isoformat(), merchant="Costco")
+
+        response = await client.get("/notifications")
+        assert response.status_code == 200
+        matching = [item for item in response.json() if item["type"] == "duplicate_transaction"]
+        assert len(matching) == 1
+        assert matching[0]["severity"] == "warning"
+        assert "2 transactions" in matching[0]["message"]
+
+    async def test_no_notification_for_single_transaction(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        await _create_expense(client, pm.id, category.id, "42.00", date.today().isoformat(), merchant="Costco")
+
+        response = await client.get("/notifications")
+        assert not any(item["type"] == "duplicate_transaction" for item in response.json())
+
+    async def test_different_merchant_not_flagged_as_duplicate(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        today = date.today().isoformat()
+        await _create_expense(client, pm.id, category.id, "42.00", today, merchant="Costco")
+        await _create_expense(client, pm.id, category.id, "42.00", today, merchant="Target")
+
+        response = await client.get("/notifications")
+        assert not any(item["type"] == "duplicate_transaction" for item in response.json())
+
+    async def test_outside_window_not_flagged(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        old_date = (date.today() - timedelta(days=30)).isoformat()
+        await _create_expense(client, pm.id, category.id, "42.00", old_date, merchant="Costco")
+        await _create_expense(client, pm.id, category.id, "42.00", old_date, merchant="Costco")
+
+        response = await client.get("/notifications")
+        assert not any(item["type"] == "duplicate_transaction" for item in response.json())
+
+    async def test_different_payment_method_not_flagged_as_duplicate(self, client, session, unique_email):
+        # Matches detect_duplicate's stricter signature (transaction_validation.py):
+        # merchant + date + amount + payment method must all match, not just
+        # merchant + date + amount — paying the same amount to the same
+        # merchant on the same day with two different cards is not unusual.
+        user = await _authed_client(client, session, unique_email)
+        cash = await _make_payment_method(session, user, name="Cash", type_=PaymentMethodType.CASH)
+        card = await _make_payment_method(session, user, name="Visa", type_=PaymentMethodType.CREDIT_CARD)
+        category = await _make_category(session, user)
+        today = date.today().isoformat()
+        await _create_expense(client, cash.id, category.id, "42.00", today, merchant="Costco")
+        await _create_expense(client, card.id, category.id, "42.00", today, merchant="Costco")
+
+        response = await client.get("/notifications")
+        assert not any(item["type"] == "duplicate_transaction" for item in response.json())
+
+
 class TestPartnerNotificationVisibility:
     """PRD §21.4: partners only see budget/goal alerts for shared categories
     and shared goals; recurring bills and AI insights stay owner-only."""
@@ -309,6 +373,7 @@ class TestPartnerNotificationVisibility:
         await _create_budget(client, shared_category.id, today.month, today.year, "50.00")
         await _create_budget(client, private_category.id, today.month, today.year, "50.00")
         await _create_expense(client, pm.id, shared_category.id, "75.00", today.isoformat())
+        await _create_expense(client, pm.id, private_category.id, "75.00", today.isoformat())
         await _create_expense(client, pm.id, private_category.id, "75.00", today.isoformat())
 
         session.add(
@@ -352,6 +417,7 @@ class TestPartnerNotificationVisibility:
         owner_items = (await client.get("/notifications")).json()
         assert any(item["type"] == "recurring_bill_overdue" for item in owner_items)
         assert any(item["entity_id"] == private_goal_id for item in owner_items)
+        assert any(item["type"] == "duplicate_transaction" for item in owner_items)
 
         partner = await _make_partner(session, owner, unique_email)
         await _login(client, partner.email)
@@ -364,3 +430,4 @@ class TestPartnerNotificationVisibility:
         assert not any(item["type"] == "ai_insight" for item in items)
         assert not any(item["type"] in ("recurring_bill_overdue", "recurring_bill_due_soon") for item in items)
         assert not any(item["entity_id"] == private_goal_id for item in items)
+        assert not any(item["type"] == "duplicate_transaction" for item in items)
