@@ -33,7 +33,7 @@ from app.seed.default_categories import seed_default_categories
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _to_public(user: User) -> UserPublic:
+def to_user_public(user: User) -> UserPublic:
     return UserPublic(
         id=user.id,
         email=user.email,
@@ -58,9 +58,12 @@ def _set_session_cookie(response: Response, user: User) -> None:
 @router.post("/register", response_model=UserPublic, status_code=status.HTTP_201_CREATED)
 async def register(body: RegisterRequest, session: AsyncSession = Depends(get_session)) -> UserPublic:
     if body.invite_token is not None:
-        # Partner invites ship in Milestone 7 (PRD §33) — no valid invite token can
-        # exist yet, so fail explicitly rather than silently ignoring the field.
-        raise HTTPException(status_code=400, detail="Partner invites are not available yet")
+        # Partner acceptance is its own endpoint (PRD §25.13: POST
+        # /household/accept-invite, app/api/household.py) rather than a branch of
+        # this one — a partner isn't an owner-with-categories-seeded, and PRD's own
+        # endpoint list names a distinct path. Reject explicitly rather than
+        # silently ignoring the field if a client still sends it here.
+        raise HTTPException(status_code=400, detail="Use POST /household/accept-invite to accept a partner invite")
 
     existing = (await session.exec(select(User).where(User.email == body.email))).first()
     if existing is not None:
@@ -101,7 +104,7 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
     send_verification_email(user.email, verify_url)
 
     log_audit_event("user.registered", user_id=user.id, metadata={"email": user.email})
-    return _to_public(user)
+    return to_user_public(user)
 
 
 @router.post("/verify-email")
@@ -155,7 +158,7 @@ async def login(
 
     _set_session_cookie(response, user)
     log_audit_event("user.login_succeeded", user_id=user.id)
-    return _to_public(user)
+    return to_user_public(user)
 
 
 @router.post("/logout")
@@ -167,7 +170,7 @@ async def logout(response: Response, current_user: User = Depends(get_current_us
 
 @router.get("/me", response_model=UserPublic)
 async def me(current_user: User = Depends(get_current_user)) -> UserPublic:
-    return _to_public(current_user)
+    return to_user_public(current_user)
 
 
 @router.post("/password-reset/request", status_code=status.HTTP_202_ACCEPTED)

@@ -4,7 +4,7 @@ from app.models.cashback import CashbackRecord, CashbackRule
 from app.models.category import Category
 from app.models.goal import SavingsGoal
 from app.models.net_worth import NetWorthAccount, NetWorthBalance, NetWorthSnapshot
-from app.models.partner_permission import PartnerPermission
+from app.models.partner_permission import PartnerInviteToken, PartnerPermission
 from app.models.payment_method import PaymentMethod
 from app.models.recurring_bill import RecurringBill, RecurringBillPayment
 from app.models.transaction import Transaction, TransactionLineItem
@@ -19,6 +19,7 @@ __all__ = [
     "NetWorthAccount",
     "NetWorthBalance",
     "NetWorthSnapshot",
+    "PartnerInviteToken",
     "PartnerPermission",
     "PaymentMethod",
     "RecurringBill",

@@ -63,7 +63,7 @@ aren't already obvious from the code or the PRD.
       once it recovered) and fixed, plus the Cashback-rules
       GET-endpoint gap-fill. Formally `pending_approval` pending human-ack
       (decisions 76-82).
-- [~] **M7: Net Worth, AI Insights, Household & Exports** — slices 1-4 of 8
+- [~] **M7: Net Worth, AI Insights, Household & Exports** — slices 1-5 of 8
       DONE. Backend: Net Worth (new tables, full CRUD gap-filled from the
       PRD's §24.11 requirement since §25 has no dedicated Net Worth CRUD
       section, complete-snapshot validation rule, dashboard aggregation
@@ -80,10 +80,18 @@ aren't already obvious from the code or the PRD.
       against the real Anthropic API end-to-end (a genuine insight generated
       from real account data, dismissed, confirmed to persist across a full
       reload) — an accessibility HIGH (non-distinguishing dismiss button
-      label) and a dismiss-rollback race condition both fixed. 235 total
-      backend tests passing. See "Milestone 7 Detail" below. Formally
-      `pending_approval` pending human-ack (decisions 83-90). Remaining
-      slices (Household, Exports) not yet started.
+      label) and a dismiss-rollback race condition both fixed. Backend:
+      Household (new PartnerInviteToken table mirroring the established
+      verification/reset-token shape, invite/accept/revoke/permissions CRUD
+      plus a gap-filled GET /household list route, dual-purpose DELETE
+      handling both an accepted partner and a still-pending invite from one
+      PRD-literal endpoint) — 24 new tests, one MEDIUM security finding
+      (invite-partner leaking email-registration status via a 409, unlike
+      this codebase's own password-reset precedent) found and fixed. 260
+      total backend tests passing. See "Milestone 7 Detail" below. Formally
+      `pending_approval` pending human-ack (decisions 83-92). Remaining
+      slices (Household frontend, partner-scoped authorization retrofit,
+      Exports) not yet started.
 - [ ] **M8: Mobile Layout**
 - [ ] **M9: Security Hardening**
 
@@ -1507,15 +1515,88 @@ undefined-collapses-to-empty-state pattern.
 backend suite re-run post-slice (235/235 passing — this is a frontend-only
 slice, confirmed no regression).
 
+### Slice 5: Backend Household (BIW-DOM-001, decisions 91-92)
+
+New `PartnerInviteToken` table (`app/models/partner_permission.py`) mirroring
+the established `EmailVerificationToken`/`PasswordResetToken` shape, adding
+`revoked_at` since invites (unlike verification/reset tokens) can be
+explicitly cancelled before use — PRD §23's literal data model has no
+pending-invite entity, but §21.3's invite flow requires one since a partner
+has no user account (and hasn't chosen a password) until acceptance.
+
+Endpoints (`app/api/household.py`): `POST /household/invite-partner`,
+`POST /household/accept-invite`, `DELETE /household/partner/{id}`,
+`PATCH /household/partner/{id}/permissions` per PRD §25.13, plus a
+gap-filled `GET /household` (same pattern as Cashback/Net Worth/AI Insights'
+missing list routes this milestone) since §24.13's screen needs to show the
+partner list and pending-invite status and no other endpoint can populate
+it. `DELETE /household/partner/{id}` deliberately handles two different
+entity types (an accepted partner `User`, deactivated via `is_active=False`,
+or a still-pending `PartnerInviteToken`, marked `revoked_at`) behind one
+PRD-literal route, since the Household screen removes either kind from what
+it presents as a single list.
+
+`auth.py`'s private `_to_public()` renamed to public `to_user_public()` (same
+cross-module public-helper-reuse pattern used for Net Worth↔Dashboard and
+Dashboard↔AI-Insights earlier this milestone) so `accept_invite` could return
+a properly-shaped `UserPublic`. `register()`'s pre-existing `invite_token`
+stub (dating to M1, commented "Partner invites ship in Milestone 7") now
+points callers at the correct new endpoint instead of silently 400ing with a
+stale message — behavior unchanged, only the error text updated.
+
+24 new tests (`tests/test_household.py`). Full suite: 260/260 passing (no
+regressions).
+
+**security-reviewer** (mandatory gate — `assess_risk` returned `high` on an
+honest, non-false-positive "auth"/"password"/"token" keyword match) —
+confirmed sound: (1) deactivating `User.is_active` genuinely achieves
+immediate session invalidation given `get_current_user`'s per-request DB
+re-fetch, since this app's stateless-JWT session model has no separate
+token-blocklist to bypass; (2) `generate_token`/`hash_token` used correctly,
+raw token never persisted or returned in any response; (3) not rate-limiting
+`accept-invite` is justified by the same unguessable-32-byte-token precedent
+as `verify-email`; (4) ownership checks (`invited_by_user_id == owner.id`)
+present and correct in both branches of `DELETE .../partner/{id}` and in
+`PATCH .../permissions`; (5) `accept_invite`'s 400 is already appropriately
+generic across not-found/expired/used/revoked. **One MEDIUM found and
+fixed**: `invite-partner` returned 409 "Email already registered" whenever
+the invited email had *any* existing account, letting an authenticated
+owner enumerate arbitrary email registration status — inconsistent with
+this codebase's own `password-reset/request` precedent (always 202,
+specifically to prevent this). Fixed by removing the owner-visible
+existence check entirely; the invite is now created identically either way,
+with `accept_invite`'s own existing-user check (visible only to the token
+holder, i.e. the actual inbox owner, not the inviter) remaining as the real
+duplicate-account backstop.
+
+**fastapi-reviewer** — no correctness or security bugs found. Minor style
+observations (loose ORM-vs-`response_model` return-type hints, a duplicated
+tiny `_normalize_email` helper, a sync email-sender call) were checked
+against this session's own established conventions from earlier M7 slices
+and left unchanged as non-issues rather than applied as reviewer style
+preference.
+
+Deliberately out of scope for this slice: a partner-facing authorization
+retrofit. Every existing endpoint in this codebase is currently
+`require_owner`-only, so a partner who accepts an invite today gets 403 on
+every other route — that's Slice 6, a comparably-sized independent piece of
+work deserving its own governance cycle, not silently bundled in here.
+
 ### Remaining M7 slices (not yet started)
-- Slices 5-6: Household backend + frontend (partner invite/accept/revoke/
-  permissions endpoints; every existing endpoint in this codebase is
-  currently `require_owner`-only, so a household-scoping auth dependency
-  plus partner-scoped read filtering will be needed for the already-built
-  `is_shared` toggles on Category/SavingsGoal to have any effect — full
-  adversarial authorization testing is explicit M9 scope per the PRD's own
-  milestone split, not M7's)
-- Slices 7-8: Export backend + frontend (CSV/Excel/PDF via short-lived
+- Slice 6: partner-scoped authorization retrofit (`require_household_member`
+  auth dependency accepting either an owner or an active partner; partner-
+  scoped shared-category filtering on categories/goals/transactions list,
+  gated additionally by `can_add_transactions` for creates) — needed for the
+  already-built `is_shared` toggles on Category/SavingsGoal to have any
+  effect, and for Household to be a non-inert feature. Full adversarial
+  authorization testing remains explicit M9 scope per the PRD's own
+  milestone split, but this slice must include tests proving basic partner
+  isolation (e.g. a partner cannot see an unshared category).
+- Slice 7: Household frontend (invite form, pending-invite list with
+  cancel, partner list with revoke and permission toggle, category/goal
+  sharing toggles — the sharing endpoints already exist from earlier
+  milestones)
+- Slice 8: Export backend + frontend (CSV/Excel/PDF via short-lived
   signed URLs per PRD §20.4)
 
 ## Milestone 1 Detail
@@ -1776,6 +1857,13 @@ throughout), UUID enumeration (128-bit space, already low risk).
   one MINOR ruled out as inconsistent with the other 7 widgets on the same
   dashboard page) — see "Milestone 7 Detail" above — are `pending_approval`
   under CONST-ARCH-001.
+- **M7 slice 5 (backend Household) decisions awaiting human-ack**: decision
+  91 (assess_risk+spec, `BIW-DOM-001`, `high` risk on an honest auth/password/
+  token keyword match) and 92 (slice 5 review remediation, linked to 91 —
+  security-reviewer's one MEDIUM finding (invite-partner leaking email-
+  registration status via a 409, unlike this codebase's own password-reset
+  precedent) fixed; fastapi-reviewer found no bugs) — see "Milestone 7
+  Detail" above — are `pending_approval` under CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all
   approved this way already.

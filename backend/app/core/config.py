@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60 * 24 * 7
     email_verification_token_expire_hours: int = 48
     password_reset_token_expire_minutes: int = 30
+    partner_invite_token_expire_hours: int = 24 * 7
     cookie_name: str = "billwise_session"
     cookie_secure: bool = True
     frontend_base_url: str = "http://localhost:3000"

@@ -39,3 +39,11 @@ def send_password_reset_email(to: str, reset_url: str) -> None:
         subject="Reset your BillWise password",
         body=f"Click to reset your password: {reset_url}",
     )
+
+
+def send_partner_invite_email(to: str, accept_url: str) -> None:
+    get_email_sender().send(
+        to=to,
+        subject="You've been invited to a BillWise household",
+        body=f"Click to accept and set your password: {accept_url}",
+    )
