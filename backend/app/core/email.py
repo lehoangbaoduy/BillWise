@@ -47,3 +47,11 @@ def send_partner_invite_email(to: str, accept_url: str) -> None:
         subject="You've been invited to a BillWise household",
         body=f"Click to accept and set your password: {accept_url}",
     )
+
+
+def send_account_deletion_email(to: str, confirm_url: str) -> None:
+    get_email_sender().send(
+        to=to,
+        subject="Confirm BillWise account deletion",
+        body=f"Click to confirm deleting your BillWise account and household: {confirm_url}",
+    )

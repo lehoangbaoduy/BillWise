@@ -10,7 +10,7 @@ from app.models.partner_permission import PartnerInviteToken, PartnerPermission
 from app.models.payment_method import PaymentMethod
 from app.models.recurring_bill import RecurringBill, RecurringBillPayment
 from app.models.transaction import Transaction, TransactionLineItem
-from app.models.user import EmailVerificationToken, PasswordResetToken, User
+from app.models.user import AccountDeletionToken, EmailVerificationToken, PasswordResetToken, User
 
 __all__ = [
     "AIInsight",
@@ -32,6 +32,7 @@ __all__ = [
     "Transaction",
     "TransactionLineItem",
     "User",
+    "AccountDeletionToken",
     "EmailVerificationToken",
     "PasswordResetToken",
 ]

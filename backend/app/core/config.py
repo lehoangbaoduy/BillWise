@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     ocr_rate_limit_window: str = "20/hour"
     ocr_timeout_seconds: int = 40
     ocr_max_upload_bytes: int = 10 * 1024 * 1024
+    account_deletion_token_expire_minutes: int = 30
+    account_deletion_rate_limit_window: str = "3/hour"
+    account_deletion_grace_period_days: int = 30
 
     @field_validator("frontend_base_url")
     @classmethod

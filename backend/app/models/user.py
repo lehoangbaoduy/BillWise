@@ -26,6 +26,13 @@ class User(SQLModel, table=True):
     created_at: datetime = required_timestamp_field(default_now=True)
     updated_at: datetime = required_timestamp_field(default_now=True)
     last_login_at: datetime | None = optional_timestamp_field()
+    # PRD §22.6: set at delete-confirm time (immediate soft-delete), read by the
+    # hard-delete purge job once this timestamp has passed. Never set for partners
+    # — only an owner's own account deletion schedules a hard-delete; a partner
+    # being deactivated (household removal or riding along with the owner's
+    # deletion) never gets its own hard_delete_at, since partner rows are never
+    # hard-deleted, only deactivated.
+    hard_delete_at: datetime | None = optional_timestamp_field()
 
 
 class EmailVerificationToken(SQLModel, table=True):
@@ -41,6 +48,17 @@ class EmailVerificationToken(SQLModel, table=True):
 
 class PasswordResetToken(SQLModel, table=True):
     __tablename__ = "password_reset_tokens"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: uuid.UUID = Field(foreign_key="users.id", nullable=False)
+    token_hash: str = Field(unique=True, nullable=False)
+    expires_at: datetime = required_timestamp_field()
+    used_at: datetime | None = optional_timestamp_field()
+    created_at: datetime = required_timestamp_field(default_now=True)
+
+
+class AccountDeletionToken(SQLModel, table=True):
+    __tablename__ = "account_deletion_tokens"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(foreign_key="users.id", nullable=False)

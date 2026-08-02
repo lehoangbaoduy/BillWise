@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
+from app.api.account import router as account_router
 from app.api.ai_insights import router as ai_insights_router
 from app.api.audit_logs import router as audit_logs_router
 from app.api.auth import router as auth_router
@@ -52,6 +53,7 @@ app.include_router(ai_insights_router)
 app.include_router(household_router)
 app.include_router(exports_router)
 app.include_router(audit_logs_router)
+app.include_router(account_router)
 
 
 @app.get("/health")
