@@ -63,18 +63,23 @@ aren't already obvious from the code or the PRD.
       once it recovered) and fixed, plus the Cashback-rules
       GET-endpoint gap-fill. Formally `pending_approval` pending human-ack
       (decisions 76-82).
-- [~] **M7: Net Worth, AI Insights, Household & Exports** — slices 1-2 of 8
+- [~] **M7: Net Worth, AI Insights, Household & Exports** — slices 1-3 of 8
       DONE. Backend: Net Worth (new tables, full CRUD gap-filled from the
       PRD's §24.11 requirement since §25 has no dedicated Net Worth CRUD
       section, complete-snapshot validation rule, dashboard aggregation
-      reusing a shared batch-loading helper) — 23 new tests, 219 total
-      passing. Frontend: Net Worth screen (dashboard-style summary, account
-      management, snapshot entry form structurally enforcing the
-      complete-snapshot rule) — a real UTC/local timezone date bug found and
-      fixed via live testing, plus a second instance of the same bug class
-      caught by react-reviewer. See "Milestone 7 Detail" below. Formally
-      `pending_approval` pending human-ack (decisions 83-86). Remaining
-      slices (AI Insights, Household, Exports) not yet started.
+      reusing a shared batch-loading helper) — 23 new tests. Frontend: Net
+      Worth screen (dashboard-style summary, account management, snapshot
+      entry form structurally enforcing the complete-snapshot rule) — a real
+      UTC/local timezone date bug found and fixed via live testing, plus a
+      second instance of the same bug class caught by react-reviewer.
+      Backend: AI Insights (new table, PRD §19.3-compliant aggregate-only
+      pipeline to Claude Haiku reusing existing dashboard/cashback/goals
+      aggregation logic, 24h-per-user generation cache, dismiss endpoint
+      gap-filled) — 16 new tests, one HIGH security finding (no size cap on
+      AI output) fixed. 235 total backend tests passing. See "Milestone 7
+      Detail" below. Formally `pending_approval` pending human-ack
+      (decisions 83-88). Remaining slices (AI Insights frontend, Household,
+      Exports) not yet started.
 - [ ] **M8: Mobile Layout**
 - [ ] **M9: Security Hardening**
 
@@ -1387,8 +1392,75 @@ count from 2 to 1 for future snapshots without touching historical data).
 Full backend suite re-run post-slice: 219/219 passing (frontend-only slice,
 confirmed no regression).
 
+### Slice 3: Backend AI Insights (BIW-DATA-007, BIW-API-010, decisions 87-88)
+
+New `ai_insights` table (`backend/app/models/ai_insight.py`) matching PRD
+§23.16 exactly, with a 7-value `AIInsightType` enum matching §19.1's example
+categories (category spending change, over-budget alert, multi-month trend,
+top cashback card, recurring-bill share, cash flow change, goal progress).
+
+**PRD gap found and filled**: §19.2 requires insights be "dismissible ...
+with that state persisted" and §23.16's data model has an `is_dismissed`
+column, but §25.10 lists only `GET /dashboard/ai-insights` — no dismiss
+endpoint. Added `PATCH /ai-insights/{id}` (owner-scoped) — same gap-fill
+pattern as Cashback's `GET /cashback-rules` and Net Worth's whole CRUD
+surface.
+
+**Privacy design (PRD §19.3/§29.3 — "backend computes totals/trends first;
+AI explains them")**: a new `services/insight_aggregation.py` builds a JSON
+payload of backend-computed numbers only (income/expense totals, category
+spend, budget status, cashback summary, recurring-bill totals, goal
+progress) — never a raw transaction row, merchant name, or line item. It
+reuses `dashboard.py`/`cashback.py`/`goals.py`'s existing endpoint functions
+directly as plain async calls (their `Depends`/`Query` markers are just
+default values outside a request context, so supplying every argument
+explicitly bypasses them cleanly) rather than duplicating those queries.
+Three `dashboard.py` helpers (`sum_by_type`, `category_expense_spend`,
+`previous_period`) were renamed from private to public to enable this —
+pure rename, all internal call sites updated, no logic change.
+
+`services/ai_insight_service.py` sends that aggregate JSON to Claude Haiku
+and parses the response into insight records, validating `insight_type`
+against the closed enum and dropping malformed entries. Deliberately kept
+independent of M5's `ai_structuring_service.py` (own client cache, own JSON-
+parse helper) rather than sharing code — different feature, avoids coupling
+two unrelated call sites, and avoids touching already-shipped M5 code.
+
+**Design choices**: `GET /dashboard/ai-insights` generates a fresh batch at
+most once per 24 hours per user (checked via `max(generated_at)`), both to
+treat generation as the meaningful, audited event PRD §19.3 describes and to
+avoid an AI-provider call on every dashboard load; old batches are never
+deleted (dismissed/superseded insights remain as history). If the AI call
+itself fails, the endpoint degrades gracefully — returns existing/empty
+insights rather than a 5xx, since this is a supplementary dashboard widget.
+
+16 new tests (mocking the Anthropic SDK boundary the same way M5's OCR
+tests do — `TestAiInsightService`; endpoint-level tests mocking
+`generate_insights` directly — `TestGetAIInsights`/`TestUpdateAIInsight`;
+one live-database test proving the aggregation reflects real transaction
+data — `TestGatherInsightInputs`). 235/235 backend tests passing (was 219;
++16, no regressions).
+
+**security-reviewer**: one HIGH finding, fixed — AI-generated `message` and
+`supporting_data` had no size cap, risking JSON-column bloat from a
+malformed/oversized provider response. Fixed at ingestion (before
+persistence) in `ai_insight_service.py`: message capped at 1000 chars
+(oversized → whole insight dropped), `supporting_data` capped at 4000 JSON
+chars (oversized → resets to `{}`, insight kept since the message is the
+primary content). New test covers both cases.
+
+**fastapi-reviewer**: two MEDIUM findings addressed with explanatory
+comments (the sequential-query pattern in `gather_insight_inputs`/
+`_monthly_expense_trend` is intentional, given the 24h-per-user cache and a
+shared `AsyncSession`); one suggested change (return-type annotations should
+match `response_model`) was checked against `net_worth.py`'s established,
+identical pattern (ORM-type return annotation + `Public` schema
+`response_model`) and *not* applied, since doing so would make this file
+inconsistent with the rest of the codebase rather than fix anything —
+documented as a reviewed false positive.
+
 ### Remaining M7 slices (not yet started)
-- Slices 3-4: AI Insights backend + frontend
+- Slice 4: Frontend AI Insights
 - Slices 5-6: Household backend + frontend (partner invite/accept/revoke/
   permissions endpoints; every existing endpoint in this codebase is
   currently `require_owner`-only, so a household-scoping auth dependency
@@ -1642,6 +1714,13 @@ throughout), UUID enumeration (128-bit space, already low risk).
   (`todayIso()` timezone bug) and one MEDIUM (missing aria-labels) both
   fixed) — see "Milestone 7 Detail" above — are `pending_approval` under
   CONST-ARCH-001.
+- **M7 slice 3 (backend AI Insights) decisions awaiting human-ack**: decision
+  87 (assess_risk+spec, `BIW-DATA-007`/`BIW-API-010`) and 88 (slice 3 review
+  remediation, linked to 87 — security-reviewer's one HIGH finding (missing
+  size caps on AI output) fixed, fastapi-reviewer's two MEDIUM findings
+  addressed via documentation, one suggested change ruled out as
+  inconsistent with established codebase convention) — see "Milestone 7
+  Detail" above — are `pending_approval` under CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all
   approved this way already.

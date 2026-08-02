@@ -1,3 +1,4 @@
+from app.models.ai_insight import AIInsight
 from app.models.budget import Budget
 from app.models.cashback import CashbackRecord, CashbackRule
 from app.models.category import Category
@@ -10,6 +11,7 @@ from app.models.transaction import Transaction, TransactionLineItem
 from app.models.user import EmailVerificationToken, PasswordResetToken, User
 
 __all__ = [
+    "AIInsight",
     "Budget",
     "CashbackRecord",
     "CashbackRule",

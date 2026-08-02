@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
+from app.api.ai_insights import router as ai_insights_router
 from app.api.auth import router as auth_router
 from app.api.budgets import router as budgets_router
 from app.api.cashback import router as cashback_router
@@ -44,6 +45,7 @@ app.include_router(ocr_router)
 app.include_router(recurring_bills_router)
 app.include_router(cashback_router)
 app.include_router(net_worth_router)
+app.include_router(ai_insights_router)
 
 
 @app.get("/health")

@@ -44,11 +44,11 @@ def _pct(numerator: Decimal, denominator: Decimal) -> Decimal | None:
     return ((numerator / denominator) * 100).quantize(_PERCENT_PLACES, rounding=ROUND_HALF_UP)
 
 
-def _previous_period(month: int, year: int) -> tuple[int, int]:
+def previous_period(month: int, year: int) -> tuple[int, int]:
     return (12, year - 1) if month == 1 else (month - 1, year)
 
 
-async def _sum_by_type(session: AsyncSession, user: User, month: int, year: int, transaction_type: TransactionType) -> Decimal:
+async def sum_by_type(session: AsyncSession, user: User, month: int, year: int, transaction_type: TransactionType) -> Decimal:
     statement = select(func.coalesce(func.sum(Transaction.total_amount), 0)).where(
         Transaction.user_id == user.id,
         extract("month", Transaction.date) == month,
@@ -58,7 +58,7 @@ async def _sum_by_type(session: AsyncSession, user: User, month: int, year: int,
     return (await session.exec(statement)).one()
 
 
-async def _category_expense_spend(session: AsyncSession, user: User, month: int, year: int) -> list[tuple]:
+async def category_expense_spend(session: AsyncSession, user: User, month: int, year: int) -> list[tuple]:
     statement = (
         select(Category.id, Category.name, Category.parent_category_id, func.sum(TransactionLineItem.amount))
         .select_from(TransactionLineItem)
@@ -107,10 +107,10 @@ async def monthly_overview(
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
 ) -> MonthlyOverview:
-    total_income = await _sum_by_type(session, user, month, year, TransactionType.INCOME)
-    total_expenses = await _sum_by_type(session, user, month, year, TransactionType.EXPENSE)
+    total_income = await sum_by_type(session, user, month, year, TransactionType.INCOME)
+    total_expenses = await sum_by_type(session, user, month, year, TransactionType.EXPENSE)
 
-    category_rows = await _category_expense_spend(session, user, month, year)
+    category_rows = await category_expense_spend(session, user, month, year)
     top_category = None
     if category_rows:
         category_id, name, _parent_id, amount = max(category_rows, key=lambda row: row[3])
@@ -148,8 +148,8 @@ async def monthly_overview(
         for budget in budgets
     ]
 
-    previous_month, previous_year = _previous_period(month, year)
-    previous_total_expenses = await _sum_by_type(session, user, previous_month, previous_year, TransactionType.EXPENSE)
+    previous_month, previous_year = previous_period(month, year)
+    previous_total_expenses = await sum_by_type(session, user, previous_month, previous_year, TransactionType.EXPENSE)
     change_amount = total_expenses - previous_total_expenses
     comparison = PreviousMonthComparison(
         previous_month=previous_month,
@@ -258,8 +258,8 @@ async def category_breakdown(
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
 ) -> list[CategoryBreakdownItem]:
-    category_rows = await _category_expense_spend(session, user, month, year)
-    total_expenses = await _sum_by_type(session, user, month, year, TransactionType.EXPENSE)
+    category_rows = await category_expense_spend(session, user, month, year)
+    total_expenses = await sum_by_type(session, user, month, year, TransactionType.EXPENSE)
     spend_by_category = {row[0]: (row[1], row[2], row[3]) for row in category_rows}
 
     await ensure_budget_rollover(session, user, month, year)
@@ -328,8 +328,8 @@ async def cash_flow(
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),
 ) -> CashFlow:
-    income = await _sum_by_type(session, user, month, year, TransactionType.INCOME)
-    expenses = await _sum_by_type(session, user, month, year, TransactionType.EXPENSE)
+    income = await sum_by_type(session, user, month, year, TransactionType.INCOME)
+    expenses = await sum_by_type(session, user, month, year, TransactionType.EXPENSE)
     return CashFlow(month=month, year=year, income=income, expenses=expenses, net=income - expenses)
 
 
