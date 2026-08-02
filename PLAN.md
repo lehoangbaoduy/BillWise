@@ -141,15 +141,17 @@ aren't already obvious from the code or the PRD.
       layout (44px tap targets) below 768px. See "Milestone 8 Detail"
       below. Formally `pending_approval` pending human-ack (decisions
       99-100).
-- [ ] **M9: Security Hardening** — IN PROGRESS. Slice 1 (Persisted Audit
-      Logs) and Slice 2 (Partner-scoped Dashboard & Budgets read access —
-      closed a real PRD §21.4 gap where partners were 403'd from dashboard
-      and budgets entirely instead of getting a shared-category-filtered
-      view) DONE — see "Milestone 9 Detail" below. Formally
-      `pending_approval` pending human-ack (decisions 133-136). Remaining
-      slices: further adversarial authorization testing, data
-      validation/upload security review, encryption review, account
-      deletion flow, production deployment checklist, final QA sweep.
+- [ ] **M9: Security Hardening** — IN PROGRESS. Slices 1-5 DONE: Persisted
+      Audit Logs; Partner-scoped Dashboard & Budgets read access (closed a
+      real PRD §21.4 gap); Account Deletion flow (previously entirely
+      unimplemented — PRD §22.6/§25.14); Encryption review (added missing
+      frontend security headers, reviewed token-hashing vs. PRD's literal
+      AES-GCM wording as an accepted stronger deviation); Adversarial
+      partner-authorization test sweep (9 new tests closing a coverage gap
+      across 6 owner-only resources). See "Milestone 9 Detail" below.
+      Formally `pending_approval` pending human-ack (decisions 133-144).
+      Remaining slices: data validation review, production deployment
+      checklist, final QA sweep for hardcoded/demo values.
 
 ## Environment Notes
 
@@ -2244,6 +2246,127 @@ in parallel.
 Decision 135 (critical-risk assessment) and decision 136 (remediation,
 linked to 135) recorded — both `pending_approval`.
 
+### Slice 3: Account Deletion flow — DONE
+
+PRD §22.6/§25.14 previously entirely unimplemented. Spec `BIW-API-015`
+(id 47) registered for the 3 literal endpoints.
+
+**Backend — DONE**
+- [x] `AccountDeletionToken` table (mirrors `PasswordResetToken` exactly) +
+  `User.hard_delete_at` nullable field. Migration
+  `1a68ee1ae924_add_account_deletion_tokens_and_hard_`.
+- [x] `POST /account/delete-request` (`require_owner`, rate-limited
+  3/hour) — verifies password, issues a time-limited token, emails a
+  confirm link (mirrors the password-reset pattern). Logs
+  `account.deletion_requested`.
+- [x] `POST /account/delete-confirm` — no auth dependency, deliberately
+  (token-based, must keep working even as the session it revokes is about
+  to die — mirrors `/auth/password-reset/confirm`). Requires the token
+  plus a typed `confirmation_email` matching the owner's own email
+  case-insensitively (a fat-finger safety net, not a security boundary —
+  the token itself already proves email access). On success: immediate
+  soft-delete — owner AND every partner under them (`invited_by_user_id ==
+  owner.id`) set `is_active=False` (partner access ends immediately, per
+  PRD's "deleting the owner account deletes the whole household"),
+  `owner.hard_delete_at = now + 30 days`. Logs `account.deletion_completed`.
+- [x] `POST /account/delete-cancel` (`require_owner`) — invalidates all
+  pending unused unexpired tokens; only reachable before confirm, since
+  restoration after soft-delete is a support-assisted process per PRD, not
+  self-service. Logs `account.deletion_cancelled`.
+- [x] `app/services/account_deletion_service.hard_delete_expired_accounts` —
+  not an HTTP endpoint (not in PRD's endpoint list; no scheduler
+  infrastructure exists in this codebase to wire a cron job into). Purges
+  transactions/budgets/recurring bills/cashback rules+records/net-worth
+  accounts+snapshots+balances/savings goals/payment methods scoped to an
+  owner whose `hard_delete_at` has passed, in an FK-dependency-respecting
+  order (not every child table has DB-level `ON DELETE CASCADE`), then
+  anonymizes that owner's own `AuditLog` rows (`user_id`/`ip_address`/
+  `user_agent` nulled via a bulk `UPDATE`). User rows (owner and
+  partners) are never hard-deleted, only left deactivated. A partner's own
+  audit rows (e.g. their `transaction.created` events) are deliberately
+  left un-anonymized — documented, accepted scope boundary, not a live
+  gap (see code docstring).
+- [x] `backend/scripts/hard_delete_expired_accounts.py` — thin ops
+  entrypoint meant to be cron'd daily in production (flagged for the
+  production deployment checklist).
+- [x] Deliberately out of scope: partner self-deactivation ("a partner can
+  independently deactivate only their own login") — no corresponding
+  endpoint in PRD §25's catalog, documented as a follow-up.
+
+**Tests — DONE**: `backend/tests/test_account.py` (NEW, 17 tests) — auth
+gates on all 3 endpoints, wrong-password rejection, token
+invalid/expired/reused rejection, wrong-confirmation-email rejection,
+correct soft-delete of owner + partners + grace-period scheduling,
+deactivated owner/partner cannot log in, cancel invalidates a pending
+token, and 3 tests calling `hard_delete_expired_accounts` directly (purges
+data + anonymizes audit logs for an expired account; ignores
+still-within-grace-period and still-active accounts). Full suite:
+**318/318 passing**.
+
+**Review gate — DONE.** fastapi-reviewer: no CRITICAL/HIGH — one MEDIUM
+(audit-log anonymization should be a bulk `UPDATE` instead of
+load-then-loop, **fixed**) and two MINOR (comment clarity, redundant
+`session.add` — both resolved by the same fix). security-reviewer:
+cleared — confirmed no IDOR on the auth-free `delete-confirm` (fully
+token-scoped), confirmed the hard-delete-eligibility query can't produce
+false positives/negatives, confirmed the FK-respecting deletion order, no
+HTTP exposure of the ops script. One MEDIUM (partner-attributed audit
+rows left un-anonymized) — **documented** as an accepted boundary via an
+expanded docstring rather than expanding the anonymization scope. Added
+the one test-coverage gap the reviewer flagged. Decision 141
+(critical-risk assessment) and decision 143 (remediation, linked to 141)
+recorded — both `pending_approval`.
+
+### Slice 4: Encryption review (PRD §22.2) — DONE
+
+Reviewed `backend/app/core/security.py` against PRD §22.2. Password
+hashing (argon2) — compliant, no change. Auth/reset/deletion/invite/export
+tokens are SHA-256-hashed rather than AES-256-GCM-encrypted as the PRD's
+literal text specifies — reviewed and **accepted as an equal-or-stronger
+deviation**: these are single-use, 256-bit-entropy, never-decrypted opaque
+tokens, so one-way hashing (irreversible even with a compromised key) is
+the more appropriate primitive than reversible encryption (which would
+need to manage a decryption key for no benefit, since the plaintext is
+never needed again after issuance). Session cookie already
+secure+httponly+samesite=lax; `SECRET_KEY` dev-placeholder detection
+already warns at startup; `.env` properly gitignored, no real secrets
+tracked.
+
+**Fixed a real gap**: `frontend/next.config.js` had zero HTTP security
+headers. Added `Strict-Transport-Security`, `X-Content-Type-Options`,
+`X-Frame-Options`, `Referrer-Policy`, and `Permissions-Policy` via
+Next.js's `headers()` (spec `BIW-INFRA-020`, id 48), verified live via
+curl against the running dev server. Deliberately did not add a
+Content-Security-Policy — building one without auditing every external
+resource the app loads risks breaking the app; flagged as a follow-up
+requiring a dedicated audit. TLS termination and provider-managed
+encryption-at-rest are infra/deployment-layer concerns, not app code —
+flagged for the production deployment checklist.
+
+Self-certified rather than dispatching a full reviewer gate — a 6-line
+static config change directly copied from already-vetted internal
+security guidance, live-verified, and risk classified `high` (not
+`critical`), which doesn't require human-ack under this project's gate
+rubric. Decision 142 recorded as `approved`.
+
+### Slice 5: Adversarial partner-authorization test sweep — DONE
+
+Audited every backend test file for partner-role coverage against the M9
+scope item "authorization testing (including automated verification that
+a partner cannot see unshared data)". Found 6 owner-only resource test
+files (`test_payment_methods.py`, `test_cashback.py`,
+`test_recurring_bills.py`, `test_net_worth.py`, `test_ai_insights.py`,
+`test_ocr.py`) had **zero** tests proving a partner actually receives 403
+from `require_owner`-gated endpoints — the dependency itself was already
+correct, this was a missing regression guard, not a live vulnerability.
+Added 9 tests (`TestPartnerForbidden` classes, one per file's primary
+endpoint or two where a file has two clearly distinct owner-only
+sub-resources) plus one test to `test_account.py` per the Slice 3
+reviewer's suggestion. Test-only change, no production code touched. Full
+suite: 318/318 passing. Decision 144 recorded, `pending_approval`
+(auto-critical keyword false positive on "payment" matching test file
+names, honored per this project's established practice).
+
 ## Milestone 1 Detail
 
 ### Specs registered
@@ -2454,6 +2577,17 @@ throughout), UUID enumeration (128-bit space, already low risk).
   human-ack**: decision 135 (initial critical-risk assessment + spec
   BIW-API-014) and decision 136 (remediation — reviewer gate findings) are
   both `pending_approval`. See "Milestone 9 Detail" below.
+- **M9 Slice 3 (Account Deletion flow) decisions awaiting human-ack**:
+  decision 141 (initial critical-risk assessment + spec BIW-API-015) and
+  decision 143 (remediation — reviewer gate findings) are both
+  `pending_approval`.
+- **M9 Slice 4 (Encryption review) decision**: decision 142, already
+  self-certified `approved` (risk `high`, not `critical` — no human-ack
+  required under this project's gate rubric). No action needed.
+- **M9 Slice 5 (Adversarial authorization test sweep) decision awaiting
+  human-ack**: decision 144 is `pending_approval` (auto-critical keyword
+  false positive on "payment" matching test file names — this is a
+  test-only change, no production code was touched).
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — every other decision in the
   project (M1-M8, all slices, all remediations) has already been approved

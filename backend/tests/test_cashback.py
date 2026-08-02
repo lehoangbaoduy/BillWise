@@ -491,3 +491,41 @@ class TestCashbackSummary:
         response = await client.get(f"/cashback?year=2026")
         assert response.status_code == 200
         assert response.json()["total_estimated"] == "2.00"
+
+
+class TestPartnerForbidden:
+    """PRD §21.4: cashback rules stay owner-only regardless of sharing."""
+
+    async def test_partner_cannot_list_cashback_rules(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        partner = User(
+            email=f"partner-{unique_email}",
+            password_hash=hash_password(VALID_PASSWORD),
+            display_name="Partner User",
+            role=UserRole.PARTNER,
+            invited_by_user_id=owner.id,
+            email_verified_at=utcnow(),
+        )
+        session.add(partner)
+        await session.commit()
+        await _login(client, partner.email)
+
+        response = await client.get("/cashback-rules")
+        assert response.status_code == 403
+
+    async def test_partner_cannot_view_cashback_summary(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        partner = User(
+            email=f"partner-{unique_email}",
+            password_hash=hash_password(VALID_PASSWORD),
+            display_name="Partner User",
+            role=UserRole.PARTNER,
+            invited_by_user_id=owner.id,
+            email_verified_at=utcnow(),
+        )
+        session.add(partner)
+        await session.commit()
+        await _login(client, partner.email)
+
+        response = await client.get("/cashback?year=2026")
+        assert response.status_code == 403

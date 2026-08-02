@@ -388,3 +388,25 @@ class TestResolveCardPaymentDueDate:
         pm = await _make_payment_method(session, user, due_day_optional=20, statement_day_optional=1)
         result = resolve_card_payment_due_date(pm, date(2026, 7, 10))
         assert result == date(2026, 7, 20)
+
+
+class TestPartnerForbidden:
+    """PRD §21.4: recurring bills are not in the dashboards/budgets/reports
+    sharing list, so they stay owner-only."""
+
+    async def test_partner_cannot_list_recurring_bills(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        partner = User(
+            email=f"partner-{unique_email}",
+            password_hash=hash_password(VALID_PASSWORD),
+            display_name="Partner User",
+            role=UserRole.PARTNER,
+            invited_by_user_id=owner.id,
+            email_verified_at=utcnow(),
+        )
+        session.add(partner)
+        await session.commit()
+        await _login(client, partner.email)
+
+        response = await client.get("/recurring-bills")
+        assert response.status_code == 403

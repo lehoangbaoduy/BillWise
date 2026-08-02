@@ -400,3 +400,27 @@ class TestAiStructuringService:
         )
         result = await ai_structuring_service.structure_receipt_text("Costco receipt text")
         assert result.merchant == "Costco"
+
+
+class TestPartnerForbidden:
+    """OCR scanning/confirmation stays owner-only — a permitted partner adds
+    transactions via POST /transactions instead (PRD §21.3)."""
+
+    async def test_partner_cannot_scan_receipt(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        partner = User(
+            email=f"partner-{unique_email}",
+            password_hash=hash_password(VALID_PASSWORD),
+            display_name="Partner User",
+            role=UserRole.PARTNER,
+            invited_by_user_id=owner.id,
+            email_verified_at=utcnow(),
+        )
+        session.add(partner)
+        await session.commit()
+        await client.post("/auth/login", json={"email": partner.email, "password": VALID_PASSWORD})
+
+        response = await client.post(
+            "/ocr/receipt", files={"file": ("receipt.jpg", b"fake-image-bytes", "image/jpeg")}
+        )
+        assert response.status_code == 403

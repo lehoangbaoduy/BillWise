@@ -335,3 +335,25 @@ class TestAiInsightService:
         with pytest.raises(HTTPException) as exc_info:
             await ai_insight_service.generate_insights({"some": "data"})
         assert exc_info.value.status_code == status.HTTP_502_BAD_GATEWAY
+
+
+class TestPartnerForbidden:
+    """AI insights are computed from the owner's full household aggregates
+    (including private-category spend) and stay owner-only."""
+
+    async def test_partner_cannot_view_ai_insights(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        partner = User(
+            email=f"partner-{unique_email}",
+            password_hash=hash_password(VALID_PASSWORD),
+            display_name="Partner User",
+            role=UserRole.PARTNER,
+            invited_by_user_id=owner.id,
+            email_verified_at=utcnow(),
+        )
+        session.add(partner)
+        await session.commit()
+        await _login(client, partner.email)
+
+        response = await client.get("/dashboard/ai-insights")
+        assert response.status_code == 403

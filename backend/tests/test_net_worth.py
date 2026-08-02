@@ -277,3 +277,41 @@ class TestNetWorthDashboard:
         response = await client.get("/dashboard/net-worth")
         assert response.status_code == 200
         assert response.json()["change_vs_previous"] is None
+
+
+class TestPartnerForbidden:
+    """PRD §21.4: net worth stays owner-only regardless of sharing."""
+
+    async def test_partner_cannot_list_net_worth_accounts(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        partner = User(
+            email=f"partner-{unique_email}",
+            password_hash=hash_password(VALID_PASSWORD),
+            display_name="Partner User",
+            role=UserRole.PARTNER,
+            invited_by_user_id=owner.id,
+            email_verified_at=utcnow(),
+        )
+        session.add(partner)
+        await session.commit()
+        await _login(client, partner.email)
+
+        response = await client.get("/net-worth-accounts")
+        assert response.status_code == 403
+
+    async def test_partner_cannot_view_net_worth_dashboard(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        partner = User(
+            email=f"partner-{unique_email}",
+            password_hash=hash_password(VALID_PASSWORD),
+            display_name="Partner User",
+            role=UserRole.PARTNER,
+            invited_by_user_id=owner.id,
+            email_verified_at=utcnow(),
+        )
+        session.add(partner)
+        await session.commit()
+        await _login(client, partner.email)
+
+        response = await client.get("/dashboard/net-worth")
+        assert response.status_code == 403

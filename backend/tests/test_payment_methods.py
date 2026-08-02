@@ -155,3 +155,24 @@ class TestDeletePaymentMethod:
         get_response = await client.get(f"/payment-methods/{pm_id}")
         assert get_response.status_code == 200
         assert get_response.json()["is_active"] is False
+
+
+class TestPartnerForbidden:
+    """PRD §21.4: payment methods stay owner-only regardless of sharing."""
+
+    async def test_partner_cannot_list_payment_methods(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        partner = User(
+            email=f"partner-{unique_email}",
+            password_hash=hash_password(VALID_PASSWORD),
+            display_name="Partner User",
+            role=UserRole.PARTNER,
+            invited_by_user_id=owner.id,
+            email_verified_at=utcnow(),
+        )
+        session.add(partner)
+        await session.commit()
+        await _login(client, partner.email)
+
+        response = await client.get("/payment-methods")
+        assert response.status_code == 403
