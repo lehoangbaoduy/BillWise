@@ -51,6 +51,21 @@ async def _get_owned_record_or_404(session: AsyncSession, user: User, record_id:
     return record
 
 
+@router.get("/cashback-rules", response_model=list[CashbackRulePublic])
+async def list_cashback_rules(
+    user: User = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
+) -> list[CashbackRule]:
+    """Not in PRD §25.9's literal endpoint list, but every other resource
+    section (payment methods, categories, budgets, goals, recurring bills)
+    has a GET list route and this one doesn't — without it, the PATCH/DELETE
+    rule endpoints PRD §25.9 does list are unreachable from any UI, since
+    there's no way to discover a rule's id. Added to match the app's
+    established REST shape; a pure additive gap-fill, not a behavior change."""
+    rules = (await session.exec(select(CashbackRule).where(CashbackRule.user_id == user.id))).all()
+    return rules
+
+
 @router.post("/cashback-rules", response_model=CashbackRulePublic, status_code=status.HTTP_201_CREATED)
 async def create_cashback_rule(
     body: CashbackRuleCreate,

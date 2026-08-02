@@ -58,6 +58,14 @@ export default function Sidebar() {
                                 <span className="nav-text">Recurring Bills</span>
                             </Link>
                         </li>
+                        <li className={pathname == "/cashback" ? "active" : ""}>
+                            <Link href="/cashback">
+                                <span>
+                                    <i className="fi fi-rr-badge-percent" />
+                                </span>
+                                <span className="nav-text">Cashback</span>
+                            </Link>
+                        </li>
                         <li className={pathname == "/profile" ? "active" : ""}>
                             <Link href="/profile">
                                 <span>

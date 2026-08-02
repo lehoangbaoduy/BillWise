@@ -49,17 +49,20 @@ aren't already obvious from the code or the PRD.
       below); confirmed working end-to-end against the live API afterward. Statement-import
       frontend UI now also built (decisions 72-73), closing the last queued follow-up.
       Formally `pending_approval` pending human-ack (decisions 53-58, 71-73).
-- [ ] **M6: Recurring Bills & Cashback** — slices 1-2 (backend) DONE: Recurring
-      Bills (new tables, full CRUD + mark-paid with optional auto-created
-      linked transactions, lazy overdue/next-period reconciliation) and
-      Cashback (new tables, rules CRUD, per-line-item auto-computation on
-      every transaction-creation path, manual override, monthly/yearly
-      summary dashboard data) — 53 new tests, 193 total passing. Slice 3
-      (frontend Recurring Bills) DONE — see "Milestone 6 Detail" for the two
-      bugs caught during manual Playwright verification after the
-      react-reviewer agent hit its weekly usage limit twice. Slice 4
-      (frontend Cashback) not yet started. Formally `pending_approval`
-      pending human-ack (decisions 76-79).
+- [x] **M6: Recurring Bills & Cashback** — all 4 slices DONE. Backend (1-2):
+      Recurring Bills (new tables, full CRUD + mark-paid with optional
+      auto-created linked transactions, lazy overdue/next-period
+      reconciliation) and Cashback (new tables, rules CRUD + a PRD-gap-filled
+      GET list route, per-line-item auto-computation on every
+      transaction-creation path, manual override, monthly/yearly summary
+      dashboard data) — 56 new tests, 196 total passing. Frontend (3-4):
+      Recurring Bills and Cashback screens, both net-new UI with no template
+      equivalent — see "Milestone 6 Detail" for two instances of the same
+      shared-error-state bug class caught (once by hand after the
+      react-reviewer agent hit a usage-limit wall, once by the agent itself
+      once it recovered) and fixed, plus the Cashback-rules
+      GET-endpoint gap-fill. Formally `pending_approval` pending human-ack
+      (decisions 76-80).
 - [ ] **M7: Net Worth, AI Insights, Household & Exports**
 - [ ] **M8: Mobile Layout**
 - [ ] **M9: Security Hardening**
@@ -1160,8 +1163,75 @@ date 422 paths), select, edit pre-fill and 422 surfacing, mark-paid
 and deactivate with confirm-dialog handling — all exercised against the real
 backend, not mocked.
 
-### Not yet built (queued within M6, not yet scheduled)
-- Frontend Cashback screen (net-new UI) — slice 4.
+### Slice 4: Frontend Cashback screen (BIW-INFRA-015, decision 80)
+New `frontend/app/cashback/page.js` (net-new UI, no template equivalent).
+Unlike the nav+detail layout used by goals/budgets/recurring-bills, this is a
+dashboard-style page (matches PRD §17.4/§24.10's framing: "monthly/yearly
+earned, by card, by category, redeemed, unredeemed estimate" — a summary
+view, not a CRUD-per-item screen): a month/year period selector with a
+monthly↔yearly toggle (reusing budgets/page.js's `changePeriod` pattern),
+three stat tiles reusing the existing `.analytics-widget` class from
+`app/analytics/page.js`, side-by-side by-card/by-category breakdown lists, a
+by-transaction records table with inline manual-override editing (PATCH
+`/cashback-records/{id}`), and a cashback-rules management section
+(create/edit/delete).
+
+**Backend gap found and filled**: PRD §25.9 lists 5 Cashback endpoints (`GET
+/cashback`, `POST/PATCH/DELETE /cashback-rules`, `PATCH
+/cashback-records/{id}`) but — unlike every other resource section in §25
+(payment methods, categories, budgets, goals, recurring bills all have a GET
+list route) — has no `GET /cashback-rules`. Without it, the already-built
+PATCH/DELETE-by-id rule endpoints are unreachable from any UI: there's no way
+to discover a rule's id. Added `GET /cashback-rules` to
+`backend/app/api/cashback.py` (owner-scoped, mirrors `list_recurring_bills`'s
+pattern exactly) — a pure additive gap-fill matching this app's established
+REST shape, not scope creep or a PRD contradiction. 3 new backend tests
+(`TestListCashbackRules`: auth required, lists only own rules, empty case).
+196/196 backend tests passing (was 193; +3 for this endpoint, no regressions).
+
+`cashbackApi` added to `lib/api.js` (`listRules/createRule/updateRule/
+removeRule/updateRecord/summary`); `summary()` uses `URLSearchParams` rather
+than the string-interpolation pattern security flagged as MEDIUM in the
+pre-existing `budgetsApi.list()` (unrelated code, not touched here — but this
+new method avoids replicating that pattern). Sidebar nav entry added between
+Recurring Bills and Profile.
+
+**Same bug class caught again, fixed before commit**: initially wrote a
+single shared `ruleError` state rendered both inside the "Add rule" create
+panel and inside whichever rule's inline edit view was open — but
+`isRuleFormOpen` and `editingRuleId` are independent state, so both panels
+can be on screen at once (verified live: opened the create form, then opened
+an existing rule's edit form — both rendered simultaneously). An error from
+either action would leak into the other panel. This is the identical mistake
+made and fixed in M6 slice 3 (Recurring Bills' `formError` split) — caught
+this time by the react-reviewer agent (which was unavailable for slice 3 due
+to a usage-limit wall, but ran successfully here) rather than by my own
+manual testing. Fixed by splitting into `createRuleError`/`editRuleError`,
+each cleared when its own panel opens or is cancelled. Also fixed a smaller
+related gap the reviewer flagged: `recordError` (for the by-transaction
+inline override form — only one record can be in edit mode at a time here,
+so no cross-panel leak was possible, but the error banner could persist with
+no attached form after clicking Cancel) — now cleared on cancel too.
+Re-verified live post-fix: reproduced the exact concurrent-panel scenario
+(create form open + a rule's edit form open, edit form's rate pushed to 150%
+via bypassing the `max="100"` HTML constraint to reach the real backend 422)
+and confirmed the error now renders only in the edit panel, never in the
+create panel.
+
+**security-reviewer**: clean, no findings on either the new backend endpoint
+(ownership scoping verified) or the frontend (React auto-escaping covers all
+user-controlled rendering; `cashbackApi.summary()`'s `URLSearchParams` usage
+called out as the preferred pattern; no client-side trust of ids; amount
+bounds enforced server-side via existing `ge=0` schema constraints).
+
+**Verification**: `eslint` clean, production `npm run build` clean, live
+Playwright pass covering rule create/edit(payment-method-locked during
+edit)/delete-with-confirm-cancel, a real transaction generating a correctly-
+computed cashback record end-to-end through the existing auto-computation
+service, the manual-override flow updating the record and all three
+aggregates (stat tiles, by-card, by-category) together, the monthly/yearly
+toggle, and the error-isolation fix described above — all exercised against
+the real backend, not mocked.
 
 ## Milestone 1 Detail
 
@@ -1376,17 +1446,21 @@ throughout), UUID enumeration (128-bit space, already low risk).
 - **Wallets enhancement decisions awaiting human-ack**: decision 74 (assess_risk+spec,
   `BIW-INFRA-013`), 75 (review remediation, linked to 74) — see "Wallets enhancement"
   above — are `pending_approval` under CONST-ARCH-001.
-- **M6 slices 1-3 (backend Recurring Bills + Cashback, frontend Recurring
-  Bills) decisions awaiting human-ack**: decision 76 (assess_risk+spec,
-  `BIW-DATA-004`/`BIW-API-007`), 77 (slice 1 review remediation, linked to
-  76), 78 (slice 2 — assess_risk+spec `BIW-DATA-005`/`BIW-API-008` + review
-  remediation combined), 79 (slice 3 — assess_risk+spec `BIW-INFRA-014`; the
-  react-reviewer half of this slice's review was never recorded as a
-  completed remediation decision since the agent hit its weekly usage limit
-  on both attempts — the two bugs it would likely have caught were instead
-  found and fixed via manual Playwright verification, documented in
-  "Milestone 6 Detail" above) — see "Milestone 6 Detail" above — are
-  `pending_approval` under CONST-ARCH-001.
+- **M6 slices 1-4 (backend Recurring Bills + Cashback, frontend Recurring
+  Bills + Cashback) decisions awaiting human-ack**: decision 76
+  (assess_risk+spec, `BIW-DATA-004`/`BIW-API-007`), 77 (slice 1 review
+  remediation, linked to 76), 78 (slice 2 — assess_risk+spec
+  `BIW-DATA-005`/`BIW-API-008` + review remediation combined), 79 (slice 3 —
+  assess_risk+spec `BIW-INFRA-014`; the react-reviewer half of this slice's
+  review was never recorded as a completed remediation decision since the
+  agent hit its weekly usage limit on both attempts — the two bugs it would
+  likely have caught were instead found and fixed via manual Playwright
+  verification, documented in "Milestone 6 Detail" above), 80 (slice 4 —
+  assess_risk+spec `BIW-INFRA-015` + review remediation; harness-os's MCP
+  server was disconnected for the entire duration of slice 4's work, so this
+  decision could not be recorded through the normal tool and is only
+  reflected here in PLAN.md pending reconnection) — see "Milestone 6 Detail"
+  above — are `pending_approval` under CONST-ARCH-001.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — M1, M2, and M4's decisions were all
   approved this way already.

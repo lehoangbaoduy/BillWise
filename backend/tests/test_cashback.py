@@ -70,6 +70,35 @@ async def _make_rule(session, user, pm, category_id=None, **kwargs):
     return rule
 
 
+class TestListCashbackRules:
+    async def test_requires_authentication(self, client):
+        response = await client.get("/cashback-rules")
+        assert response.status_code == 401
+
+    async def test_lists_only_own_rules(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        await _make_rule(session, user, pm)
+        await _make_rule(session, user, pm, cashback_rate=Decimal("3.00"))
+
+        other = await _create_verified_owner(session, "other-" + unique_email)
+        other_pm = await _make_payment_method(session, other)
+        await _make_rule(session, other, other_pm)
+
+        await _login(client, unique_email)
+        response = await client.get("/cashback-rules")
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == 2
+        assert all(row["payment_method_id"] == str(pm.id) for row in body)
+
+    async def test_empty_when_no_rules(self, client, session, unique_email):
+        await _authed_client(client, session, unique_email)
+        response = await client.get("/cashback-rules")
+        assert response.status_code == 200
+        assert response.json() == []
+
+
 class TestCreateCashbackRule:
     async def test_requires_authentication(self, client):
         response = await client.post("/cashback-rules", json={})

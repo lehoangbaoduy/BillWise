@@ -140,6 +140,19 @@ export const recurringBillsApi = {
   markPaid: (id, data) => request(`/recurring-bills/${id}/mark-paid`, { method: "POST", body: JSON.stringify(data) }),
 }
 
+export const cashbackApi = {
+  listRules: () => request("/cashback-rules"),
+  createRule: (data) => request("/cashback-rules", { method: "POST", body: JSON.stringify(data) }),
+  updateRule: (id, data) => request(`/cashback-rules/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  removeRule: (id) => request(`/cashback-rules/${id}`, { method: "DELETE" }),
+  updateRecord: (id, data) => request(`/cashback-records/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  summary: (year, month) => {
+    const search = new URLSearchParams({ year: String(year) })
+    if (month) search.set("month", String(month))
+    return request(`/cashback?${search.toString()}`)
+  },
+}
+
 export const ocrApi = {
   scanReceipt: (file) => {
     const formData = new FormData()
