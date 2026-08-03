@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     account_deletion_token_expire_minutes: int = 30
     account_deletion_rate_limit_window: str = "3/hour"
     account_deletion_grace_period_days: int = 30
+    # Defense-in-depth for the dashboard/notifications read endpoints, which
+    # were previously unthrottled. Generous relative to real usage (the
+    # notifications header badge polls once/minute); this is a ceiling
+    # against abuse, not a UX-affecting limit.
+    read_rate_limit_window: str = "120/minute"
 
     @field_validator("frontend_base_url")
     @classmethod

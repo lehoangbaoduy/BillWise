@@ -1,8 +1,6 @@
-// PRD §22.2 / production security posture. No CSP here yet — a CSP is
-// deliberately deferred rather than shipped hastily: getting it wrong (e.g.
-// blocking Next.js's own inline bootstrap script) breaks the app outright,
-// and it needs to be built against a real audit of every external resource
-// this app loads, not guessed. Track that as a separate follow-up.
+// PRD §22.2 / production security posture. Content-Security-Policy is set
+// separately in middleware.js (needs a per-request nonce, which can't be
+// generated from this static config).
 const securityHeaders = [
   { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains; preload" },
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -13,6 +11,10 @@ const securityHeaders = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Produces a minimal, self-contained server bundle (only the deps each
+  // page actually needs) instead of requiring the full node_modules tree in
+  // the production image — see frontend/Dockerfile's runtime stage.
+  output: "standalone",
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }]
   },

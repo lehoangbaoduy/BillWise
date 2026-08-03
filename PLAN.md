@@ -2531,7 +2531,113 @@ the `GROUP BY` columns, which the reviewer itself framed as unnecessary
 at expected household-scale. Remediation recorded as decision 150
 (linked to 149). Full suite: **338/338 passing**.
 
-## Milestone 1 Detail
+### Slice 9: Deployment hardening — DONE
+
+User requested every deferred gap from the M9 pre-deployment report be
+fixed, with careful documentation and anything requiring manual
+intervention flagged explicitly. Spec `BIW-INFRA-021` registered;
+`assess_risk` auto-classified `high` on keyword match ("auth", "secret")
+even though no auth logic changed — honored per this project's
+established precedent of not overriding the deterministic classifier.
+
+**Fixed in code:**
+- **`backend/Dockerfile` + new `backend/entrypoint.sh`**: added a
+  non-root `appuser` (uid 1001) and an entrypoint that runs `alembic
+  upgrade head` (fails fast via `set -e` if migration fails) before
+  starting uvicorn — closes the "no automated migration step" gap.
+  `PYTHONDONTWRITEBYTECODE=1` avoids needing write access to `/app` at
+  all as the non-root user.
+- **`frontend/Dockerfile`**: rewritten as a 3-stage build producing a
+  real production server (`next build` + `node server.js` via
+  `next.config.js`'s new `output: "standalone"`) — the image previously
+  ran `npm run dev` even when "built," which was a bigger gap than
+  originally scoped (a dev server, not just an unhardened one). Also
+  non-root.
+- **`frontend/middleware.js` (new) + `frontend/app/layout.js`**: a
+  nonce-based CSP (per-request nonce via `crypto.randomUUID()`,
+  `'strict-dynamic'`, built from an actual resource audit — no
+  third-party scripts/CDNs anywhere in the codebase, `next/font/google`
+  self-hosts at build time). **Caught by verification, not assumed**: an
+  initial version set the CSP response header only and was completely
+  broken (17 CSP violations, every script blocked) — Next.js requires
+  `headers().get('x-nonce')` to actually be read in the root Server
+  Component for its automatic nonce-injection to activate; the response
+  header alone isn't sufficient. Fixed and re-verified via Playwright
+  (zero violations, sign-in page hydrates and is interactive) both
+  against the production Docker image and the dev `next dev` server.
+  Trade-off: this forces every route into dynamic per-request rendering
+  instead of static prerendering (confirmed via `npm run build`'s route
+  table, all routes `λ` not `○`) — accepted as fine for a behind-auth
+  app with no CDN-cached marketing pages.
+- **`docker-compose.prod.yml` + `Caddyfile` (new)**: self-hosted
+  production variant — no `--reload`, no bind mounts, backend/frontend
+  not published to the host (only Caddy's 80/443 are). Caddy
+  reverse-proxies two subdomains (`FRONTEND_DOMAIN`/`BACKEND_DOMAIN`)
+  with automatic Let's Encrypt TLS. A `cron` service runs the Slice 3
+  hard-delete script daily via a plain shell sleep-loop reusing the
+  backend image — deliberately not a Docker-socket-mounted scheduler
+  (e.g. Ofelia), to avoid granting any container root-equivalent host
+  access for what's a one-line scheduling need. `DATABASE_URL` is
+  derived in compose from a single `POSTGRES_PASSWORD` rather than
+  duplicated across two `.env` files (a real footgun caught before
+  shipping, not by a reviewer — fixed via an `environment:` override
+  that takes precedence over `env_file:`).
+- **Rate limiting** (`backend/app/api/dashboard.py`,
+  `backend/app/api/notifications.py`): added
+  `@limiter.limit(settings.read_rate_limit_window)` (new config field,
+  default `120/minute`) — but only to `yearly_overview`, `cash_flow`, and
+  `get_notifications`. **Caught by a real test failure, not
+  theorized**: decorating `monthly_overview`, `category_breakdown`,
+  `payment_method_breakdown`, and `net_worth_dashboard` broke
+  `test_exports.py` (3 failures) — `export_service.py` calls these
+  directly as plain Python functions to build XLSX/PDF reports, and
+  slowapi's decorator throws at runtime (`parameter 'request' must be an
+  instance of starlette.requests.Request`) when there's no real request
+  object, which a direct function call never has. Reverted the decorator
+  on those 4, documented why in code comments — they remain
+  auth-gated, just not rate-limited, a deliberate scope reduction rather
+  than an oversight.
+- **`backend/.env.example`**: strengthened the `SECRET_KEY` comment
+  (references `DEPLOYMENT.md`, states plainly this is required before
+  any shared/internet-facing deployment).
+
+**Not fixable in code (documented as manual steps in `DEPLOYMENT.md`
+instead)**: the `SECRET_KEY` value itself — generating and setting a
+real secret is an inherently per-deployment action; committing any real
+value would defeat its purpose. Domain/DNS setup, hosting account
+provisioning, and platform-specific cron wiring for managed-platform
+deployments (Path B) are also necessarily manual.
+
+**New file**: `DEPLOYMENT.md` — a full tutorial covering both a
+self-hosted path (`docker-compose.prod.yml` + Caddy, step by step) and a
+managed-platform path (Vercel + Fly.io + Neon recommended; Railway as a
+single-provider alternative), an environment-variable reference table,
+and a "things that will bite you" section (cross-origin cookie/CORS
+requirements, `NEXT_PUBLIC_*` being build-time not runtime, static
+prerendering being off, the partial rate-limit scope).
+
+**Verification**: both Docker images built and run-tested directly (not
+just via compose) — backend confirmed running as `appuser`, migrations
+applying against a real Postgres, `/health` responding; frontend
+confirmed running as `appuser`, CSP header present, and (via Playwright)
+zero console errors with the sign-in form fully interactive. Dev
+`docker-compose.yml` re-verified working after the entrypoint change (a
+real bug caught here too: the bind-mounted `entrypoint.sh` needed its
+executable bit set on the **host** filesystem, since the image's
+`chmod +x` gets shadowed by the bind mount in dev — fixed and confirmed
+git preserves the executable bit going forward). `docker-compose.prod.yml
+config` validated with dummy env values. Full backend suite: **338/338
+passing** throughout.
+
+**Reviewer gate**: security-reviewer approved with no CRITICAL/HIGH
+findings across all six review areas (non-root containers, CSP,
+migration-on-boot, cron approach, two-subdomain cookie/CORS/SameSite
+reasoning — independently re-derived and confirmed correct, not just
+trusted — and the partial rate-limit scope). One suggestion applied:
+strengthened the code comment on `layout.js`'s `headers()` call so a
+future editor doesn't mistake it for unused dead code and delete it,
+silently breaking the CSP. Remediation recorded as decision 152 (linked
+to 151).
 
 ### Specs registered
 - `BIW-PROD-001` (product) — BillWise MVP
@@ -2766,6 +2872,11 @@ throughout), UUID enumeration (128-bit space, already low risk).
   (remediation — a claimed CRITICAL from fastapi-reviewer rejected as a
   false positive after empirical verification against real Postgres) are
   all `pending_approval`.
+- **M9 Slice 9 (Deployment hardening) decisions awaiting human-ack**:
+  decision 151 (initial risk assessment, auto-`high` on keyword match +
+  spec `BIW-INFRA-021`) and decision 152 (remediation — security-reviewer
+  approved with no CRITICAL/HIGH findings, one comment strengthened) are
+  both `pending_approval`.
 - Run `docker exec -it harness_gate_daemon node cli/dist/approve.js <id>` for each
   outstanding decision, or batch through them — every other decision in the
   project (M1-M8, all slices, all remediations) has already been approved

@@ -18,14 +18,16 @@ dependency, not mix the two.
 import uuid
 from decimal import ROUND_HALF_UP, Decimal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import extract
 from sqlmodel import and_, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import household_owner_id, require_household_member, require_owner
 from app.api.net_worth import load_balances_by_snapshot, to_snapshot_public
+from app.core.config import settings
 from app.core.db import get_session
+from app.core.rate_limit import limiter
 from app.models.budget import Budget
 from app.models.category import Category
 from app.models.net_worth import NetWorthSnapshot
@@ -128,6 +130,10 @@ async def _payment_method_expense_spend(session: AsyncSession, user: User, month
 
 
 @router.get("/monthly", response_model=MonthlyOverview)
+# Not rate-limited like the other endpoints below — export_service.py calls
+# this directly as a plain function (not over HTTP) to build report exports,
+# and slowapi's decorator requires a real starlette Request object, which
+# that direct-call path doesn't have. Still auth-gated as normal.
 async def monthly_overview(
     month: int = Query(ge=1, le=12),
     year: int = Query(ge=2000, le=2100),
@@ -205,7 +211,9 @@ async def monthly_overview(
 
 
 @router.get("/yearly", response_model=YearlyOverview)
+@limiter.limit(settings.read_rate_limit_window)
 async def yearly_overview(
+    request: Request,
     year: int = Query(ge=2000, le=2100),
     user: User = Depends(require_household_member),
     session: AsyncSession = Depends(get_session),
@@ -295,6 +303,8 @@ async def yearly_overview(
 
 
 @router.get("/category-breakdown", response_model=list[CategoryBreakdownItem])
+# Not rate-limited — also called directly by export_service.py (see
+# monthly_overview's comment above).
 async def category_breakdown(
     month: int = Query(ge=1, le=12),
     year: int = Query(ge=2000, le=2100),
@@ -342,6 +352,8 @@ async def category_breakdown(
 
 
 @router.get("/payment-method-breakdown", response_model=list[PaymentMethodBreakdownItem])
+# Not rate-limited — also called directly by export_service.py (see
+# monthly_overview's comment above).
 async def payment_method_breakdown(
     month: int = Query(ge=1, le=12),
     year: int = Query(ge=2000, le=2100),
@@ -367,7 +379,9 @@ async def payment_method_breakdown(
 
 
 @router.get("/cash-flow", response_model=CashFlow)
+@limiter.limit(settings.read_rate_limit_window)
 async def cash_flow(
+    request: Request,
     month: int = Query(ge=1, le=12),
     year: int = Query(ge=2000, le=2100),
     user: User = Depends(require_household_member),
@@ -379,6 +393,8 @@ async def cash_flow(
 
 
 @router.get("/net-worth", response_model=NetWorthDashboard)
+# Not rate-limited — also called directly by export_service.py (see
+# monthly_overview's comment above).
 async def net_worth_dashboard(
     user: User = Depends(require_owner),
     session: AsyncSession = Depends(get_session),

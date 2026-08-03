@@ -1,0 +1,11 @@
+{
+	email {$CADDY_EMAIL}
+}
+
+{$FRONTEND_DOMAIN} {
+	reverse_proxy frontend:3000
+}
+
+{$BACKEND_DOMAIN} {
+	reverse_proxy backend:8000
+}

@@ -1,0 +1,99 @@
+# Production compose variant for self-hosted deployments (a VPS, a bare Docker
+# host, Oracle Cloud's Always Free tier, etc). Platforms that build and run
+# containers themselves (Fly.io, Render, Railway) use backend/Dockerfile and
+# frontend/Dockerfile directly and don't need this file — see DEPLOYMENT.md.
+#
+# Differences from docker-compose.yml (dev): no --reload, no bind mounts (runs
+# the built image, not live-mounted source), frontend runs its production
+# server instead of `next dev`, backend/frontend ports are not published to
+# the host (only Caddy's 80/443 are) — Caddy terminates TLS and reverse-proxies
+# to both services by subdomain, and a lightweight cron service runs the
+# account hard-delete script daily without needing a Docker-socket mount.
+#
+# Requires a project-root .env with (see DEPLOYMENT.md for the full list):
+#   POSTGRES_PASSWORD, NEXT_PUBLIC_API_BASE_URL, FRONTEND_DOMAIN, BACKEND_DOMAIN,
+#   CADDY_EMAIL
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: billwise
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: billwise
+    volumes:
+      - billwise_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U billwise -d billwise"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    # DATABASE_URL is derived from the same POSTGRES_PASSWORD used above,
+    # rather than duplicated into backend/.env, so there's only one place to
+    # keep the DB password in sync. env_file supplies everything else
+    # (SECRET_KEY, COOKIE_SECURE, FRONTEND_BASE_URL, ANTHROPIC_API_KEY) —
+    # explicit `environment:` entries win over env_file on key collisions.
+    environment:
+      DATABASE_URL: postgresql+psycopg://billwise:${POSTGRES_PASSWORD}@db:5432/billwise
+    env_file:
+      - ./backend/.env
+    expose:
+      - "8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?set NEXT_PUBLIC_API_BASE_URL in .env}
+    restart: unless-stopped
+    expose:
+      - "3000"
+    depends_on:
+      - backend
+
+  # Runs the account-deletion grace-period sweep once a day (PRD §22.6).
+  # Reuses the backend image directly instead of mounting the Docker socket
+  # into a scheduler container — smaller attack surface, and avoids any
+  # dependency on the compose project's generated container/network names.
+  cron:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://billwise:${POSTGRES_PASSWORD}@db:5432/billwise
+    env_file:
+      - ./backend/.env
+    entrypoint: []
+    command: ["sh", "-c", "sleep 30 && while true; do python -m scripts.hard_delete_expired_accounts; sleep 86400; done"]
+    depends_on:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      FRONTEND_DOMAIN: ${FRONTEND_DOMAIN:?set FRONTEND_DOMAIN in .env}
+      BACKEND_DOMAIN: ${BACKEND_DOMAIN:?set BACKEND_DOMAIN in .env}
+      CADDY_EMAIL: ${CADDY_EMAIL:?set CADDY_EMAIL in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  billwise_pgdata:
+  caddy_data:
+  caddy_config:
