@@ -133,9 +133,11 @@ Migrations re-run automatically on the backend/cron containers' next start (idem
    DATABASE_URL=postgresql+psycopg://...from Neon...
    SECRET_KEY=<generate per §1.1>
    COOKIE_SECURE=true
+   COOKIE_SAMESITE=none
    FRONTEND_BASE_URL=https://your-app.vercel.app
    ANTHROPIC_API_KEY=...   # optional
    ```
+   `COOKIE_SAMESITE=none` is required here specifically because Vercel and Render put the frontend and backend on different registrable domains (`*.vercel.app` vs `*.onrender.com`) — see §5.1 for why.
 6. Deploy. Migrations run automatically — `backend/entrypoint.sh` calls `alembic upgrade head` before uvicorn starts on every boot, so there's no separate "release command" step to configure.
 7. Render gives you a URL like `https://billwise-backend.onrender.com` with TLS already handled.
 
@@ -178,6 +180,7 @@ If you'd rather not coordinate three separate providers: Railway hosts backend +
 | `DATABASE_URL` | backend | yes | `postgresql+psycopg://user:pass@host:5432/db`. Path A derives this automatically from `POSTGRES_PASSWORD` — don't set it in `backend/.env` there. |
 | `SECRET_KEY` | backend | yes | Generate per §1.1. Rotating it invalidates all existing sessions. |
 | `COOKIE_SECURE` | backend | yes in prod | Must be `true` once served over HTTPS (default is already `true`; only `false` for plain-HTTP local dev). |
+| `COOKIE_SAMESITE` | backend | yes if cross-domain | `lax` (default) for same-registrable-domain deployments (Path A). `none` (requires `COOKIE_SECURE=true`) when frontend and backend are on different registrable domains (Path B: Vercel + Render). See §5.1. |
 | `FRONTEND_BASE_URL` | backend | yes | Exact origin of your frontend (e.g. `https://app.example.com`). Used for CORS — must not be a wildcard. |
 | `ANTHROPIC_API_KEY` | backend | no | Enables receipt OCR. Omit to disable that feature gracefully. |
 | `NEXT_PUBLIC_API_BASE_URL` | frontend | yes | Backend's public URL. **Build-time**, not runtime — see §5.2. |
@@ -192,7 +195,10 @@ If you'd rather not coordinate three separate providers: Railway hosts backend +
 
 BillWise's frontend calls the backend at an absolute URL (not a same-origin `/api/*` proxy path). That means:
 - `FRONTEND_BASE_URL` (backend) and `NEXT_PUBLIC_API_BASE_URL` (frontend) must point at each other's *real* deployed URLs, not `localhost`, or auth and every API call will fail with CORS errors.
-- The auth cookie is `SameSite=Lax`, host-only (no explicit `Domain=`). This works correctly across subdomains of the *same* registrable domain (e.g. `app.example.com` calling `api.example.com`) without any extra config. It will **not** work if frontend and backend end up on entirely unrelated domains (e.g. `billwise.vercel.app` calling `random-name.fly.dev`) in a way that breaks your mental model of "same site" — Vercel/Fly's auto-generated domains ARE unrelated registrable domains from each other, which is still fine for SameSite=Lax purposes (cross-site GET/XHR-with-credentials still works under Lax — Lax's restriction is specifically about top-level cross-site navigations, not fetch calls), but double-check by actually testing sign-in end to end after deploying, not just trusting this paragraph.
+- The auth cookie's `SameSite` mode is controlled by `COOKIE_SAMESITE` (backend env var, default `lax`), host-only (no explicit `Domain=`).
+  - **Same registrable domain** (e.g. `app.example.com` calling `api.example.com`): leave `COOKIE_SAMESITE=lax`. Works with no extra config.
+  - **Different registrable domains** (e.g. a Vercel frontend calling a Render/Fly/Railway backend — this is the common case for the free-tier setup in this guide): you **must** set `COOKIE_SAMESITE=none` and keep `COOKIE_SECURE=true`. Browsers never attach a `Lax` cookie to a cross-site `fetch`/XHR request — only to top-level navigations (clicking a link, typing a URL) — so with the default `lax` setting, login/register will appear to succeed (the `Set-Cookie` is received and stored) but every subsequent authenticated request will silently come back 401 because the browser won't send the cookie back. `SameSite=None` requires `Secure`, which the app's config validator enforces at startup (it refuses to boot with `COOKIE_SAMESITE=none` + `COOKIE_SECURE=false`). This is safe here because CORS is locked to the single exact `FRONTEND_BASE_URL` origin and every request requires a `Content-Type: application/json` body, which together already gate cross-origin requests behind a CORS preflight — `SameSite=None` doesn't meaningfully add CSRF exposure on top of that.
+  - Always test sign-in (not just sign-up) end to end after deploying — a login that "succeeds" but leaves you logged out on refresh is the symptom of this exact misconfiguration.
 
 ### 5.2 `NEXT_PUBLIC_*` variables are baked in at build time
 

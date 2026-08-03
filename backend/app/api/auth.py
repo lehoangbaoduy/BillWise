@@ -50,7 +50,7 @@ def _set_session_cookie(response: Response, user: User) -> None:
         value=token,
         httponly=True,
         secure=settings.cookie_secure,
-        samesite="lax",
+        samesite=settings.cookie_samesite,
         max_age=settings.access_token_expire_minutes * 60,
     )
 
@@ -179,7 +179,11 @@ async def logout(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    response.delete_cookie(key=settings.cookie_name)
+    response.delete_cookie(
+        key=settings.cookie_name,
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+    )
     await log_audit_event(
         session, "user.logout", user_id=current_user.id, entity_type="user", entity_id=current_user.id, request=request,
     )

@@ -1,6 +1,6 @@
 import logging
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger("billwise.config")
@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     export_token_expire_minutes: int = 15
     cookie_name: str = "billwise_session"
     cookie_secure: bool = True
+    # "lax" works for local dev (localhost:3000 <-> localhost:8000 are same-site)
+    # and same-registrable-domain deployments. Cross-site deployments (e.g.
+    # Vercel frontend + Render backend, different registrable domains) need
+    # "none" — browsers never attach a Lax cookie to cross-site fetch/XHR
+    # (only to top-level navigations), so auth would silently fail past login.
+    cookie_samesite: str = "lax"
     frontend_base_url: str = "http://localhost:3000"
     login_rate_limit_window: str = "5/minute"
     password_reset_rate_limit_window: str = "3/hour"
@@ -56,6 +62,21 @@ class Settings(BaseSettings):
                 "internet-facing deployment."
             )
         return value
+
+    @field_validator("cookie_samesite")
+    @classmethod
+    def _validate_samesite(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in ("lax", "strict", "none"):
+            raise ValueError("COOKIE_SAMESITE must be one of: lax, strict, none")
+        return normalized
+
+    @model_validator(mode="after")
+    def _reject_insecure_samesite_none(self) -> "Settings":
+        # Browsers silently drop SameSite=None cookies that aren't also Secure.
+        if self.cookie_samesite == "none" and not self.cookie_secure:
+            raise ValueError("COOKIE_SAMESITE=none requires COOKIE_SECURE=true")
+        return self
 
 
 settings = Settings()
