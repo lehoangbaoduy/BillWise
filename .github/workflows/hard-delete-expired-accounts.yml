@@ -32,4 +32,7 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - run: echo "pong"
+      - run: python -m scripts.hard_delete_expired_accounts
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
