@@ -124,8 +124,18 @@ My recommendation for this app specifically: **Vercel (frontend) + Fly.io (backe
 
 ### 3.2 Backend — Fly.io
 
+Install `flyctl` (the `fly` command below is its alias, added to your PATH by the installer):
+
 ```bash
-brew install flyctl   # or see fly.io/docs/hands-on/install-flyctl
+# macOS:
+brew install flyctl
+
+# Linux / WSL:
+curl -L https://fly.io/install.sh | sh
+# then either open a new terminal, or: source ~/.bashrc
+```
+
+```bash
 fly auth login
 cd backend
 fly launch --no-deploy   # creates fly.toml; say no to auto-detected Postgres, you're using Neon
