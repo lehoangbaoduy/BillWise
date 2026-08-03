@@ -33,69 +33,56 @@ export default function SignIn() {
     }
 
     return (
-        <>
-            <div className="authincation">
-                <div className="container">
-                    <div className="row justify-content-center align-items-center g-0">
-                        <div className="col-xl-8">
-                            <div className="row g-0">
-                                <div className="col-lg-6">
-                                    <div className="welcome-content">
-                                        <div className="welcome-title">
-                                            <div className="mini-logo">
-                                                <Link href="/">
-                                                    <img src="/images/logo-white.png" alt="" width={30} /></Link>
-                                            </div>
-                                            <h3>Welcome to BillWise</h3>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="col-lg-6">
-                                    <div className="auth-form">
-                                        <h4>Sign In</h4>
-                                        {error && <div className="alert alert-danger">{error}</div>}
-                                        <form onSubmit={handleSubmit}>
-                                            <div className="row">
-                                                <div className="col-12 mb-3">
-                                                    <label className="form-label">Email</label>
-                                                    <input
-                                                        name="email"
-                                                        type="email"
-                                                        className="form-control"
-                                                        value={email}
-                                                        onChange={(e) => setEmail(e.target.value)}
-                                                        required
-                                                    />
-                                                </div>
-                                                <div className="col-12 mb-3">
-                                                    <label className="form-label">Password</label>
-                                                    <input
-                                                        name="password"
-                                                        type="password"
-                                                        className="form-control"
-                                                        value={password}
-                                                        onChange={(e) => setPassword(e.target.value)}
-                                                        required
-                                                    />
-                                                </div>
-                                                <div className="col-6 text-end ms-auto">
-                                                    <Link href="/reset">Forgot Password?</Link>
-                                                </div>
-                                            </div>
-                                            <div className="mt-3 d-grid gap-2">
-                                                <button type="submit" className="btn btn-primary me-8 text-white" disabled={isSubmitting}>
-                                                    {isSubmitting ? "Signing in..." : "Sign In"}
-                                                </button>
-                                            </div>
-                                        </form>
-                                        <p className="mt-3 mb-0 undefined">Don&apos;t have an account?<Link className="text-primary" href="/signup"> Sign up</Link></p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+        <div className="auth-page">
+            <div className="auth-card">
+                <div className="auth-card-brand">
+                    <Link href="/" className="auth-card-brand-link">
+                        <img src="/images/logoi.png" alt="" width={28} height={28} />
+                        <span>BillWise</span>
+                    </Link>
                 </div>
+                <h1 className="auth-card-title">Welcome back</h1>
+                <p className="auth-card-subtitle">Sign in to keep track of your household spending.</p>
+
+                {error && <div className="auth-alert" role="alert">{error}</div>}
+
+                <form onSubmit={handleSubmit} className="auth-form-fields" noValidate>
+                    <div className="auth-field">
+                        <label htmlFor="email">Email</label>
+                        <input
+                            id="email"
+                            name="email"
+                            type="email"
+                            autoComplete="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            required
+                        />
+                    </div>
+                    <div className="auth-field">
+                        <div className="auth-field-label-row">
+                            <label htmlFor="password">Password</label>
+                            <Link href="/reset" className="auth-inline-link">Forgot password?</Link>
+                        </div>
+                        <input
+                            id="password"
+                            name="password"
+                            type="password"
+                            autoComplete="current-password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            required
+                        />
+                    </div>
+                    <button type="submit" className="auth-submit" disabled={isSubmitting}>
+                        {isSubmitting ? "Signing in…" : "Sign In"}
+                    </button>
+                </form>
+
+                <p className="auth-card-footer">
+                    Don&apos;t have an account? <Link href="/signup">Sign up</Link>
+                </p>
             </div>
-        </>
+        </div>
     )
 }
