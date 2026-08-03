@@ -2,12 +2,14 @@
 import { useState } from "react"
 import useSWR from "swr"
 import Layout from "@/components/layout/Layout"
-import SettingsMenu from "@/components/layout/SettingsMenu"
+import AnalyticsMenu from "@/components/layout/AnalyticsMenu"
+import ConfirmButton from "@/components/elements/ConfirmButton"
+import EmojiPicker from "@/components/elements/EmojiPicker"
 import EmptyState from "@/components/elements/EmptyState"
 import { useAuth } from "@/hooks/useAuth"
 import { categoriesApi } from "@/lib/api"
 
-function CategoryList({ title, categories, canManage, onDelete, deletingId, onToggleSharing, togglingId }) {
+function CategoryList({ title, categories, canManage, onDelete, deletingId }) {
     return (
         <div className="card">
             <div className="card-header">
@@ -15,7 +17,7 @@ function CategoryList({ title, categories, canManage, onDelete, deletingId, onTo
             </div>
             <div className="card-body">
                 {categories.length === 0 ? (
-                    <EmptyState icon="fi fi-rr-shapes" message={`No ${title.toLowerCase()} yet.`} />
+                    <EmptyState icon="fi fi-rr-tags" message={`No ${title.toLowerCase()} yet.`} />
                 ) : (
                     <div className="category-type">
                         <ul>
@@ -27,24 +29,16 @@ function CategoryList({ title, categories, canManage, onDelete, deletingId, onTo
                                         </span>
                                     </div>
                                     {canManage && (
-                                        <div className="right-category d-flex gap-2">
-                                            <button
-                                                type="button"
-                                                className="btn btn-sm btn-outline-secondary"
-                                                aria-label={`${category.is_shared ? "Stop" : "Start"} sharing ${category.name} with partner`}
-                                                disabled={togglingId === category.id}
-                                                onClick={() => onToggleSharing(category)}
-                                            >
-                                                {category.is_shared ? "Shared" : "Private"}
-                                            </button>
-                                            <button
-                                                type="button"
+                                        <div className="right-category">
+                                            <ConfirmButton
+                                                className="btn btn-sm btn-outline-danger"
                                                 aria-label={`Delete ${category.name}`}
                                                 disabled={deletingId === category.id}
-                                                onClick={() => onDelete(category)}
+                                                message={`Delete category "${category.name}"?`}
+                                                onConfirm={() => onDelete(category)}
                                             >
                                                 <i className="fi fi-rr-trash" />
-                                            </button>
+                                            </ConfirmButton>
                                         </div>
                                     )}
                                 </li>
@@ -68,7 +62,6 @@ export default function SettingsCategories() {
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [formError, setFormError] = useState(null)
     const [deletingId, setDeletingId] = useState(null)
-    const [togglingId, setTogglingId] = useState(null)
 
     const incomeCategories = (categories ?? []).filter((c) => c.category_type === "income")
     const expenseCategories = (categories ?? []).filter((c) => c.category_type === "expense")
@@ -97,21 +90,7 @@ export default function SettingsCategories() {
         }
     }
 
-    async function handleToggleSharing(category) {
-        setTogglingId(category.id)
-        try {
-            await categoriesApi.updateSharing(category.id, !category.is_shared)
-            await mutate()
-            setFormError(null)
-        } catch (error) {
-            setFormError(error.message)
-        } finally {
-            setTogglingId(null)
-        }
-    }
-
     async function handleDelete(category) {
-        if (!window.confirm(`Delete category "${category.name}"?`)) return
         setDeletingId(category.id)
         try {
             await categoriesApi.remove(category.id)
@@ -128,7 +107,7 @@ export default function SettingsCategories() {
         <Layout breadcrumbTitle="Categories">
             <div className="row">
                 <div className="col-xxl-12 col-xl-12">
-                    <SettingsMenu />
+                    <AnalyticsMenu />
                     <div className="row">
                         {canManage && (
                             <div className="col-xxl-4 col-xl-4 col-lg-6">
@@ -163,16 +142,8 @@ export default function SettingsCategories() {
                                                     </select>
                                                 </div>
                                                 <div className="mb-3 col-12">
-                                                    <label className="form-label" htmlFor="category-emoji">Emoji (optional)</label>
-                                                    <input
-                                                        id="category-emoji"
-                                                        type="text"
-                                                        className="form-control"
-                                                        placeholder="e.g. 🛒"
-                                                        value={emoji}
-                                                        onChange={(event) => setEmoji(event.target.value)}
-                                                        maxLength={8}
-                                                    />
+                                                    <label className="form-label" htmlFor="category-emoji">Icon (optional)</label>
+                                                    <EmojiPicker value={emoji} onChange={setEmoji} name="category-emoji" />
                                                 </div>
                                                 {formError && <div className="col-12 text-danger mb-3" role="alert">{formError}</div>}
                                                 <div className="col-12">
@@ -187,8 +158,8 @@ export default function SettingsCategories() {
                             </div>
                         )}
                         <div className={canManage ? "col-xxl-8 col-xl-8 col-lg-6" : "col-xxl-12 col-xl-12"}>
-                            <CategoryList title="Income Categories" categories={incomeCategories} canManage={canManage} onDelete={handleDelete} deletingId={deletingId} onToggleSharing={handleToggleSharing} togglingId={togglingId} />
-                            <CategoryList title="Expense Categories" categories={expenseCategories} canManage={canManage} onDelete={handleDelete} deletingId={deletingId} onToggleSharing={handleToggleSharing} togglingId={togglingId} />
+                            <CategoryList title="Income Categories" categories={incomeCategories} canManage={canManage} onDelete={handleDelete} deletingId={deletingId} />
+                            <CategoryList title="Expense Categories" categories={expenseCategories} canManage={canManage} onDelete={handleDelete} deletingId={deletingId} />
                         </div>
                     </div>
                 </div>

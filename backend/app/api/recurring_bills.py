@@ -158,6 +158,30 @@ async def update_recurring_bill(
         setattr(bill, field, value)
     bill.updated_at = utcnow()
     session.add(bill)
+
+    # mark-paid reads period.amount_due/due_date (not the bill's template
+    # fields) and the detail view displays current_period.due_date, so an
+    # edited amount/due_date is otherwise invisible until the *next* period
+    # generates. Sync the still-open (unpaid) period to match.
+    if "amount" in updates or "due_date" in updates:
+        open_payments = (
+            await session.exec(
+                select(RecurringBillPayment)
+                .where(RecurringBillPayment.recurring_bill_id == bill.id, RecurringBillPayment.status.in_(list(_OPEN_STATUSES)))  # type: ignore[attr-defined]
+                .order_by(RecurringBillPayment.due_date)
+            )
+        ).all()
+        if open_payments:
+            period = open_payments[0]
+            if "amount" in updates:
+                period.amount_due = bill.amount
+            if "due_date" in updates:
+                period.due_date = bill.due_date
+                period.status = (
+                    RecurringBillPaymentStatus.OVERDUE if bill.due_date < date.today() else RecurringBillPaymentStatus.UPCOMING
+                )
+            session.add(period)
+
     await session.commit()
     await session.refresh(bill)
 

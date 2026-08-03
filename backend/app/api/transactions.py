@@ -1,8 +1,8 @@
 import uuid
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import extract
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from sqlalchemy import extract, func
 from sqlmodel import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -26,12 +26,31 @@ from app.services.transaction_validation import (
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
+_MAX_LIMIT = 200
+
 
 async def _get_owned_or_404(session: AsyncSession, user: User, transaction_id: uuid.UUID) -> Transaction:
     transaction = await session.get(Transaction, transaction_id)
     if transaction is None or transaction.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
     return transaction
+
+
+@router.get("/merchants", response_model=list[str])
+async def list_merchants(
+    user: User = Depends(require_household_member),
+    session: AsyncSession = Depends(get_session),
+) -> list[str]:
+    """Backs the searchable merchant dropdown on Add Transaction and Cashback
+    Rules -- previously-used merchant names, so a rule or new transaction can
+    reuse an exact spelling instead of retyping it (merchant-matching for
+    cashback rules is a plain string comparison, so spelling has to line up)."""
+    owner_id = household_owner_id(user)
+    conditions = [Transaction.user_id == owner_id]
+    apply_partner_transaction_visibility(conditions, user, owner_id)
+    statement = select(Transaction.merchant).distinct().where(and_(*conditions)).order_by(Transaction.merchant)
+    rows = (await session.exec(statement)).all()
+    return list(rows)
 
 
 @router.get("", response_model=list[TransactionPublic])
@@ -42,6 +61,11 @@ async def list_transactions(
     amount_min: Decimal | None = None,
     amount_max: Decimal | None = None,
     search: str | None = None,
+    merchant: str | None = None,
+    transaction_type: TransactionType | None = None,
+    limit: int | None = Query(default=None, ge=1, le=_MAX_LIMIT),
+    offset: int = Query(default=0, ge=0),
+    response: Response = None,
     user: User = Depends(require_household_member),
     session: AsyncSession = Depends(get_session),
 ) -> list[TransactionPublic]:
@@ -62,14 +86,30 @@ async def list_transactions(
         conditions.append(
             Transaction.merchant.ilike(pattern) | Transaction.description.ilike(pattern)  # type: ignore[union-attr]
         )
+    if merchant is not None and merchant.strip():
+        conditions.append(func.lower(Transaction.merchant) == merchant.strip().lower())
     if category_id is not None:
         conditions.append(
             Transaction.id.in_(
                 select(TransactionLineItem.transaction_id).where(TransactionLineItem.category_id == category_id)
             )
         )
+    if transaction_type is not None:
+        conditions.append(Transaction.transaction_type == transaction_type)
 
-    statement = select(Transaction).where(and_(*conditions)).order_by(Transaction.date.desc(), Transaction.created_at.desc())
+    # limit is opt-in (existing callers like the dashboard's recent-transactions
+    # widget and export_service.py rely on the unbounded default) — the total
+    # count is only worth the extra query when a caller is actually paginating.
+    if limit is not None and response is not None:
+        count_statement = select(func.count()).select_from(Transaction).where(and_(*conditions))
+        total = (await session.exec(count_statement)).one()
+        response.headers["X-Total-Count"] = str(total)
+
+    statement = (
+        select(Transaction).where(and_(*conditions)).order_by(Transaction.date.desc(), Transaction.created_at.desc())
+    )
+    if limit is not None:
+        statement = statement.limit(limit).offset(offset)
     transactions = (await session.exec(statement)).all()
 
     line_items_by_transaction: dict[uuid.UUID, list[TransactionLineItem]] = {t.id: [] for t in transactions}

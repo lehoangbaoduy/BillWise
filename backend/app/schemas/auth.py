@@ -50,6 +50,17 @@ class PasswordResetConfirmRequest(BaseModel):
     _validate_password = field_validator("new_password")(_require_letter_and_digit)
 
 
+class UpdateProfileRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=100)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    _validate_password = field_validator("new_password")(_require_letter_and_digit)
+
+
 class UserPublic(BaseModel):
     id: uuid.UUID
     email: str

@@ -24,6 +24,11 @@ class CashbackRule(SQLModel, table=True):
     # category-specific rule (category_id set) takes precedence over the
     # default when both are in effect for the same date.
     category_id: uuid.UUID | None = Field(default=None, foreign_key="categories.id")
+    # Free-text merchant name (not a foreign key -- merchants aren't a managed
+    # entity, just whatever string a transaction's merchant field holds). A
+    # merchant-specific rule outranks a category-specific one when resolving a
+    # rate, since "this exact merchant" is more specific than "this category."
+    merchant: str | None = Field(default=None, max_length=200, index=True)
     cashback_rate: Decimal
     start_date: date_type
     end_date: date_type | None = None

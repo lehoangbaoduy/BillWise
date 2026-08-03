@@ -12,6 +12,7 @@ class CashbackRuleCreate(BaseModel):
 
     payment_method_id: uuid.UUID
     category_id: uuid.UUID | None = None
+    merchant: str | None = Field(default=None, max_length=200)
     cashback_rate: Decimal = Field(ge=0, le=100)
     start_date: date_type
     end_date: date_type | None = None
@@ -22,6 +23,7 @@ class CashbackRuleUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     category_id: uuid.UUID | None = None
+    merchant: str | None = Field(default=None, max_length=200)
     cashback_rate: Decimal | None = Field(default=None, ge=0, le=100)
     start_date: date_type | None = None
     end_date: date_type | None = None
@@ -34,6 +36,7 @@ class CashbackRulePublic(BaseModel):
     id: uuid.UUID
     payment_method_id: uuid.UUID
     category_id: uuid.UUID | None
+    merchant: str | None
     cashback_rate: Decimal
     start_date: date_type
     end_date: date_type | None

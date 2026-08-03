@@ -3,6 +3,16 @@ import { usePathname } from 'next/navigation'
 import Link from "next/link"
 import { useAuth } from "@/hooks/useAuth"
 
+// The whole Analytics/Transactions tab group (see AnalyticsMenu) shares this
+// one Sidebar entry now that the standalone "Analytics" link is gone.
+const _TRANSACTIONS_SECTION_PATHS = new Set([
+    "/analytics-transaction-history",
+    "/add-transaction",
+    "/analytics",
+    "/analytics-income-vs-expenses",
+    "/settings-categories",
+])
+
 export default function Sidebar() {
     const pathname = usePathname()
     const { user } = useAuth()
@@ -20,7 +30,7 @@ export default function Sidebar() {
                                 <span className="nav-text">Dashboard</span>
                             </Link>
                         </li>
-                        <li className={pathname == "/analytics-transaction-history" || pathname == "/add-transaction" ? "active" : ""}>
+                        <li className={_TRANSACTIONS_SECTION_PATHS.has(pathname) ? "active" : ""}>
                             <Link href="/analytics-transaction-history">
                                 <span>
                                     <i className="fi fi-rr-receipt" />
@@ -68,14 +78,6 @@ export default function Sidebar() {
                                 <span className="nav-text">Cashback</span>
                             </Link>
                         </li>
-                        <li className={pathname == "/net-worth" ? "active" : ""}>
-                            <Link href="/net-worth">
-                                <span>
-                                    <i className="fi fi-rr-stats" />
-                                </span>
-                                <span className="nav-text">Net Worth</span>
-                            </Link>
-                        </li>
                         {user?.role === "owner" && (
                             <li className={pathname == "/household" ? "active" : ""}>
                                 <Link href="/household">
@@ -86,28 +88,12 @@ export default function Sidebar() {
                                 </Link>
                             </li>
                         )}
-                        <li className={pathname == "/profile" ? "active" : ""}>
+                        <li className={pathname == "/profile" || pathname == "/settings-exports" ? "active" : ""}>
                             <Link href="/profile">
                                 <span>
                                     <i className="fi fi-rr-user" />
                                 </span>
                                 <span className="nav-text">Profile</span>
-                            </Link>
-                        </li>
-                        <li className={pathname == "/analytics" ? "active" : ""}>
-                            <Link href="/analytics">
-                                <span>
-                                    <i className="fi fi-rr-chart-histogram" />
-                                </span>
-                                <span className="nav-text">Analytics</span>
-                            </Link>
-                        </li>
-                        <li className={pathname == "/settings" ? "active" : ""}>
-                            <Link href="/settings">
-                                <span>
-                                    <i className="fi fi-rs-settings" />
-                                </span>
-                                <span className="nav-text">Settings</span>
                             </Link>
                         </li>
                     </ul>

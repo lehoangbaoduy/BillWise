@@ -6,11 +6,7 @@ export default function SettingsMenu() {
     const pathname = usePathname()
     return (
         <div className="settings-menu">
-            <Link className={pathname == "/settings" ? "active" : ""} href="/settings">Account</Link>
-            <Link className={pathname == "/settings-general" ? "active" : ""} href="/settings-general">General</Link>
-            <Link className={pathname == "/settings-profile" ? "active" : ""} href="/settings-profile">Profile</Link>
-            <Link className={pathname == "/settings-security" ? "active" : ""} href="/settings-security">Security</Link>
-            <Link className={pathname == "/settings-categories" ? "active" : ""} href="/settings-categories">Categories</Link>
+            <Link className={pathname == "/profile" ? "active" : ""} href="/profile">Profile</Link>
             <Link className={pathname == "/settings-exports" ? "active" : ""} href="/settings-exports">Exports</Link>
         </div>
     )

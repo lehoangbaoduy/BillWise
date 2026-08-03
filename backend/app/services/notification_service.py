@@ -16,6 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.api.dashboard import category_expense_spend
 from app.api.deps import household_owner_id
 from app.models._common import utcnow
+from app.models.acknowledged_notification import AcknowledgedNotification
 from app.models.ai_insight import AIInsight
 from app.models.budget import Budget
 from app.models.category import Category
@@ -61,6 +62,7 @@ async def _budget_notifications(session: AsyncSession, user: User, owner_id, tod
         if spend > budget.budget_amount:
             items.append(
                 NotificationItem(
+                    key=f"budget_exceeded:{budget.category_id}:{year}-{month:02d}",
                     type="budget_exceeded",
                     severity="critical",
                     title=f"{name} is over budget",
@@ -71,6 +73,7 @@ async def _budget_notifications(session: AsyncSession, user: User, owner_id, tod
         elif percentage_used >= _NEAR_LIMIT_PERCENT:
             items.append(
                 NotificationItem(
+                    key=f"budget_near_limit:{budget.category_id}:{year}-{month:02d}",
                     type="budget_near_limit",
                     severity="warning",
                     title=f"{name} is close to its budget limit",
@@ -107,6 +110,7 @@ async def _recurring_bill_notifications(session: AsyncSession, user: User, owner
         if payment.status == RecurringBillPaymentStatus.OVERDUE:
             items.append(
                 NotificationItem(
+                    key=f"bill_overdue:{bill.id}:{payment.due_date.isoformat()}",
                     type="recurring_bill_overdue",
                     severity="critical",
                     title=f"{bill.name} is overdue",
@@ -117,6 +121,7 @@ async def _recurring_bill_notifications(session: AsyncSession, user: User, owner
         else:
             items.append(
                 NotificationItem(
+                    key=f"bill_due_soon:{bill.id}:{payment.due_date.isoformat()}",
                     type="recurring_bill_due_soon",
                     severity="warning",
                     title=f"{bill.name} is due soon",
@@ -157,6 +162,7 @@ async def _goal_notifications(session: AsyncSession, user: User, owner_id, today
             continue
         items.append(
             NotificationItem(
+                key=f"goal_target_date_passed:{goal.id}:{goal.target_date.isoformat()}",
                 type="goal_target_date_passed",
                 severity="warning",
                 title=f"{goal.name} missed its target date",
@@ -180,6 +186,7 @@ async def _ai_insight_notifications(session: AsyncSession, user: User, owner_id)
     insights = (await session.exec(statement)).all()
     return [
         NotificationItem(
+            key=f"ai_insight:{insight.id}",
             type="ai_insight",
             severity="info",
             title="New AI insight",
@@ -222,6 +229,7 @@ async def _duplicate_transaction_notifications(
     rows = (await session.exec(statement)).all()
     return [
         NotificationItem(
+            key=f"duplicate_transaction:{merchant}:{amount}:{tx_date.isoformat()}",
             type="duplicate_transaction",
             severity="warning",
             title="Possible duplicate transaction",
@@ -242,5 +250,32 @@ async def list_notifications(session: AsyncSession, user: User) -> list[Notifica
     items += await _ai_insight_notifications(session, user, owner_id)
     items += await _duplicate_transaction_notifications(session, user, owner_id, today)
 
+    acknowledged_keys = set(
+        (
+            await session.exec(
+                select(AcknowledgedNotification.notification_key).where(
+                    AcknowledgedNotification.user_id == user.id
+                )
+            )
+        ).all()
+    )
+    for item in items:
+        item.is_acknowledged = item.key in acknowledged_keys
+
     items.sort(key=lambda item: (_SEVERITY_ORDER.get(item.severity, 3), item.title))
     return items
+
+
+async def acknowledge_notification(session: AsyncSession, user: User, key: str) -> None:
+    existing = (
+        await session.exec(
+            select(AcknowledgedNotification).where(
+                AcknowledgedNotification.user_id == user.id,
+                AcknowledgedNotification.notification_key == key,
+            )
+        )
+    ).first()
+    if existing:
+        return
+    session.add(AcknowledgedNotification(user_id=user.id, notification_key=key))
+    await session.commit()

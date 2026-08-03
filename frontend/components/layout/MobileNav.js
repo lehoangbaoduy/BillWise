@@ -5,8 +5,8 @@ import { useRef, useState } from "react"
 import MobileMoreMenu from "./MobileMoreMenu"
 
 const MORE_ROUTES = [
-    "/goals", "/recurring-bills", "/cashback", "/net-worth", "/wallets",
-    "/settings-categories", "/settings-exports", "/settings", "/household",
+    "/goals", "/recurring-bills", "/cashback", "/wallets",
+    "/settings-exports", "/profile", "/household",
 ]
 
 export default function MobileNav() {

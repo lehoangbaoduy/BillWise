@@ -91,14 +91,14 @@
   --bs-body-font-size: 0.875rem;
   --bs-body-font-weight: 400;
   --bs-body-line-height: 1.6;
-  --bs-body-color: #7184ad;
-  --bs-body-color-rgb: 113, 132, 173;
+  --bs-body-color: #3d2b33;
+  --bs-body-color-rgb: 61, 43, 51;
   --bs-body-bg: #F6F9FC;
   --bs-body-bg-rgb: 246, 249, 252;
   --bs-emphasis-color: #000;
   --bs-emphasis-color-rgb: 0, 0, 0;
-  --bs-secondary-color: rgba(113, 132, 173, 0.75);
-  --bs-secondary-color-rgb: 113, 132, 173;
+  --bs-secondary-color: #6b4a56;
+  --bs-secondary-color-rgb: 107, 74, 86;
   --bs-secondary-bg: rgb(229, 231, 235);
   --bs-secondary-bg-rgb: 229, 231, 235;
   --bs-tertiary-color: rgba(113, 132, 173, 0.5);
@@ -4882,8 +4882,8 @@ textarea.form-control-lg {
   --bs-progress-bg: var(--bs-secondary-bg);
   --bs-progress-border-radius: var(--bs-border-radius);
   --bs-progress-box-shadow: var(--bs-box-shadow-inset);
-  --bs-progress-bar-color: #7A2048;
-  --bs-progress-bar-bg: #F8C8DC;
+  --bs-progress-bar-color: #fff;
+  --bs-progress-bar-bg: #C93B7D;
   --bs-progress-bar-transition: width 0.6s ease;
   display: flex;
   height: var(--bs-progress-height);
@@ -13877,7 +13877,7 @@ div {
 }
 
 .breadcrumbs a {
-  color: #7184ad;
+  color: #3d2b33;
   display: inline-block;
   font-size: 14px;
 }
@@ -14141,7 +14141,7 @@ div {
 }
 .notification .lists a span {
   font-size: 13px;
-  color: #7184ad;
+  color: #3d2b33;
 }
 .notification .lists a span.icon {
   height: 40px;
@@ -14235,6 +14235,13 @@ div {
 }
 .profile_log .dropdown-menu .user-email .thumb {
   margin-right: 10px;
+  height: 35px;
+  width: 35px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background-color: #F8C8DC;
 }
 .profile_log .dropdown-menu .user-email .user-info {
   margin: 0px;
@@ -14247,7 +14254,7 @@ div {
 }
 .profile_log .dropdown-menu .user-email span i {
   font-size: 22px;
-  color: #0F172A;
+  color: #7A2048;
 }
 .profile_log .dropdown-menu .user-balance {
   display: flex;
@@ -14375,7 +14382,7 @@ div {
   }
   .navigation .navbar ul .dropdown-menu a {
     display: inline-block;
-    color: #7184ad;
+    color: #3d2b33;
   }
   .navigation .navbar ul .dropdown-menu a:hover, .navigation .navbar ul .dropdown-menu a:focus, .navigation .navbar ul .dropdown-menu a:active, .navigation .navbar ul .dropdown-menu a.active {
     color: #C93B7D;
@@ -14399,7 +14406,7 @@ div {
   .navigation .navbar ul .dropdown-menu a {
     border-bottom: 1px solid rgb(229, 234, 239);
     padding: 15px;
-    color: #7184ad;
+    color: #3d2b33;
   }
   .navigation .navbar ul .dropdown-menu a:last-child {
     border: 0px;
@@ -14410,7 +14417,7 @@ div {
     color: #C93B7D;
   }
   .navigation .navbar ul .dropdown-menu a p {
-    color: #7184ad;
+    color: #3d2b33;
     margin-bottom: 0;
   }
 }
@@ -14459,7 +14466,7 @@ div {
 }
 .icon-menu span i {
   font-size: 20px;
-  color: #7184ad;
+  color: #3d2b33;
   position: relative;
   top: 4px;
 }
@@ -14471,7 +14478,7 @@ div {
   background: #0F172A;
 }
 .bottom .bottom-logo p {
-  color: #7184ad;
+  color: #3d2b33;
   line-height: 30px;
   font-weight: 400;
 }
@@ -14487,7 +14494,7 @@ div {
   margin-bottom: 20px;
 }
 .bottom .bottom-widget ul li a {
-  color: #7184ad;
+  color: #3d2b33;
   font-weight: 400;
   margin-bottom: 10px;
   display: inline-block;
@@ -14509,7 +14516,7 @@ div {
 .footer .copyright p {
   margin: 0;
   font-size: 14px;
-  color: #7184ad;
+  color: #3d2b33;
 }
 .footer .copyright p a {
   color: #C93B7D;
@@ -14522,7 +14529,7 @@ div {
   display: inline-block;
 }
 .footer .footer-social li a {
-  color: #7184ad;
+  color: #3d2b33;
   padding: 0px 10px;
 }
 
@@ -14542,7 +14549,7 @@ div {
 .footer-landing .copyright p {
   margin: 0;
   font-size: 14px;
-  color: #7184ad;
+  color: #3d2b33;
 }
 .footer-landing .copyright p a {
   color: #C93B7D;
@@ -14555,7 +14562,7 @@ div {
   display: inline-block;
 }
 .footer-landing .footer-social li a {
-  color: #7184ad;
+  color: #3d2b33;
   padding: 0px 10px;
 }
 
@@ -14828,7 +14835,7 @@ div {
   display: flex;
   align-items: center;
   min-height: 3.5rem;
-  color: #7184ad;
+  color: #3d2b33;
 }
 @media only screen and (max-width: 991px) {
   .menu ul li a {
@@ -14910,6 +14917,66 @@ div {
 
 .dark-theme {
   background-color: #131129;
+  --bs-body-color: #EBD4DE;
+  --bs-body-color-rgb: 235, 212, 222;
+  --bs-secondary-color: #D8A8BC;
+  --bs-secondary-color-rgb: 216, 168, 188;
+}
+/* These selectors hardcode a literal text color (rather than the
+   --bs-body-color variable above) so darkening that variable for light-mode
+   legibility doesn't reach them -- restate the dark-mode-legible tone here.
+   .menu ul li a is intentionally excluded: the sidebar keeps its pastel-pink
+   background in both themes, so it needs the same dark text as light mode.
+   .icon-menu:not(.active) span i is scoped to exclude .active: the header's
+   profile-avatar button also matches ".icon-menu span i" structurally, but
+   it keeps a fixed pastel-pink circle in both themes (see .icon-menu.active
+   above) and needs the same dark icon color as light mode, not this light
+   dark-mode tone -- :is()'s specificity is the max across every branch, so
+   an unscoped ".icon-menu span i" here would outrank and clobber the more
+   specific ".icon-menu.active i" rule. The same trap hit the wallet/budgets/
+   goals nav-item subtitle text: their .active states set a maroon color on
+   hit for legibility against the pastel active background, but this block's
+   max-specificity (driven by the 4-class .credit-card.payoneer entries)
+   outranked that fix's plain 3-class selector, so :not(.active) is used here
+   too. */
+.dark-theme :is(
+  .breadcrumbs a,
+  .notification .lists a span,
+  .navigation .navbar ul .dropdown-menu a,
+  .navigation .navbar ul .dropdown-menu a p,
+  .icon-menu:not(.active) span i,
+  .bottom .bottom-logo p,
+  .bottom .bottom-widget ul li a,
+  .footer .copyright p,
+  .footer .footer-social li a,
+  .footer-landing .copyright p,
+  .footer-landing .footer-social li a,
+  .credit-card .type-brand h4,
+  .credit-card .type-brand .h4,
+  .credit-card.payoneer .type-brand h4,
+  .credit-card.payoneer .type-brand .h4,
+  .table tr td,
+  .add-bank-card a,
+  .analytics-widget .widget-content p,
+  .budgets-nav:not(.active) .budgets-nav-text p,
+  .goals-nav:not(.active) .goals-nav-text p,
+  .stat-widget-1 p,
+  .stat-widget-1 p strong,
+  .list-1 ul li h5 span,
+  .list-1 ul li .h5 span,
+  .demo-intro-counter h3 span,
+  .demo-intro-counter .h3 span,
+  .settings-menu a,
+  .stat-widget-2 .widget-content p,
+  .ticket-list a,
+  .wallet-nav:not(.active) .wallet-nav-text p
+) {
+  color: #D8A8BC;
+}
+.dark-theme .form-control::-webkit-input-placeholder,
+.dark-theme .form-control:-ms-input-placeholder,
+.dark-theme .form-control::placeholder {
+  color: #D8A8BC;
 }
 .dark-theme h1,
 .dark-theme .h1,
@@ -14966,6 +15033,22 @@ div {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   color: #D8A8BC;
 }
+/* The hover/focus/active state's background switches to the fixed pastel-pink
+   circle (see .profile_log .dropdown-menu .dropdown-item:hover) in both
+   themes, so its text needs the dark rose from light mode, not the light
+   #D8A8BC above -- without this, hover/focus/active ties the plain rule's
+   specificity and (being earlier in source order) loses, leaving light text
+   on a light-pink hover background. */
+.dark-theme .profile_log .dropdown-menu .dropdown-item:hover,
+.dark-theme .profile_log .dropdown-menu .dropdown-item:focus,
+.dark-theme .profile_log .dropdown-menu .dropdown-item.active {
+  color: #7A2048;
+}
+.dark-theme .profile_log .dropdown-menu .dropdown-item:hover i,
+.dark-theme .profile_log .dropdown-menu .dropdown-item:focus i,
+.dark-theme .profile_log .dropdown-menu .dropdown-item.active i {
+  color: #7A2048;
+}
 .dark-theme .user-info span,
 .dark-theme .user-balance span {
   color: #D8A8BC;
@@ -14977,6 +15060,11 @@ div {
 }
 .dark-theme .card .card-header {
   background-color: #1D1933;
+}
+.dark-theme .list-group-item {
+  background-color: transparent;
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #D8A8BC;
 }
 .dark-theme .card .card-header .card-title {
   color: #fff;
@@ -15185,7 +15273,7 @@ div {
 }
 
 .credit-card {
-  background: #126AFF;
+  background: #7A2048;
   padding: 20px;
   border-radius: 6px;
   margin-bottom: 30px;
@@ -15198,7 +15286,7 @@ div {
   align-items: center;
 }
 .credit-card .type-brand h4, .credit-card .type-brand .h4 {
-  color: #7184ad;
+  color: #fff;
   font-size: 14px;
 }
 .credit-card .type-brand img {
@@ -15230,22 +15318,22 @@ div {
   color: #fff;
 }
 .credit-card.visa {
-  background: rgb(30, 27, 75);
+  background: #C93B7D;
 }
 .credit-card.visa:hover .cc-info {
-  background: #0F172A;
+  background: #7A2048;
 }
 .credit-card.master {
-  background: #F8C8DC;
+  background: #4a3aa7;
 }
 .credit-card.master:hover .cc-info {
-  background: #F8C8DC;
+  background: #4a3aa7;
 }
 .credit-card.payoneer {
   background: #fff;
 }
 .credit-card.payoneer .type-brand h4, .credit-card.payoneer .type-brand .h4 {
-  color: #7184ad;
+  color: #3d2b33;
 }
 .credit-card.payoneer .cc-number h6, .credit-card.payoneer .cc-number .h6 {
   color: #0F172A;
@@ -15347,13 +15435,13 @@ div {
   margin-top: 0;
 }
 .form-control::-webkit-input-placeholder {
-  color: #7184ad;
+  color: #3d2b33;
 }
 .form-control:-ms-input-placeholder {
-  color: #7184ad;
+  color: #3d2b33;
 }
 .form-control::placeholder {
-  color: #7184ad;
+  color: #3d2b33;
 }
 .form-control:hover {
   box-shadow: none !important;
@@ -15555,6 +15643,26 @@ button:hover, button:focus, button:active,
 .btn:active {
   color: #fff;
 }
+/* .btn-primary's background (#F8C8DC, a pale pink) needs its own dark
+   ink -- the generic button/.btn rule above forces #fff on every button,
+   which is fine against saturated backgrounds (success/info/warning/dark)
+   but unreadable against this pale one. Restore the color Bootstrap's own
+   --bs-btn-color variable already specifies for this variant. */
+.btn-primary,
+.btn-primary:hover,
+.btn-primary:focus,
+.btn-primary:active {
+  color: #7A2048;
+}
+/* Same rule also hardcodes a fixed 8px/30px padding, which silently wins
+   over .btn-sm's own --bs-btn-padding-* variables (equal specificity, later
+   in the cascade) -- a small button ends up as wide as a full-size one,
+   which is how the line-item delete button in Add Transaction overflowed
+   its narrow column. Restore the compact padding .btn-sm already declares. */
+.btn-sm,
+.btn-group-sm > .btn {
+  padding: var(--bs-btn-padding-y, 0.25rem) var(--bs-btn-padding-x, 0.5rem);
+}
 
 .btn-outline-primary,
 .btn-outline-secondary,
@@ -15585,6 +15693,48 @@ button:hover, button:focus, button:active,
 .btn-outline-light:focus,
 .btn-outline-light:active {
   color: #fff;
+}
+/* .btn-outline-primary's own hover/active background is the same pale pink
+   as .btn-primary (#F8C8DC, via --bs-btn-hover-bg/--bs-btn-active-bg) -- the
+   white text forced above reads fine for the other outline variants (their
+   hover fill is a saturated color) but goes invisible here. This is the
+   toggle button ("View full year" / "View monthly") after it's clicked and
+   keeps browser focus. */
+.btn-outline-primary:hover,
+.btn-outline-primary:focus,
+.btn-outline-primary:active {
+  color: #7A2048;
+}
+/* .btn-outline-secondary's own --bs-btn-hover-bg is #050505 (near-black) --
+   a jarring, off-palette fill for the small icon-only edit/cancel buttons
+   used throughout the app (every other outline variant hovers to a pale
+   tint of its own color). Combined with the white text forced above, an
+   icon button that gets remounted under an already-resting cursor (e.g. the
+   "edit" pencil reappearing after "Cancel" is clicked in the same spot)
+   snaps straight into this state with no hover transition to telegraph
+   what happened, reading as the icon having vanished into a black square.
+   Swap it for a neutral pale tint consistent with the rest of the palette. */
+.btn-outline-secondary:hover,
+.btn-outline-secondary:focus,
+.btn-outline-secondary:active {
+  color: #050505;
+  background-color: #F1F1F8;
+  border-color: #C9CEDA;
+}
+/* .btn-outline-danger's own hover/focus/active fill is a fully saturated
+   #DC2626 -- for the small trash/delete icon buttons used throughout the
+   app, this reads as a sudden "error" flash rather than a hover state, and
+   it's what made a delete button look stuck/broken after cancelling a
+   native window.confirm: the browser returns focus to the button that
+   opened the dialog, so it renders in this same jarring filled state the
+   instant the dialog closes, with nothing (no mouse movement) to clear it.
+   A pale red tint keeps the "destructive" signal without the flash. */
+.btn-outline-danger:hover,
+.btn-outline-danger:focus,
+.btn-outline-danger:active {
+  color: #B91C1C;
+  background-color: #FCE8E8;
+  border-color: #DC2626;
 }
 
 .btn-outline-dark {
@@ -15618,7 +15768,7 @@ button:hover, button:focus, button:active,
   border-bottom: 1px solid rgb(229, 234, 239);
   vertical-align: middle;
   padding: 15px 5px;
-  color: #7184ad;
+  color: #3d2b33;
 }
 .table tr td:last-child {
   text-align: right;
@@ -15657,7 +15807,7 @@ button:hover, button:focus, button:active,
 }
 
 .add-bank-card a {
-  color: #7184ad;
+  color: #3d2b33;
 }
 .add-bank-card a:hover {
   color: #C93B7D;
@@ -15837,7 +15987,7 @@ button:hover, button:focus, button:active,
   line-height: 0px;
 }
 .analytics-widget .widget-content p {
-  color: #7184ad;
+  color: #3d2b33;
   opacity: 0.85;
   font-size: 14px;
   font-weight: 400;
@@ -15861,6 +16011,21 @@ button:hover, button:focus, button:active,
   box-shadow: rgba(145, 158, 171, 0.3) 0px 0px 2px 0px, rgba(145, 158, 171, 0.12) 0px 12px 24px -4px;
   border-radius: 6px;
 }
+/* The global `button { color: #fff }` rule (further below) assumes buttons
+   always pair with a colored background. These "Add new..." toggles are
+   plain white buttons in light mode, so their icon -- unlike the sibling
+   h5, which has its own heading-color rule -- inherits that white and goes
+   invisible. Match the icon to the h5's color explicitly, per theme. */
+.add-card-link i,
+.add-budgets-link i,
+.add-goals-link i {
+  color: var(--bs-heading-color);
+}
+.dark-theme .add-card-link i,
+.dark-theme .add-budgets-link i,
+.dark-theme .add-goals-link i {
+  color: #fff;
+}
 
 .budgets-nav {
   background: #fff;
@@ -15877,18 +16042,18 @@ button:hover, button:focus, button:active,
   background: #F8C8DC;
 }
 .budgets-nav.active .budgets-nav-icon {
-  background: #2321b0;
+  background: #7A2048;
   color: #fff;
 }
 .budgets-nav.active .budgets-nav-text h3, .budgets-nav.active .budgets-nav-text .h3,
 .budgets-nav.active .budgets-nav-text p {
-  color: #fff;
+  color: #7A2048;
 }
 .budgets-nav.active .show-time {
-  color: #fff;
+  color: #7A2048;
 }
 .budgets-nav .budgets-nav-icon {
-  background: #e1e1f9;
+  background: #FDF0F5;
   width: 50px;
   height: 50px;
   display: flex;
@@ -15903,7 +16068,7 @@ button:hover, button:focus, button:active,
   line-height: 0px;
 }
 .budgets-nav .budgets-nav-text p {
-  color: #7184ad;
+  color: #3d2b33;
   opacity: 0.85;
   font-size: 14px;
   font-weight: 400;
@@ -15967,10 +16132,10 @@ button:hover, button:focus, button:active,
 .goals-nav.active .goals-nav-text h3, .goals-nav.active .goals-nav-text .h3,
 .goals-nav.active .goals-nav-text p,
 .goals-nav.active .goals-nav-text strong {
-  color: #fff;
+  color: #7A2048;
 }
 .goals-nav.active .goals-nav-circle span {
-  color: #fff;
+  color: #7A2048;
 }
 .goals-nav .goals-nav-circle {
   margin-right: 12px;
@@ -15984,7 +16149,7 @@ button:hover, button:focus, button:active,
   font-weight: 700;
 }
 .goals-nav .goals-nav-text p {
-  color: #7184ad;
+  color: #3d2b33;
   opacity: 0.85;
   font-size: 14px;
   font-weight: 400;
@@ -16082,7 +16247,7 @@ button:hover, button:focus, button:active,
 .stat-widget-1 p {
   border-top: 1px solid rgb(229, 234, 239);
   padding-top: 10px;
-  color: #7184ad;
+  color: #3d2b33;
   font-size: 14px;
   font-weight: 400;
   margin-bottom: 0px;
@@ -16095,7 +16260,7 @@ button:hover, button:focus, button:active,
   top: 3px;
 }
 .stat-widget-1 p strong {
-  color: #7184ad;
+  color: #3d2b33;
   font-weight: 500;
 }
 
@@ -16138,7 +16303,7 @@ button:hover, button:focus, button:active,
 }
 .list-1 ul li h5 span, .list-1 ul li .h5 span {
   margin-right: 10px;
-  color: #7184ad;
+  color: #3d2b33;
   font-weight: 400;
 }
 
@@ -16312,7 +16477,7 @@ button:hover, button:focus, button:active,
 }
 .demo-intro-counter h3 span, .demo-intro-counter .h3 span {
   font-size: 14px;
-  color: #7184ad;
+  color: #3d2b33;
 }
 
 .demo_img {
@@ -16520,7 +16685,7 @@ figure > img:hover {
 }
 .profile-reg p {
   margin: 0px;
-  color: #AEAED5;
+  color: var(--bs-secondary-color);
 }
 .profile-reg .registered {
   width: 50%;
@@ -16639,7 +16804,7 @@ figure > img:hover {
 .settings-menu a {
   display: inline-block;
   margin-right: 20px;
-  color: #7184ad;
+  color: #3d2b33;
   font-size: 16px;
 }
 .settings-menu a:hover, .settings-menu a:focus, .settings-menu a:active, .settings-menu a.active {
@@ -16798,7 +16963,7 @@ figure > img:hover {
   line-height: 0px;
 }
 .stat-widget-2 .widget-content p {
-  color: #7184ad;
+  color: #3d2b33;
   opacity: 0.85;
   font-size: 14px;
   font-weight: 400;
@@ -16966,7 +17131,7 @@ figure > img:hover {
   padding: 15px 0px;
   align-items: center;
   border-bottom: 1px solid rgb(229, 234, 239);
-  color: #7184ad;
+  color: #3d2b33;
 }
 .ticket-list a:last-child {
   margin-bottom: 0px;
@@ -17064,17 +17229,17 @@ figure > img:hover {
   background: #F8C8DC;
 }
 .wallet-nav:hover .wallet-nav-icon, .wallet-nav:focus .wallet-nav-icon, .wallet-nav.active .wallet-nav-icon {
-  background: #2321b0;
+  background: #7A2048;
   color: #fff;
 }
 .wallet-nav:hover .wallet-nav-text h3, .wallet-nav:hover .wallet-nav-text .h3,
 .wallet-nav:hover .wallet-nav-text p, .wallet-nav:focus .wallet-nav-text h3, .wallet-nav:focus .wallet-nav-text .h3,
 .wallet-nav:focus .wallet-nav-text p, .wallet-nav.active .wallet-nav-text h3, .wallet-nav.active .wallet-nav-text .h3,
 .wallet-nav.active .wallet-nav-text p {
-  color: #fff;
+  color: #7A2048;
 }
 .wallet-nav .wallet-nav-icon {
-  background: #e1e1f9;
+  background: #FDF0F5;
   width: 50px;
   height: 50px;
   display: flex;
@@ -17089,7 +17254,7 @@ figure > img:hover {
   line-height: 0px;
 }
 .wallet-nav .wallet-nav-text p {
-  color: #7184ad;
+  color: #3d2b33;
   opacity: 0.85;
   font-size: 14px;
   font-weight: 400;
@@ -17098,6 +17263,27 @@ figure > img:hover {
 .wallet-nav .wallet-nav-text h3, .wallet-nav .wallet-nav-text .h3 {
   font-size: 18px;
   margin-bottom: 0px;
+}
+
+/* Fixed maroon/white chip so the per-card "this month" spend badge stays
+   readable against every .wallet-nav background state (white, hover/active
+   pink, and dark-theme navy) without needing a separate dark-theme override. */
+.wallet-nav-spend-badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #7A2048;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.wallet-nav-spend-badge small {
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.85;
 }
 
 .wallet-tab-content {
@@ -17133,6 +17319,445 @@ figure > img:hover {
 }
 .funds-credit h5, .funds-credit .h5 {
   margin-bottom: 0px;
+}
+
+.emoji-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.emoji-picker-swatch {
+  height: 36px;
+  width: 36px;
+  padding: 0;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 2px solid rgb(229, 234, 239);
+  background: #fff;
+  font-size: 18px;
+  display: flex;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.emoji-picker-swatch:hover {
+  transform: scale(1.1);
+}
+.emoji-picker-swatch.active {
+  border-color: #C93B7D;
+  background: #FDF0F5;
+}
+.dark-theme .emoji-picker-swatch {
+  background: #1D1933;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.dark-theme .emoji-picker-swatch.active {
+  border-color: #DD5A8E;
+  background: #2B0B18;
+}
+/* Fallback icon (categories with no emoji set) needs an explicit color --
+   button text otherwise defaults to a tone that's invisible against both the
+   light swatch background and the dark-theme one. */
+.emoji-picker-swatch i {
+  color: #C93B7D;
+  line-height: 0;
+}
+.dark-theme .emoji-picker-swatch i {
+  color: #D8A8BC;
+}
+/* Labeled variant (Budget's category picker) -- taller column layout so the
+   category name is visible without relying on a hover tooltip. */
+.emoji-picker-swatch--labeled {
+  height: auto;
+  width: 76px;
+  flex: 0 0 76px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 4px;
+  font-size: 20px;
+}
+.emoji-picker-swatch-name {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--bs-heading-color);
+  white-space: normal;
+  text-align: center;
+}
+.dark-theme .emoji-picker-swatch-name {
+  color: #fff;
+}
+
+.color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.color-picker-swatch {
+  height: 32px;
+  width: 32px;
+  padding: 0;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  display: flex;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.color-picker-swatch:hover {
+  transform: scale(1.1);
+}
+.color-picker-swatch.active {
+  border-color: #3d2b33;
+}
+.dark-theme .color-picker-swatch.active {
+  border-color: #EBD4DE;
+}
+.color-picker-swatch:hover,
+.color-picker-swatch:focus,
+.color-picker-swatch:active {
+  color: #fff;
+}
+
+/* Shared by every "Add new X" panel's close control (wallets, budgets, goals,
+   recurring bills) -- a bare `button:hover { color: #fff }` rule further down
+   this file targets every plain <button>, and :hover's specificity ties the
+   class here, so the later, more general rule would otherwise win on hover
+   and blank out this icon against its transparent background. */
+.modal-close-btn {
+  background: transparent;
+  border: 0;
+  font-size: 18px;
+  line-height: 1;
+  color: #3d2b33;
+  cursor: pointer;
+  padding: 4px;
+}
+.modal-close-btn:hover,
+.modal-close-btn:focus,
+.modal-close-btn:active {
+  color: #3d2b33;
+}
+.dark-theme .modal-close-btn {
+  color: #D8A8BC;
+}
+.dark-theme .modal-close-btn:hover,
+.dark-theme .modal-close-btn:focus,
+.dark-theme .modal-close-btn:active {
+  color: #D8A8BC;
+}
+
+/* ConfirmButton -- inline confirmation popup replacing window.confirm() */
+.confirm-popover-anchor {
+  position: relative;
+  display: inline-block;
+}
+.confirm-popover {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  width: max-content;
+  max-width: 240px;
+  background: #fff;
+  border: 1px solid rgb(229, 234, 239);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(74, 16, 48, 0.16);
+  padding: 12px;
+}
+.confirm-popover-arrow {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border: 6px solid transparent;
+  border-top-color: #fff;
+  filter: drop-shadow(0 2px 1px rgba(74, 16, 48, 0.08));
+}
+.confirm-popover-message {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--bs-heading-color);
+  text-align: left;
+}
+.confirm-popover-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.dark-theme .confirm-popover {
+  background: #1D1933;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.dark-theme .confirm-popover-arrow {
+  border-top-color: #1D1933;
+}
+
+/* MerchantInput -- creatable searchable select (trigger button + panel) */
+.merchant-select {
+  position: relative;
+}
+.merchant-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+.merchant-select-trigger-placeholder {
+  color: var(--bs-secondary-color);
+}
+.merchant-select-chevron {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--bs-secondary-color);
+  transition: transform 150ms ease;
+}
+.merchant-select-chevron.is-open {
+  transform: rotate(180deg);
+}
+.merchant-select-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid rgb(229, 234, 239);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(74, 16, 48, 0.16);
+  overflow: hidden;
+}
+.merchant-select-search {
+  padding: 8px;
+  border-bottom: 1px solid rgb(229, 234, 239);
+}
+.merchant-select-list {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.merchant-select-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.merchant-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 0;
+  background: none;
+  border-radius: 6px;
+  font-size: 14px;
+  text-align: left;
+  color: var(--bs-body-color);
+  cursor: pointer;
+}
+.merchant-select-hide {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--bs-secondary-color);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 100ms ease, background-color 100ms ease, color 100ms ease;
+}
+.merchant-select-row:hover .merchant-select-hide,
+.merchant-select-hide:focus-visible {
+  opacity: 1;
+}
+.merchant-select-hide:hover,
+.merchant-select-hide:focus-visible {
+  background: #FCE8E8;
+  color: #B91C1C;
+}
+.merchant-select-option:hover {
+  background: #F8C8DC;
+  color: #7A2048;
+}
+.merchant-select-option.is-selected {
+  background: #FCE8F2;
+  color: #7A2048;
+  font-weight: 600;
+}
+.merchant-select-option.is-selected i {
+  color: #C93B7D;
+}
+.merchant-select-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-top: 1px solid rgb(229, 234, 239);
+  margin-top: 4px;
+  background: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  color: #7C3AED;
+  cursor: pointer;
+}
+.merchant-select-add:hover {
+  background: #F1E8FE;
+}
+.merchant-select-empty {
+  padding: 8px 10px;
+  font-size: 14px;
+  color: #8a8a9a;
+}
+.dark-theme .merchant-select-panel {
+  background: #1D1933;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.dark-theme .merchant-select-search {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.dark-theme .merchant-select-option:hover {
+  background: rgba(248, 200, 220, 0.18);
+  color: #fff;
+}
+.dark-theme .merchant-select-option.is-selected {
+  background: rgba(248, 200, 220, 0.2);
+  color: #fff;
+}
+.dark-theme .merchant-select-add {
+  color: #C4A6FA;
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+.dark-theme .merchant-select-add:hover {
+  background: rgba(196, 166, 250, 0.16);
+}
+.dark-theme .merchant-select-hide:hover,
+.dark-theme .merchant-select-hide:focus-visible {
+  background: rgba(220, 38, 38, 0.18);
+  color: #F87171;
+}
+
+/* Platform view override -- forces the sidebar<->bottom-nav swap regardless
+   of the real viewport width, driven by a user preference (see
+   hooks/usePlatformView.js) instead of only the max-width:767px breakpoint
+   above. Two classes give these rules enough specificity to win over both
+   the unconditional base rules and the breakpoint's own rules without
+   needing !important. */
+.platform-view-mobile .sidebar {
+  display: none;
+}
+.platform-view-mobile .mobile-nav {
+  display: flex;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  height: 50px;
+  align-items: center;
+  justify-content: space-around;
+  background: #F8C8DC;
+  box-shadow: rgba(145, 158, 171, 0.3) 0px 0px 2px 0px, rgba(145, 158, 171, 0.12) 0px 12px 24px -4px;
+}
+.platform-view-mobile .content-body {
+  margin-left: 0px;
+}
+.platform-view-pc .mobile-nav {
+  display: none;
+}
+.platform-view-pc .sidebar {
+  display: block;
+  top: 0px;
+  bottom: 0px;
+  left: 0px;
+  width: 80px;
+  height: calc(100% - 0px);
+  border-radius: 0px;
+}
+.platform-view-pc .content-body {
+  margin-left: 80px;
+}
+
+/* Platform view toggle -- profile-dropdown variant (dark-theme aware).
+   This row isn't itself a clickable nav item (its Auto/Mobile/PC buttons
+   are), so it's excluded from .dropdown-item's hover fill -- otherwise an
+   is-active button's own pink highlight becomes invisible against the row's
+   own hover-pink background whenever the cursor is anywhere near it. */
+.profile_log .dropdown-menu .dropdown-item.platform-view-row:hover,
+.profile_log .dropdown-menu .dropdown-item.platform-view-row:focus {
+  background-color: transparent;
+  color: inherit;
+}
+.platform-view-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: default;
+}
+.platform-view-row-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.platform-view-options {
+  display: flex;
+  gap: 6px;
+}
+.platform-view-option {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #7a2048;
+  background: #F1F1F8;
+  border: 1px solid #C9CEDA;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.platform-view-option:hover {
+  border-color: #f8c8dc;
+}
+.platform-view-option.is-active {
+  background: #f8c8dc;
+  border-color: #f8c8dc;
+  color: #7a2048;
+}
+.dark-theme .platform-view-option {
+  color: #D8A8BC;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.dark-theme .platform-view-option.is-active {
+  background: rgba(248, 200, 220, 0.25);
+  border-color: rgba(248, 200, 220, 0.5);
+  color: #fff;
 }
 
 /*# sourceMappingURL=style.css.map */

@@ -51,6 +51,9 @@ async def build_transactions_csv(session: AsyncSession, user: User) -> bytes:
         amount_min=None,
         amount_max=None,
         search=None,
+        transaction_type=None,
+        limit=None,
+        offset=0,
         user=user,
         session=session,
     )
@@ -103,6 +106,9 @@ async def build_monthly_report_xlsx(session: AsyncSession, user: User, month: in
         amount_min=None,
         amount_max=None,
         search=None,
+        transaction_type=None,
+        limit=None,
+        offset=0,
         user=user,
         session=session,
     )

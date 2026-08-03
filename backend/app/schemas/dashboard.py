@@ -86,6 +86,7 @@ class YearlyOverview(BaseModel):
     year: int
     total_yearly_spending: Decimal
     spend_by_month: list[MonthSpend]
+    income_by_month: list[MonthSpend]
     spend_by_category: list[CategorySpend]
     spend_by_payment_method: list[PaymentMethodSpend]
     average_month: Decimal

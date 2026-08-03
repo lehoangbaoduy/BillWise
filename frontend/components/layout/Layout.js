@@ -2,6 +2,7 @@
 'use client'
 import { useEffect, useState } from "react"
 import AuthGuard from "@/components/auth/AuthGuard"
+import { usePlatformView } from "@/hooks/usePlatformView"
 import Breadcrumb from './Breadcrumb'
 import PageHead from './PageHead'
 import Sidebar from "./Sidebar"
@@ -14,6 +15,10 @@ export default function Layout({ headerStyle, footerStyle, headTitle, breadcrumb
     // Moblile Menu
     const [isMobileMenu, setMobileMenu] = useState(false)
     const handleMobileMenu = () => setMobileMenu(!isMobileMenu)
+    // Owned here (not inside Header1's dropdown) because that dropdown
+    // unmounts while closed -- the forced-layout body class needs a hook
+    // instance that stays mounted for the page's whole lifetime.
+    const { platformView, setPlatformView } = usePlatformView()
 
     useEffect(() => {
         const WOW = require('wowjs')
@@ -32,7 +37,13 @@ export default function Layout({ headerStyle, footerStyle, headTitle, breadcrumb
         <AuthGuard>
             <PageHead headTitle={headTitle} />
             <div id="main-wrapper">
-                <Header1 scroll={scroll} isMobileMenu={isMobileMenu} handleMobileMenu={handleMobileMenu} />
+                <Header1
+                    scroll={scroll}
+                    isMobileMenu={isMobileMenu}
+                    handleMobileMenu={handleMobileMenu}
+                    platformView={platformView}
+                    setPlatformView={setPlatformView}
+                />
                 <Sidebar />
                 <MobileNav />
 

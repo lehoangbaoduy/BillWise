@@ -29,6 +29,7 @@ class PaymentMethod(SQLModel, table=True):
     statement_day_optional: int | None = None
     default_cashback_rate: Decimal | None = None
     current_balance: Decimal | None = None
+    color: str | None = Field(default=None, max_length=7)
     is_active: bool = True
     created_at: datetime = required_timestamp_field(default_now=True)
     updated_at: datetime = required_timestamp_field(default_now=True)

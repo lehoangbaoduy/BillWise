@@ -6,6 +6,8 @@ import { useState } from "react"
 import { ApiError, authApi } from "@/lib/api"
 import AuthCard from "@/components/auth/AuthCard"
 import AuthField from "@/components/auth/AuthField"
+import PlatformViewToggle from "@/components/elements/PlatformViewToggle"
+import { usePlatformView } from "@/hooks/usePlatformView"
 
 export default function SignIn() {
     const router = useRouter()
@@ -13,6 +15,7 @@ export default function SignIn() {
     const [password, setPassword] = useState("")
     const [error, setError] = useState(null)
     const [isSubmitting, setIsSubmitting] = useState(false)
+    const { platformView, setPlatformView } = usePlatformView()
 
     async function handleSubmit(event) {
         event.preventDefault()
@@ -58,6 +61,12 @@ export default function SignIn() {
                     required
                     action={<Link href="/reset" className="auth-inline-link">Forgot password?</Link>}
                 />
+                <div>
+                    <div className="auth-field-label-row">
+                        <label>View as</label>
+                    </div>
+                    <PlatformViewToggle variant="auth" platformView={platformView} setPlatformView={setPlatformView} />
+                </div>
                 <button type="submit" className="auth-submit" disabled={isSubmitting}>
                     {isSubmitting ? "Signing in…" : "Sign In"}
                 </button>

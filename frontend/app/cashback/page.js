@@ -2,7 +2,9 @@
 import { Fragment, useState } from "react"
 import useSWR from "swr"
 import Layout from "@/components/layout/Layout"
+import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmptyState from "@/components/elements/EmptyState"
+import MerchantInput from "@/components/elements/MerchantInput"
 import { cashbackApi, categoriesApi, paymentMethodsApi } from "@/lib/api"
 
 const MONTH_NAMES = [
@@ -26,6 +28,7 @@ function formatDate(value) {
 function RuleForm({ initial, paymentMethods, categories, onSubmit, isSubmitting, submitLabel }) {
     const [paymentMethodId, setPaymentMethodId] = useState(initial?.payment_method_id ?? "")
     const [categoryId, setCategoryId] = useState(initial?.category_id ?? "")
+    const [merchant, setMerchant] = useState(initial?.merchant ?? "")
     const [cashbackRate, setCashbackRate] = useState(initial?.cashback_rate ?? "")
     const [startDate, setStartDate] = useState(initial?.start_date ?? "")
     const [endDate, setEndDate] = useState(initial?.end_date ?? "")
@@ -36,6 +39,7 @@ function RuleForm({ initial, paymentMethods, categories, onSubmit, isSubmitting,
         onSubmit({
             payment_method_id: paymentMethodId,
             category_id: categoryId || null,
+            merchant: merchant.trim() || null,
             cashback_rate: Number(cashbackRate),
             start_date: startDate,
             end_date: endDate || null,
@@ -71,6 +75,10 @@ function RuleForm({ initial, paymentMethods, categories, onSubmit, isSubmitting,
                             </option>
                         ))}
                     </select>
+                </div>
+                <div className="col-md-6">
+                    <label className="form-label" htmlFor="rule-merchant">Merchant (optional, overrides category)</label>
+                    <MerchantInput id="rule-merchant" value={merchant} onChange={setMerchant} placeholder="e.g. Costco" />
                 </div>
                 <div className="col-md-4">
                     <label className="form-label" htmlFor="rule-rate">Rate (%)</label>
@@ -258,7 +266,6 @@ export default function Cashback() {
     }
 
     async function handleDeleteRule(rule) {
-        if (!window.confirm(`Delete this cashback rule for ${paymentMethodName(rule.payment_method_id)}?`)) return
         setEditRuleError(null)
         try {
             await cashbackApi.removeRule(rule.id)
@@ -363,7 +370,7 @@ export default function Cashback() {
                             </div>
                             <div className="card-body">
                                 {(summary?.by_category ?? []).length === 0 ? (
-                                    <EmptyState icon="fi fi-rr-shapes" message="No cashback recorded for this period." />
+                                    <EmptyState icon="fi fi-rr-tags" message="No cashback recorded for this period." />
                                 ) : (
                                     <ul className="list-group list-group-flush">
                                         {summary.by_category.map((row) => (
@@ -521,7 +528,7 @@ export default function Cashback() {
                                                         <div>
                                                             <strong>{paymentMethodName(rule.payment_method_id)}</strong>
                                                             {" — "}
-                                                            {rule.category_id ? categoryName(rule.category_id) : "Default"}
+                                                            {rule.merchant || (rule.category_id ? categoryName(rule.category_id) : "Default")}
                                                             {" · "}{rule.cashback_rate}%
                                                             {" · "}{formatDate(rule.start_date)} – {rule.end_date ? formatDate(rule.end_date) : "ongoing"}
                                                             {rule.notes && <div className="text-muted small">{rule.notes}</div>}
@@ -537,13 +544,13 @@ export default function Cashback() {
                                                             >
                                                                 <i className="fi fi-rr-pencil" />
                                                             </button>
-                                                            <button
-                                                                type="button"
+                                                            <ConfirmButton
                                                                 className="btn btn-sm btn-outline-danger"
-                                                                onClick={() => handleDeleteRule(rule)}
+                                                                message={`Delete this cashback rule for ${paymentMethodName(rule.payment_method_id)}?`}
+                                                                onConfirm={() => handleDeleteRule(rule)}
                                                             >
                                                                 <i className="fi fi-rr-trash" />
-                                                            </button>
+                                                            </ConfirmButton>
                                                         </div>
                                                     </div>
                                                 )}

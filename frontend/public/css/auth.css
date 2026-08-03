@@ -224,3 +224,28 @@
 .auth-checkbox label a:hover {
   text-decoration: underline;
 }
+
+.auth-platform-toggle {
+  display: flex;
+  gap: 6px;
+}
+.auth-platform-toggle-option {
+  flex: 1;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #64748b;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.auth-platform-toggle-option:hover {
+  border-color: #cbd5e1;
+}
+.auth-platform-toggle-option.is-active {
+  background: #f8c8dc;
+  border-color: #f8c8dc;
+  color: #7a2048;
+}

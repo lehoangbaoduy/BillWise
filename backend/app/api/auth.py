@@ -21,10 +21,12 @@ from app.core.security import (
 from app.models._common import utcnow
 from app.models.user import EmailVerificationToken, PasswordResetToken, User, UserRole
 from app.schemas.auth import (
+    ChangePasswordRequest,
     LoginRequest,
     PasswordResetConfirmRequest,
     PasswordResetRequestRequest,
     RegisterRequest,
+    UpdateProfileRequest,
     UserPublic,
     VerifyEmailRequest,
 )
@@ -193,6 +195,46 @@ async def logout(
 @router.get("/me", response_model=UserPublic)
 async def me(current_user: User = Depends(get_current_user)) -> UserPublic:
     return to_user_public(current_user)
+
+
+@router.patch("/me", response_model=UserPublic)
+async def update_me(
+    request: Request,
+    body: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> UserPublic:
+    current_user.display_name = body.display_name
+    current_user.updated_at = utcnow()
+    session.add(current_user)
+    await session.commit()
+    await session.refresh(current_user)
+
+    await log_audit_event(
+        session, "user.profile_updated", user_id=current_user.id, entity_type="user", entity_id=current_user.id, request=request,
+    )
+    return to_user_public(current_user)
+
+
+@router.post("/change-password")
+async def change_password(
+    request: Request,
+    body: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    if not verify_password(body.current_password, current_user.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect")
+
+    current_user.password_hash = hash_password(body.new_password)
+    current_user.updated_at = utcnow()
+    session.add(current_user)
+    await session.commit()
+
+    await log_audit_event(
+        session, "user.password_changed", user_id=current_user.id, entity_type="user", entity_id=current_user.id, request=request,
+    )
+    return {"ok": True}
 
 
 @router.post("/password-reset/request", status_code=status.HTTP_202_ACCEPTED)

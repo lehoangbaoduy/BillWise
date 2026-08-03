@@ -2,6 +2,7 @@
 import { useState } from "react"
 import useSWR from "swr"
 import Layout from "@/components/layout/Layout"
+import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmptyState from "@/components/elements/EmptyState"
 import { useAuth } from "@/hooks/useAuth"
 import { ApiError, householdApi } from "@/lib/api"
@@ -48,7 +49,6 @@ export default function Household() {
     }
 
     async function handleCancelInvite(invite) {
-        if (!window.confirm(`Cancel the invite to ${invite.email}?`)) return
         setActioningId(invite.id)
         try {
             await householdApi.removePartner(invite.id)
@@ -61,7 +61,6 @@ export default function Household() {
     }
 
     async function handleRevokePartner(partner) {
-        if (!window.confirm(`Revoke ${partner.display_name || partner.email}'s access? This ends their session immediately.`)) return
         setActioningId(partner.id)
         try {
             await householdApi.removePartner(partner.id)
@@ -161,15 +160,15 @@ export default function Household() {
                                                     {invite.can_add_transactions ? "Can add transactions" : "View only"} · Expires {formatDate(invite.expires_at)}
                                                 </small>
                                             </div>
-                                            <button
-                                                type="button"
+                                            <ConfirmButton
                                                 className="btn btn-sm btn-outline-danger"
                                                 aria-label={`Cancel invite to ${invite.email}`}
                                                 disabled={actioningId === invite.id}
-                                                onClick={() => handleCancelInvite(invite)}
+                                                message={`Cancel the invite to ${invite.email}?`}
+                                                onConfirm={() => handleCancelInvite(invite)}
                                             >
                                                 Cancel
-                                            </button>
+                                            </ConfirmButton>
                                         </li>
                                     ))}
                                 </ul>
@@ -206,15 +205,15 @@ export default function Household() {
                                                     >
                                                         {partner.can_add_transactions ? "Can add transactions" : "View only"}
                                                     </button>
-                                                    <button
-                                                        type="button"
+                                                    <ConfirmButton
                                                         className="btn btn-sm btn-outline-danger"
                                                         aria-label={`Revoke access for ${partner.display_name || partner.email}`}
                                                         disabled={actioningId === partner.id}
-                                                        onClick={() => handleRevokePartner(partner)}
+                                                        message={`Revoke ${partner.display_name || partner.email}'s access? This ends their session immediately.`}
+                                                        onConfirm={() => handleRevokePartner(partner)}
                                                     >
                                                         Revoke
-                                                    </button>
+                                                    </ConfirmButton>
                                                 </div>
                                             )}
                                         </li>

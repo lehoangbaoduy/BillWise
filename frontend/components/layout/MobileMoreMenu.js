@@ -7,17 +7,15 @@ const MORE_ITEMS = [
     { href: "/goals", label: "Savings Goals", icon: "fi fi-sr-bullseye-arrow" },
     { href: "/recurring-bills", label: "Recurring Bills", icon: "fi fi-rr-calendar-clock" },
     { href: "/cashback", label: "Cashback", icon: "fi fi-rr-badge-percent" },
-    { href: "/net-worth", label: "Net Worth", icon: "fi fi-rr-stats" },
     { href: "/wallets", label: "Payment Methods", icon: "fi fi-rr-wallet" },
-    { href: "/settings-categories", label: "Categories", icon: "fi fi-rr-apps" },
     { href: "/settings-exports", label: "Exports", icon: "fi fi-rr-download" },
-    { href: "/settings", label: "Settings", icon: "fi fi-rs-settings" },
+    { href: "/profile", label: "Profile", icon: "fi fi-rr-user" },
 ]
 
-// Household is inserted after the first 6 items (before Exports/Settings) so
-// it reads as an account-level item grouped near Settings, matching where
-// the desktop Sidebar places it relative to its other links.
-const HOUSEHOLD_INSERT_INDEX = 6
+// Household is inserted before Exports/Profile so it reads as an
+// account-level item grouped near Profile, matching where the desktop
+// Sidebar places it relative to its other links.
+const HOUSEHOLD_INSERT_INDEX = 4
 
 export default function MobileMoreMenu({ isOpen, onClose, triggerRef }) {
     const { user } = useAuth()

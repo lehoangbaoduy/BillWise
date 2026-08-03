@@ -47,8 +47,8 @@ async function request(path, options = {}) {
   })
 
   await throwIfError(response)
-  if (response.status === 204) return null
-  return response.json()
+  const data = response.status === 204 ? null : await response.json()
+  return options.includeHeaders ? { data, headers: response.headers } : data
 }
 
 // No Content-Type header here — the browser sets the multipart boundary itself
@@ -76,6 +76,13 @@ export const authApi = {
     request("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   logout: () => request("/auth/logout", { method: "POST" }),
   me: () => request("/auth/me"),
+  updateProfile: (displayName) =>
+    request("/auth/me", { method: "PATCH", body: JSON.stringify({ display_name: displayName }) }),
+  changePassword: (currentPassword, newPassword) =>
+    request("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
   requestPasswordReset: (email) =>
     request("/auth/password-reset/request", { method: "POST", body: JSON.stringify({ email }) }),
   confirmPasswordReset: (token, newPassword) =>
@@ -101,19 +108,33 @@ export const paymentMethodsApi = {
   remove: (id) => request(`/payment-methods/${id}`, { method: "DELETE" }),
 }
 
+function buildTransactionsQuery(params) {
+  const search = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && value !== "") search.set(key, value)
+  })
+  return search.toString()
+}
+
 export const transactionsApi = {
   list: (params = {}) => {
-    const search = new URLSearchParams()
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== null && value !== undefined && value !== "") search.set(key, value)
-    })
-    const query = search.toString()
+    const query = buildTransactionsQuery(params)
     return request(`/transactions${query ? `?${query}` : ""}`)
+  },
+  // Same filters as list(), plus limit/offset -- returns { items, total } by
+  // reading the X-Total-Count header the backend only sends when limit is set.
+  listPage: (params = {}, { limit, offset = 0 } = {}) => {
+    const query = buildTransactionsQuery({ ...params, limit, offset })
+    return request(`/transactions${query ? `?${query}` : ""}`, { includeHeaders: true }).then(({ data, headers }) => ({
+      items: data,
+      total: Number(headers.get("X-Total-Count") ?? data.length),
+    }))
   },
   get: (id) => request(`/transactions/${id}`),
   create: (data) => request("/transactions", { method: "POST", body: JSON.stringify(data) }),
   update: (id, data) => request(`/transactions/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   remove: (id) => request(`/transactions/${id}`, { method: "DELETE" }),
+  merchants: () => request("/transactions/merchants"),
 }
 
 export const budgetsApi = {
@@ -176,7 +197,6 @@ export const dashboardApi = {
   categoryBreakdown: (month, year) => request(`/dashboard/category-breakdown?month=${month}&year=${year}`),
   paymentMethodBreakdown: (month, year) => request(`/dashboard/payment-method-breakdown?month=${month}&year=${year}`),
   cashFlow: (month, year) => request(`/dashboard/cash-flow?month=${month}&year=${year}`),
-  netWorth: () => request("/dashboard/net-worth"),
   aiInsights: () => request("/dashboard/ai-insights"),
 }
 
@@ -186,6 +206,7 @@ export const aiInsightsApi = {
 
 export const notificationsApi = {
   list: () => request("/notifications"),
+  acknowledge: (key) => request("/notifications/acknowledge", { method: "POST", body: JSON.stringify({ key }) }),
 }
 
 export const householdApi = {

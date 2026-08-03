@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useState } from "react"
 import useSWR from "swr"
 import Layout from "@/components/layout/Layout"
+import MerchantInput from "@/components/elements/MerchantInput"
 import ReceiptUploadPanel from "@/components/receipt/ReceiptUploadPanel"
 import { categoriesApi, ocrApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
 
@@ -361,15 +362,7 @@ function AddTransactionContent() {
 
                                 <div className="mb-3">
                                     <label className="form-label" htmlFor="txn-merchant">Merchant</label>
-                                    <input
-                                        id="txn-merchant"
-                                        type="text"
-                                        className="form-control"
-                                        placeholder="e.g. Costco"
-                                        value={merchant}
-                                        onChange={(event) => setMerchant(event.target.value)}
-                                        required
-                                    />
+                                    <MerchantInput id="txn-merchant" value={merchant} onChange={setMerchant} required />
                                 </div>
 
                                 <div className="mb-3">
@@ -469,20 +462,26 @@ function AddTransactionContent() {
                                                 />
                                             </div>
                                             <div className="col-md-1">
-                                                <button
-                                                    type="button"
-                                                    className="btn btn-sm btn-outline-danger"
-                                                    aria-label={`Remove line item ${index + 1}`}
-                                                    disabled={lineItems.length === 1}
-                                                    onClick={() => removeLineItem(index)}
-                                                >
-                                                    <i className="fi fi-rr-trash" />
-                                                </button>
+                                                {/* An invisible .form-control sizes this wrapper to the exact
+                                                    height of the sibling inputs (no magic numbers), so the
+                                                    button can be flex-centered against that height and land
+                                                    on the inputs' own vertical center rather than the row's. */}
+                                                <div className="form-control border-0 bg-transparent d-flex align-items-center justify-content-center">
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-sm btn-outline-danger"
+                                                        aria-label={`Remove line item ${index + 1}`}
+                                                        disabled={lineItems.length === 1}
+                                                        onClick={() => removeLineItem(index)}
+                                                    >
+                                                        <i className="fi fi-rr-trash" />
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                     ))}
                                     <button type="button" className="btn btn-sm btn-outline-secondary mt-2" onClick={addLineItem}>
-                                        + Split into another category
+                                        + Add new item
                                     </button>
                                 </fieldset>
 

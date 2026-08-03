@@ -4,7 +4,8 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import useSWR from "swr"
 import { useAuth } from "@/hooks/useAuth"
-import { authApi, notificationsApi } from "@/lib/api"
+import { aiInsightsApi, authApi, notificationsApi } from "@/lib/api"
+import PlatformViewToggle from "@/components/elements/PlatformViewToggle"
 
 const ThemeSwitch = dynamic(() => import('@/components/elements/ThemeSwitch'), {
     ssr: false
@@ -13,15 +14,27 @@ const ThemeSwitch = dynamic(() => import('@/components/elements/ThemeSwitch'), {
 const NOTIFICATIONS_POLL_INTERVAL_MS = 60000
 const NOTIFICATIONS_PREVIEW_COUNT = 5
 
-export default function Header1({ isMobileMenu, handleMobileMenu }) {
+export default function Header1({ isMobileMenu, handleMobileMenu, platformView, setPlatformView }) {
     const router = useRouter()
     const { user } = useAuth()
-    const { data: notifications } = useSWR(
+    const { data: notifications, mutate: mutateNotifications } = useSWR(
         user ? "/notifications" : null,
         () => notificationsApi.list(),
         { refreshInterval: NOTIFICATIONS_POLL_INTERVAL_MS }
     )
-    const notificationCount = notifications?.length ?? 0
+    const unacknowledged = (notifications ?? []).filter((notification) => !notification.is_acknowledged)
+    const notificationCount = unacknowledged.length
+
+    async function handleAcknowledge(event, notification) {
+        event.preventDefault()
+        event.stopPropagation()
+        if (notification.type === "ai_insight" && notification.entity_id) {
+            await aiInsightsApi.dismiss(notification.entity_id)
+        } else {
+            await notificationsApi.acknowledge(notification.key)
+        }
+        await mutateNotifications()
+    }
 
     async function handleLogout() {
         try {
@@ -68,10 +81,19 @@ export default function Header1({ isMobileMenu, handleMobileMenu }) {
                                                 {notificationCount === 0 ? (
                                                     <p className="text-center p-3 mb-0">No new notifications</p>
                                                 ) : (
-                                                    notifications.slice(0, NOTIFICATIONS_PREVIEW_COUNT).map((notification, index) => (
-                                                        <div className={`item severity-${notification.severity}`} key={`${notification.type}-${index}`}>
-                                                            <h5>{notification.title}</h5>
-                                                            <p>{notification.message}</p>
+                                                    unacknowledged.slice(0, NOTIFICATIONS_PREVIEW_COUNT).map((notification) => (
+                                                        <div className={`item severity-${notification.severity} d-flex justify-content-between align-items-start gap-2`} key={notification.key}>
+                                                            <div>
+                                                                <h5>{notification.title}</h5>
+                                                                <p>{notification.message}</p>
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-sm btn-outline-secondary flex-shrink-0"
+                                                                onClick={(event) => handleAcknowledge(event, notification)}
+                                                            >
+                                                                Acknowledge
+                                                            </button>
                                                         </div>
                                                     ))
                                                 )}
@@ -95,6 +117,10 @@ export default function Header1({ isMobileMenu, handleMobileMenu }) {
                                                     </div>
                                                 </div>
                                             </div>
+                                            <div className="dropdown-item platform-view-row" role="none">
+                                                <span className="platform-view-row-label"><i className="fi fi-rr-mobile-notch" /> Platform view</span>
+                                                <PlatformViewToggle variant="menu" platformView={platformView} setPlatformView={setPlatformView} />
+                                            </div>
                                             <Link className="dropdown-item" href="/profile">
                                                 <span><i className="fi fi-rr-user" /></span>
                                                 Profile
@@ -102,10 +128,6 @@ export default function Header1({ isMobileMenu, handleMobileMenu }) {
                                             <Link className="dropdown-item" href="/wallets">
                                                 <span><i className="fi fi-rr-wallet" /></span>
                                                 Wallets
-                                            </Link>
-                                            <Link className="dropdown-item" href="/settings">
-                                                <span><i className="fi fi-rr-settings" /></span>
-                                                Settings
                                             </Link>
                                             <button type="button" className="dropdown-item logout" onClick={handleLogout}>
                                                 <span><i className="fi fi-bs-sign-out-alt" /></span>

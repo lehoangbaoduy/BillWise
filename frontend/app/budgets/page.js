@@ -2,8 +2,21 @@
 import { useMemo, useState } from "react"
 import useSWR from "swr"
 import Layout from "@/components/layout/Layout"
+import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmptyState from "@/components/elements/EmptyState"
+import { EMOJI_PRESETS } from "@/components/elements/EmojiPicker"
 import { budgetsApi, categoriesApi, dashboardApi } from "@/lib/api"
+
+// Deterministic per-category fallback so a category without its own emoji
+// still gets a real icon (never the generic tag glyph) and keeps the same
+// pick across renders/reloads.
+function fallbackEmojiFor(categoryId) {
+    let hash = 0
+    for (let index = 0; index < categoryId.length; index += 1) {
+        hash = (hash * 31 + categoryId.charCodeAt(index)) >>> 0
+    }
+    return EMOJI_PRESETS[hash % EMOJI_PRESETS.length]
+}
 
 const MONTH_NAMES = [
     "January", "February", "March", "April", "May", "June",
@@ -14,7 +27,7 @@ function formatCurrency(value) {
     return `$${Number(value ?? 0).toFixed(2)}`
 }
 
-function BudgetNavItem({ item, isActive, onSelect }) {
+function BudgetNavItem({ item, emoji, isActive, onSelect }) {
     return (
         <div className="col-xl-12 col-md-6">
             <button
@@ -24,7 +37,7 @@ function BudgetNavItem({ item, isActive, onSelect }) {
                 onClick={() => onSelect(item.category_id)}
             >
                 <div className="budgets-nav-icon">
-                    <span><i className="fi fi-rr-shapes" /></span>
+                    <span aria-hidden="true">{emoji || fallbackEmojiFor(item.category_id)}</span>
                 </div>
                 <div className="budgets-nav-text">
                     <h3>{item.name}</h3>
@@ -66,6 +79,10 @@ export default function Budgets() {
     const budgetIdByCategory = useMemo(
         () => new Map((budgetRows ?? []).map((row) => [row.category_id, row.id])),
         [budgetRows]
+    )
+    const categoriesById = useMemo(
+        () => new Map((categories ?? []).map((category) => [category.id, category])),
+        [categories]
     )
     const budgetedItems = (items ?? []).filter((item) => item.budget_amount !== null)
     const activeItem = budgetedItems.find((item) => item.category_id === selectedCategoryId) ?? budgetedItems[0] ?? null
@@ -128,7 +145,7 @@ export default function Budgets() {
     }
 
     async function handleDelete() {
-        if (!activeItem || !window.confirm(`Remove the budget for "${activeItem.name}"?`)) return
+        if (!activeItem) return
         const budgetId = budgetIdByCategory.get(activeItem.category_id)
         if (!budgetId) return
         setFormError(null)
@@ -163,42 +180,65 @@ export default function Budgets() {
                                     <BudgetNavItem
                                         key={item.category_id}
                                         item={item}
+                                        emoji={categoriesById.get(item.category_id)?.emoji}
                                         isActive={activeItem?.category_id === item.category_id}
                                         onSelect={setSelectedCategoryId}
                                     />
                                 ))}
                             </div>
                         </div>
-                        <button
-                            type="button"
-                            className="add-budgets-link w-100 border-0"
-                            onClick={() => setIsCreateFormOpen((open) => !open)}
-                            aria-expanded={isCreateFormOpen}
-                            aria-controls="add-budget-form"
-                        >
-                            <h5 className="mb-0">Add new budget</h5>
-                            <i className="fi fi-rr-square-plus" />
-                        </button>
+                        {!isCreateFormOpen && (
+                            <button
+                                type="button"
+                                className="add-budgets-link w-100 border-0"
+                                onClick={() => setIsCreateFormOpen(true)}
+                                aria-expanded={isCreateFormOpen}
+                                aria-controls="add-budget-form"
+                            >
+                                <h5 className="mb-0">Add new budget</h5>
+                                <i className="fi fi-rr-square-plus" />
+                            </button>
+                        )}
 
                         {isCreateFormOpen && (
                             <div className="card mt-3" id="add-budget-form">
                                 <div className="card-body">
+                                    <div className="d-flex justify-content-between align-items-center mb-2">
+                                        <h5 className="mb-0">Add new budget</h5>
+                                        <button
+                                            type="button"
+                                            className="modal-close-btn"
+                                            aria-label="Close add budget form"
+                                            onClick={() => setIsCreateFormOpen(false)}
+                                        >
+                                            <i className="fi fi-rr-cross" />
+                                        </button>
+                                    </div>
                                     <form onSubmit={handleCreate}>
                                         <div className="mb-3">
-                                            <label className="form-label" htmlFor="budget-category">Category</label>
-                                            <select
-                                                id="budget-category"
-                                                className="form-select"
-                                                value={newCategoryId}
-                                                onChange={(event) => setNewCategoryId(event.target.value)}
-                                            >
-                                                <option value="">Choose a category…</option>
+                                            <label className="form-label">Category</label>
+                                            <div className="emoji-picker" role="radiogroup" aria-label="Category">
                                                 {availableCategories.map((category) => (
-                                                    <option key={category.id} value={category.id}>
-                                                        {category.emoji ? `${category.emoji} ` : ""}{category.name}
-                                                    </option>
+                                                    <button
+                                                        key={category.id}
+                                                        type="button"
+                                                        role="radio"
+                                                        aria-checked={newCategoryId === category.id}
+                                                        aria-label={category.name}
+                                                        title={category.name}
+                                                        className={`emoji-picker-swatch emoji-picker-swatch--labeled${newCategoryId === category.id ? " active" : ""}`}
+                                                        onClick={() => setNewCategoryId(category.id)}
+                                                    >
+                                                        <span aria-hidden="true">{category.emoji || fallbackEmojiFor(category.id)}</span>
+                                                        <span className="emoji-picker-swatch-name">{category.name}</span>
+                                                    </button>
                                                 ))}
-                                            </select>
+                                            </div>
+                                            <div className="form-text">
+                                                {newCategoryId
+                                                    ? `Selected: ${availableCategories.find((c) => c.id === newCategoryId)?.name ?? ""}`
+                                                    : "Choose a category above."}
+                                            </div>
                                         </div>
                                         <div className="mb-3">
                                             <label className="form-label" htmlFor="budget-amount">Monthly budget</label>
@@ -235,9 +275,13 @@ export default function Budgets() {
                                 <>
                                     <div className="budgets-tab-title d-flex justify-content-between align-items-center">
                                         <h3>{activeItem.name}</h3>
-                                        <button type="button" className="btn btn-sm btn-outline-danger" onClick={handleDelete}>
+                                        <ConfirmButton
+                                            className="btn btn-sm btn-outline-danger"
+                                            message={`Remove the budget for "${activeItem.name}"?`}
+                                            onConfirm={handleDelete}
+                                        >
                                             <i className="fi fi-rr-trash" />
-                                        </button>
+                                        </ConfirmButton>
                                     </div>
                                     <div className="row">
                                         <div className="col-xl-12">

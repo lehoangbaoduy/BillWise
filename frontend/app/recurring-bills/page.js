@@ -2,6 +2,7 @@
 import { useState } from "react"
 import useSWR from "swr"
 import Layout from "@/components/layout/Layout"
+import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmptyState from "@/components/elements/EmptyState"
 import { categoriesApi, paymentMethodsApi, recurringBillsApi } from "@/lib/api"
 
@@ -280,10 +281,6 @@ export default function RecurringBills() {
 
     async function handleDeactivate() {
         if (!activeBill) return
-        const confirmed = window.confirm(
-            `Deactivate "${activeBill.name}"? This bill won't generate future periods and there's no undo — you'd need to create it again.`
-        )
-        if (!confirmed) return
         try {
             await recurringBillsApi.remove(activeBill.id)
             setSelectedId(null)
@@ -305,23 +302,36 @@ export default function RecurringBills() {
                                 ))}
                             </div>
                         </div>
-                        <button
-                            type="button"
-                            className="add-goals-link w-100 border-0"
-                            onClick={() => {
-                                setIsCreateFormOpen((open) => !open)
-                                setCreateError(null)
-                            }}
-                            aria-expanded={isCreateFormOpen}
-                            aria-controls="add-bill-form"
-                        >
-                            <h5 className="mb-0">Add recurring bill</h5>
-                            <i className="fi fi-rr-square-plus" />
-                        </button>
+                        {!isCreateFormOpen && (
+                            <button
+                                type="button"
+                                className="add-goals-link w-100 border-0"
+                                onClick={() => {
+                                    setIsCreateFormOpen(true)
+                                    setCreateError(null)
+                                }}
+                                aria-expanded={isCreateFormOpen}
+                                aria-controls="add-bill-form"
+                            >
+                                <h5 className="mb-0">Add recurring bill</h5>
+                                <i className="fi fi-rr-square-plus" />
+                            </button>
+                        )}
 
                         {isCreateFormOpen && (
                             <div className="card mt-3" id="add-bill-form">
                                 <div className="card-body">
+                                    <div className="d-flex justify-content-between align-items-center mb-2">
+                                        <h5 className="mb-0">Add recurring bill</h5>
+                                        <button
+                                            type="button"
+                                            className="modal-close-btn"
+                                            aria-label="Close add recurring bill form"
+                                            onClick={() => setIsCreateFormOpen(false)}
+                                        >
+                                            <i className="fi fi-rr-cross" />
+                                        </button>
+                                    </div>
                                     {createError && <div className="text-danger mb-3" role="alert">{createError}</div>}
                                     <BillForm
                                         categories={expenseCategories}
@@ -360,9 +370,13 @@ export default function RecurringBills() {
                                             >
                                                 <i className="fi fi-rr-pencil" /> Edit
                                             </button>
-                                            <button type="button" className="btn btn-sm btn-outline-danger" onClick={handleDeactivate}>
+                                            <ConfirmButton
+                                                className="btn btn-sm btn-outline-danger"
+                                                message={`Deactivate "${activeBill.name}"? This bill won't generate future periods and there's no undo — you'd need to create it again.`}
+                                                onConfirm={handleDeactivate}
+                                            >
                                                 <i className="fi fi-rr-trash" />
-                                            </button>
+                                            </ConfirmButton>
                                         </div>
                                     </div>
                                     {detailError && <div className="text-danger mb-3" role="alert">{detailError}</div>}

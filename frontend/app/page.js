@@ -7,7 +7,9 @@ import DashboardCategoryDonut from "@/components/chart/DashboardCategoryDonut"
 import DashboardSpendTrendChart from "@/components/chart/DashboardSpendTrendChart"
 import EmptyState from "@/components/elements/EmptyState"
 import Layout from "@/components/layout/Layout"
-import { aiInsightsApi, dashboardApi, goalsApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
+import { aiInsightsApi, dashboardApi, goalsApi, paymentMethodsApi, recurringBillsApi, transactionsApi } from "@/lib/api"
+
+const _OPEN_BILL_STATUSES = new Set(["upcoming", "overdue"])
 
 const MONTH_ABBREVIATIONS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
@@ -39,6 +41,20 @@ function progressPercent(current, target) {
     return Math.min(100, Math.round((Number(current) / Number(target)) * 100))
 }
 
+// Calendar weeks would need real week-of-year math; a fixed 7-day bucket
+// counted from day 1 is a simpler, still-useful "which part of the month"
+// breakdown and needs no more than the transactions already on hand.
+function weeklyBuckets(transactions, daysInMonth) {
+    const bucketCount = Math.ceil(daysInMonth / 7)
+    const totals = new Array(bucketCount).fill(0)
+    for (const transaction of transactions) {
+        const day = Number(transaction.date.slice(8, 10))
+        const bucket = Math.min(bucketCount - 1, Math.floor((day - 1) / 7))
+        totals[bucket] += Number(transaction.total_amount)
+    }
+    return totals
+}
+
 export default function Home() {
     const today = new Date()
     const month = today.getMonth() + 1
@@ -58,6 +74,7 @@ export default function Home() {
         () => transactionsApi.list({ month: periodKey })
     )
     const { data: insights, mutate: mutateInsights } = useSWR("/dashboard/ai-insights", () => dashboardApi.aiInsights())
+    const { data: recurringBills } = useSWR("/recurring-bills", () => recurringBillsApi.list())
     const [dismissError, setDismissError] = useState(null)
 
     async function handleDismissInsight(id) {
@@ -75,13 +92,40 @@ export default function Home() {
     }
 
     const totalBalance = (paymentMethods ?? []).reduce((sum, method) => sum + Number(method.current_balance ?? 0), 0)
-    const topCategories = useMemo(
-        () => [...(categoryBreakdown ?? [])].sort((a, b) => Number(b.amount) - Number(a.amount)).slice(0, 6),
-        [categoryBreakdown]
-    )
+    // Chart color slots are capped at CATEGORY_DONUT_SLOT_COUNT distinct hues
+    // (dataviz palette rule: a 9th+ series is never a generated color). Rather
+    // than silently dropping categories beyond that cap, fold their total into
+    // an "Other" slice so the donut -- and the total shown in its center --
+    // always account for the full month's spending.
+    const CATEGORY_DONUT_SLOT_COUNT = 7
+    const topCategories = useMemo(() => {
+        const sorted = [...(categoryBreakdown ?? [])].sort((a, b) => Number(b.amount) - Number(a.amount))
+        if (sorted.length <= CATEGORY_DONUT_SLOT_COUNT + 1) return sorted
+        const top = sorted.slice(0, CATEGORY_DONUT_SLOT_COUNT)
+        const otherAmount = sorted.slice(CATEGORY_DONUT_SLOT_COUNT).reduce((sum, c) => sum + Number(c.amount), 0)
+        return [...top, { name: "Other", amount: otherAmount }]
+    }, [categoryBreakdown])
     const recentTransactions = (transactions ?? []).slice(0, 5)
+    const daysInMonth = new Date(year, month, 0).getDate()
+    const daysElapsed = today.getDate()
+    // Weeks that haven't started yet have no data to show -- drop them
+    // instead of plotting a misleading flat 0.
+    const elapsedWeekCount = Math.ceil(daysElapsed / 7)
+    const weekLabels = Array.from({ length: elapsedWeekCount }, (_, index) => `Week ${index + 1}`)
+    const weekAmounts = weeklyBuckets(
+        (transactions ?? []).filter((transaction) => transaction.transaction_type === "Expense"),
+        daysInMonth
+    ).slice(0, elapsedWeekCount)
+    const hasWeeklyData = weekAmounts.some((amount) => amount > 0)
     const topBudgets = (monthly?.budget_status ?? []).slice(0, 4)
     const topGoals = (goals ?? []).slice(0, 3)
+    // Only bills with a still-open (unpaid) current period belong on the
+    // dashboard -- a bill stays here until it's marked paid, then the next
+    // period (if any) takes its place.
+    const upcomingBills = (recurringBills ?? [])
+        .filter((bill) => bill.current_period && _OPEN_BILL_STATUSES.has(bill.current_period.status))
+        .sort((a, b) => a.current_period.due_date.localeCompare(b.current_period.due_date))
+        .slice(0, 5)
     const expensePercentage = monthly && Number(monthly.total_income) > 0
         ? Math.min(100, (Number(monthly.total_expenses) / Number(monthly.total_income)) * 100)
         : 100
@@ -278,7 +322,11 @@ export default function Home() {
                             <h4 className="card-title">Weekly Expenses</h4>
                         </div>
                         <div className="card-body">
-                            <EmptyState icon="fi fi-rr-chart-line-up" message="No expenses recorded this week." />
+                            {!hasWeeklyData ? (
+                                <EmptyState icon="fi fi-rr-chart-line-up" message="No expenses recorded this week." />
+                            ) : (
+                                <DashboardSpendTrendChart labels={weekLabels} amounts={weekAmounts} variant="line" />
+                            )}
                         </div>
                     </div>
                 </div>
@@ -288,7 +336,23 @@ export default function Home() {
                             <h4 className="card-title">Recurring Bills</h4>
                         </div>
                         <div className="card-body">
-                            <EmptyState icon="fi fi-rr-receipt" message="No recurring bills yet." />
+                            {upcomingBills.length === 0 ? (
+                                <EmptyState icon="fi fi-rr-receipt" message="No recurring bills yet." />
+                            ) : (
+                                upcomingBills.map((bill) => (
+                                    <div key={bill.id} className="d-flex justify-content-between align-items-center mb-3">
+                                        <div>
+                                            <div>{bill.name}</div>
+                                            <small className={bill.current_period.status === "overdue" ? "text-danger" : "text-muted"}>
+                                                {formatDate(bill.current_period.due_date)}
+                                                {bill.current_period.status === "overdue" ? " · Overdue" : ""}
+                                            </small>
+                                        </div>
+                                        <strong>{formatCurrency(bill.amount)}</strong>
+                                    </div>
+                                ))
+                            )}
+                            <Link href="/recurring-bills" className="d-block text-end">View all</Link>
                         </div>
                     </div>
                 </div>

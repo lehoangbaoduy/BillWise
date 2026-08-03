@@ -37,6 +37,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Custom response headers (e.g. X-Total-Count for transaction pagination)
+    # are invisible to browser JS cross-origin unless explicitly exposed --
+    # the default CORS-safelisted header set doesn't include them.
+    expose_headers=["X-Total-Count"],
 )
 
 app.include_router(auth_router)

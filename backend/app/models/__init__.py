@@ -1,3 +1,4 @@
+from app.models.acknowledged_notification import AcknowledgedNotification
 from app.models.ai_insight import AIInsight
 from app.models.audit_log import AuditLog
 from app.models.budget import Budget
@@ -13,6 +14,7 @@ from app.models.transaction import Transaction, TransactionLineItem
 from app.models.user import AccountDeletionToken, EmailVerificationToken, PasswordResetToken, User
 
 __all__ = [
+    "AcknowledgedNotification",
     "AIInsight",
     "AuditLog",
     "Budget",

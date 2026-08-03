@@ -21,6 +21,7 @@ class PaymentMethodCreate(BaseModel):
     statement_day_optional: int | None = Field(default=None, ge=1, le=31)
     default_cashback_rate: Decimal | None = Field(default=None, ge=0, le=100)
     current_balance: Decimal | None = None
+    color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
 class PaymentMethodUpdate(BaseModel):
@@ -33,6 +34,7 @@ class PaymentMethodUpdate(BaseModel):
     statement_day_optional: int | None = Field(default=None, ge=1, le=31)
     default_cashback_rate: Decimal | None = Field(default=None, ge=0, le=100)
     current_balance: Decimal | None = None
+    color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
 class PaymentMethodPublic(BaseModel):
@@ -45,4 +47,5 @@ class PaymentMethodPublic(BaseModel):
     statement_day_optional: int | None
     default_cashback_rate: Decimal | None
     current_balance: Decimal | None
+    color: str | None
     is_active: bool

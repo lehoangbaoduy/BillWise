@@ -2,15 +2,23 @@
 
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { Suspense, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import useSWR from "swr"
+import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmptyState from "@/components/elements/EmptyState"
 import AnalyticsMenu from "@/components/layout/AnalyticsMenu"
 import Layout from "@/components/layout/Layout"
 import { categoriesApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
 
+const PAGE_SIZE = 20
+
 function formatCurrency(value) {
     return `$${Number(value).toFixed(2)}`
+}
+
+function currentMonthKey() {
+    const today = new Date()
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`
 }
 
 function TransactionRow({ transaction, categoriesById, paymentMethodsById, onDelete, isDeleting }) {
@@ -35,15 +43,15 @@ function TransactionRow({ transaction, categoriesById, paymentMethodsById, onDel
                 >
                     <i className="fi fi-rr-pencil" />
                 </Link>
-                <button
-                    type="button"
+                <ConfirmButton
                     className="btn btn-sm btn-outline-danger"
                     aria-label={`Delete transaction with ${transaction.merchant}`}
                     disabled={isDeleting}
-                    onClick={() => onDelete(transaction)}
+                    message={`Delete the ${formatCurrency(transaction.total_amount)} transaction at "${transaction.merchant}"?`}
+                    onConfirm={() => onDelete(transaction)}
                 >
                     <i className="fi fi-rr-trash" />
-                </button>
+                </ConfirmButton>
             </td>
         </tr>
     )
@@ -53,12 +61,13 @@ function TransactionHistoryContent() {
     const searchParams = useSearchParams()
     const showDuplicateBanner = searchParams.get("duplicate") === "1"
 
-    const [month, setMonth] = useState("")
+    const [month, setMonth] = useState(currentMonthKey)
     const [categoryId, setCategoryId] = useState("")
     const [paymentMethodId, setPaymentMethodId] = useState("")
+    const [merchant, setMerchant] = useState("")
     const [amountMin, setAmountMin] = useState("")
     const [amountMax, setAmountMax] = useState("")
-    const [search, setSearch] = useState("")
+    const [page, setPage] = useState(1)
     const [deletingId, setDeletingId] = useState(null)
     const [listError, setListError] = useState(null)
 
@@ -68,19 +77,29 @@ function TransactionHistoryContent() {
         payment_method_id: paymentMethodId || undefined,
         amount_min: amountMin || undefined,
         amount_max: amountMax || undefined,
-        search: search || undefined,
+        merchant: merchant || undefined,
     }
     const filtersKey = JSON.stringify(filters)
 
-    const { data: transactions, mutate } = useSWR(["/transactions", filtersKey], () => transactionsApi.list(filters))
+    useEffect(() => {
+        setPage(1)
+    }, [filtersKey])
+
+    const { data: page_result, mutate } = useSWR(
+        ["/transactions", filtersKey, page],
+        () => transactionsApi.listPage(filters, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE })
+    )
+    const transactions = page_result?.items
+    const totalCount = page_result?.total ?? 0
+    const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
     const { data: categories } = useSWR("/categories", () => categoriesApi.list())
     const { data: paymentMethods } = useSWR("/payment-methods", () => paymentMethodsApi.list())
+    const { data: merchants } = useSWR("/transactions/merchants", () => transactionsApi.merchants())
 
     const categoriesById = Object.fromEntries((categories ?? []).map((category) => [category.id, category]))
     const paymentMethodsById = Object.fromEntries((paymentMethods ?? []).map((method) => [method.id, method]))
 
     async function handleDelete(transaction) {
-        if (!window.confirm(`Delete the ${formatCurrency(transaction.total_amount)} transaction at "${transaction.merchant}"?`)) return
         setDeletingId(transaction.id)
         try {
             await transactionsApi.remove(transaction.id)
@@ -97,9 +116,9 @@ function TransactionHistoryContent() {
         setMonth("")
         setCategoryId("")
         setPaymentMethodId("")
+        setMerchant("")
         setAmountMin("")
         setAmountMax("")
-        setSearch("")
     }
 
     return (
@@ -165,6 +184,20 @@ function TransactionHistoryContent() {
                                             </select>
                                         </div>
                                         <div className="col-md-2">
+                                            <label className="form-label" htmlFor="filter-merchant">Merchant</label>
+                                            <select
+                                                id="filter-merchant"
+                                                className="form-select"
+                                                value={merchant}
+                                                onChange={(event) => setMerchant(event.target.value)}
+                                            >
+                                                <option value="">All merchants</option>
+                                                {(merchants ?? []).map((merchantName) => (
+                                                    <option key={merchantName} value={merchantName}>{merchantName}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="col-md-2">
                                             <label className="form-label" htmlFor="filter-amount-min">Min amount</label>
                                             <input
                                                 id="filter-amount-min"
@@ -184,17 +217,6 @@ function TransactionHistoryContent() {
                                                 className="form-control"
                                                 value={amountMax}
                                                 onChange={(event) => setAmountMax(event.target.value)}
-                                            />
-                                        </div>
-                                        <div className="col-md-2">
-                                            <label className="form-label" htmlFor="filter-search">Search</label>
-                                            <input
-                                                id="filter-search"
-                                                type="search"
-                                                className="form-control"
-                                                placeholder="Merchant or description"
-                                                value={search}
-                                                onChange={(event) => setSearch(event.target.value)}
                                             />
                                         </div>
                                     </div>
@@ -233,6 +255,31 @@ function TransactionHistoryContent() {
                                                     ))}
                                                 </tbody>
                                             </table>
+                                        </div>
+                                    )}
+                                    {totalCount > 0 && (
+                                        <div className="d-flex justify-content-between align-items-center mt-3">
+                                            <span className="text-muted">
+                                                Page {page} of {totalPages} ({totalCount} transaction{totalCount === 1 ? "" : "s"})
+                                            </span>
+                                            <div className="d-flex gap-2">
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-sm btn-outline-secondary"
+                                                    disabled={page <= 1}
+                                                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                                                >
+                                                    Previous
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-sm btn-outline-secondary"
+                                                    disabled={page >= totalPages}
+                                                    onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                                                >
+                                                    Next
+                                                </button>
+                                            </div>
                                         </div>
                                     )}
                                 </div>

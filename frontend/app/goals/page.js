@@ -3,6 +3,9 @@ import { useState } from "react"
 import useSWR from "swr"
 import CircularProgress from "@/components/elements/CircularProgress"
 import Layout from "@/components/layout/Layout"
+import ColorPicker, { COLOR_PRESETS } from "@/components/elements/ColorPicker"
+import ConfirmButton from "@/components/elements/ConfirmButton"
+import EmojiPicker from "@/components/elements/EmojiPicker"
 import EmptyState from "@/components/elements/EmptyState"
 import { categoriesApi, goalsApi, paymentMethodsApi } from "@/lib/api"
 
@@ -68,7 +71,7 @@ export default function Goals() {
     const [targetAmount, setTargetAmount] = useState("")
     const [targetDate, setTargetDate] = useState("")
     const [icon, setIcon] = useState("")
-    const [color, setColor] = useState("#51BB25")
+    const [color, setColor] = useState(COLOR_PRESETS[0].value)
 
     const [fundsAmount, setFundsAmount] = useState("")
     const [fundsPaymentMethodId, setFundsPaymentMethodId] = useState("")
@@ -119,6 +122,7 @@ export default function Goals() {
             setTargetAmount("")
             setTargetDate("")
             setIcon("")
+            setColor(COLOR_PRESETS[0].value)
             setIsCreateFormOpen(false)
             await loadDetail(created.id)
         } catch (error) {
@@ -167,7 +171,7 @@ export default function Goals() {
     }
 
     async function handleDelete() {
-        if (!activeGoal || !window.confirm(`Delete goal "${activeGoal.name}"? Linked transactions will stay, unlinked from this goal.`)) return
+        if (!activeGoal) return
         try {
             await goalsApi.remove(activeGoal.id)
             setSelectedId(null)
@@ -195,20 +199,33 @@ export default function Goals() {
                                 ))}
                             </div>
                         </div>
-                        <button
-                            type="button"
-                            className="add-goals-link w-100 border-0"
-                            onClick={() => setIsCreateFormOpen((open) => !open)}
-                            aria-expanded={isCreateFormOpen}
-                            aria-controls="add-goal-form"
-                        >
-                            <h5 className="mb-0">Add new goal</h5>
-                            <i className="fi fi-rr-square-plus" />
-                        </button>
+                        {!isCreateFormOpen && (
+                            <button
+                                type="button"
+                                className="add-goals-link w-100 border-0"
+                                onClick={() => setIsCreateFormOpen(true)}
+                                aria-expanded={isCreateFormOpen}
+                                aria-controls="add-goal-form"
+                            >
+                                <h5 className="mb-0">Add new goal</h5>
+                                <i className="fi fi-rr-square-plus" />
+                            </button>
+                        )}
 
                         {isCreateFormOpen && (
                             <div className="card mt-3" id="add-goal-form">
                                 <div className="card-body">
+                                    <div className="d-flex justify-content-between align-items-center mb-2">
+                                        <h5 className="mb-0">Add new goal</h5>
+                                        <button
+                                            type="button"
+                                            className="modal-close-btn"
+                                            aria-label="Close add goal form"
+                                            onClick={() => setIsCreateFormOpen(false)}
+                                        >
+                                            <i className="fi fi-rr-cross" />
+                                        </button>
+                                    </div>
                                     <form onSubmit={handleCreate}>
                                         <div className="mb-3">
                                             <label className="form-label" htmlFor="goal-name">Name</label>
@@ -245,26 +262,12 @@ export default function Goals() {
                                             />
                                         </div>
                                         <div className="mb-3">
-                                            <label className="form-label" htmlFor="goal-icon">Icon emoji (optional)</label>
-                                            <input
-                                                id="goal-icon"
-                                                type="text"
-                                                className="form-control"
-                                                placeholder="e.g. ✈️"
-                                                maxLength={8}
-                                                value={icon}
-                                                onChange={(event) => setIcon(event.target.value)}
-                                            />
+                                            <label className="form-label">Icon (optional)</label>
+                                            <EmojiPicker value={icon} onChange={setIcon} name="goal-icon" />
                                         </div>
                                         <div className="mb-3">
-                                            <label className="form-label" htmlFor="goal-color">Color</label>
-                                            <input
-                                                id="goal-color"
-                                                type="color"
-                                                className="form-control form-control-color"
-                                                value={color}
-                                                onChange={(event) => setColor(event.target.value)}
-                                            />
+                                            <label className="form-label">Color</label>
+                                            <ColorPicker value={color} onChange={setColor} name="goal-color" />
                                         </div>
                                         {formError && <div className="text-danger mb-3" role="alert">{formError}</div>}
                                         <button type="submit" className="btn btn-success w-100" disabled={isSubmitting}>
@@ -292,9 +295,13 @@ export default function Goals() {
                                             <button type="button" className="btn btn-sm btn-outline-secondary" onClick={handleToggleSharing}>
                                                 {activeGoal.is_shared ? "Shared" : "Private"}
                                             </button>
-                                            <button type="button" className="btn btn-sm btn-outline-danger" onClick={handleDelete}>
+                                            <ConfirmButton
+                                                className="btn btn-sm btn-outline-danger"
+                                                message={`Delete goal "${activeGoal.name}"? Linked transactions will stay, unlinked from this goal.`}
+                                                onConfirm={handleDelete}
+                                            >
                                                 <i className="fi fi-rr-trash" />
-                                            </button>
+                                            </ConfirmButton>
                                         </div>
                                     </div>
                                     {formError && <div className="text-danger mb-3" role="alert">{formError}</div>}

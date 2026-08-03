@@ -236,6 +236,21 @@ async def yearly_overview(
     spend_by_month = [MonthSpend(month=m, total=spend_by_month_map.get(m, _ZERO)) for m in range(1, 13)]
     total_yearly_spending = sum((entry.total for entry in spend_by_month), _ZERO)
 
+    income_month_conditions = [
+        Transaction.user_id == owner_id,
+        extract("year", Transaction.date) == year,
+        Transaction.transaction_type == TransactionType.INCOME,
+    ]
+    apply_partner_transaction_visibility(income_month_conditions, user, owner_id)
+    income_month_statement = (
+        select(extract("month", Transaction.date), func.sum(Transaction.total_amount))
+        .where(*income_month_conditions)
+        .group_by(extract("month", Transaction.date))
+    )
+    income_month_rows = (await session.exec(income_month_statement)).all()
+    income_by_month_map = {int(month_number): total for month_number, total in income_month_rows}
+    income_by_month = [MonthSpend(month=m, total=income_by_month_map.get(m, _ZERO)) for m in range(1, 13)]
+
     category_conditions = [
         Transaction.user_id == owner_id,
         Category.user_id == owner_id,
@@ -293,6 +308,7 @@ async def yearly_overview(
         year=year,
         total_yearly_spending=total_yearly_spending,
         spend_by_month=spend_by_month,
+        income_by_month=income_by_month,
         spend_by_category=spend_by_category,
         spend_by_payment_method=spend_by_payment_method,
         average_month=average_month,
