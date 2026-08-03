@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     # notifications header badge polls once/minute); this is a ceiling
     # against abuse, not a UX-affecting limit.
     read_rate_limit_window: str = "120/minute"
+    # Empty by default -> app/core/email.py falls back to logging the email
+    # instead of sending it (fine for local dev). Set to send real email via
+    # Resend's HTTP API.
+    resend_api_key: str = ""
+    resend_from_email: str = "BillWise <onboarding@resend.dev>"
 
     @field_validator("frontend_base_url")
     @classmethod

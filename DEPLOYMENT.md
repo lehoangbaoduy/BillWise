@@ -136,10 +136,22 @@ Migrations re-run automatically on the backend/cron containers' next start (idem
    COOKIE_SAMESITE=none
    FRONTEND_BASE_URL=https://your-app.vercel.app
    ANTHROPIC_API_KEY=...   # optional
+   RESEND_API_KEY=...      # optional — see §3.3
+   RESEND_FROM_EMAIL=BillWise <onboarding@resend.dev>   # optional — see §3.3
    ```
    `COOKIE_SAMESITE=none` is required here specifically because Vercel and Render put the frontend and backend on different registrable domains (`*.vercel.app` vs `*.onrender.com`) — see §5.1 for why.
 6. Deploy. Migrations run automatically — `backend/entrypoint.sh` calls `alembic upgrade head` before uvicorn starts on every boot, so there's no separate "release command" step to configure.
 7. Render gives you a URL like `https://billwise-backend.onrender.com` with TLS already handled.
+
+### 3.3 Email — Resend (optional, recommended)
+
+Without `RESEND_API_KEY` set, verification/password-reset/invite/account-deletion emails are only logged to Render's server logs (`EMAIL to=... subject=...`), not actually sent — fine for the account owner testing solo, not workable once a partner needs to verify their own email without server access.
+
+1. Sign up at https://resend.com (free tier: 3,000 emails/month, 100/day, no card required).
+2. Create an API key at https://resend.com/api-keys and set it as `RESEND_API_KEY` on Render.
+3. **Read this before assuming it works for everyone**: by default `RESEND_FROM_EMAIL` uses Resend's `onboarding@resend.dev` sandbox address, which Resend restricts to delivering **only to the email address on your own Resend account** — any other recipient gets a 403 (silently logged server-side, not surfaced to the user, since a failed send must never break registration for someone who already has a valid account). This means the sandbox address alone does **not** solve "a partner can verify without server access" — it only ever emails you.
+4. To actually send to other people (a partner, a 2nd independent owner), verify a real domain you control at https://resend.com/domains (add the DNS records it gives you), then set `RESEND_FROM_EMAIL=BillWise <noreply@yourdomain.com>` using an address on that verified domain.
+5. Redeploy (Render picks up new env vars automatically on save, but confirm in the dashboard).
 
 **Cron on Render**: Render's Cron Jobs product is not part of its free plan. Since the account hard-delete script (`scripts/hard_delete_expired_accounts.py`) only needs `DATABASE_URL` and the repo's code — not anything running *inside* the Render container specifically — the genuinely free option is a **GitHub Actions scheduled workflow** that checks out the repo and runs the script directly against your Neon database. This repo includes `.github/workflows/hard-delete-expired-accounts.yml` for exactly this. To enable it:
 
@@ -183,6 +195,8 @@ If you'd rather not coordinate three separate providers: Railway hosts backend +
 | `COOKIE_SAMESITE` | backend | yes if cross-domain | `lax` (default) for same-registrable-domain deployments (Path A). `none` (requires `COOKIE_SECURE=true`) when frontend and backend are on different registrable domains (Path B: Vercel + Render). See §5.1. |
 | `FRONTEND_BASE_URL` | backend | yes | Exact origin of your frontend (e.g. `https://app.example.com`). Used for CORS — must not be a wildcard. |
 | `ANTHROPIC_API_KEY` | backend | no | Enables receipt OCR. Omit to disable that feature gracefully. |
+| `RESEND_API_KEY` | backend | no | Enables real email delivery. Omit and emails are logged to server output only — see §3.3. |
+| `RESEND_FROM_EMAIL` | backend | no | Defaults to Resend's sandbox address, which only delivers to your own Resend account email. Verify a domain and change this to send to anyone else. See §3.3. |
 | `NEXT_PUBLIC_API_BASE_URL` | frontend | yes | Backend's public URL. **Build-time**, not runtime — see §5.2. |
 | `POSTGRES_PASSWORD` | Path A root `.env` only | yes | Feeds both the `db` service and `DATABASE_URL`. |
 | `FRONTEND_DOMAIN` / `BACKEND_DOMAIN` / `CADDY_EMAIL` | Path A root `.env` only | yes | Used by Caddy for TLS cert issuance. |
