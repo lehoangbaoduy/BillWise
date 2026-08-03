@@ -4,6 +4,14 @@ import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useRef, useState } from "react"
 import { authApi } from "@/lib/api"
+import AuthCard from "@/components/auth/AuthCard"
+
+const TITLES = {
+    pending: "Check your inbox",
+    verifying: "Verifying…",
+    verified: "Email verified",
+    failed: "Link expired",
+}
 
 function VerifyEmailContent() {
     const searchParams = useSearchParams()
@@ -26,36 +34,27 @@ function VerifyEmailContent() {
     }, [token])
 
     return (
-        <div className="authincation">
-            <div className="container h-100">
-                <div className="row justify-content-center h-100 align-items-center">
-                    <div className="col-xl-5 col-md-6">
-                        <div className="card">
-                            <div className="card-body identity-content text-center p-5">
-                                <span className="icon"><i className="fi fi-rr-envelope" /></span>
-                                {status === "pending" && (
-                                    <p>
-                                        We sent a verification email to&nbsp;
-                                        <strong className="text-dark">{email || "your inbox"}</strong>. Click the
-                                        link inside to get started!
-                                    </p>
-                                )}
-                                {status === "verifying" && <p>Verifying your email…</p>}
-                                {status === "verified" && (
-                                    <>
-                                        <p>Your email is verified.</p>
-                                        <Link className="btn btn-primary text-white" href="/signin">Sign In</Link>
-                                    </>
-                                )}
-                                {status === "failed" && (
-                                    <p>That verification link is invalid or has expired. <Link href="/signup">Sign up again?</Link></p>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
+        <AuthCard title={TITLES[status]}>
+            <div className="auth-card-message">
+                <div className="auth-card-message-icon"><i className="fi fi-rr-envelope" /></div>
+                {status === "pending" && (
+                    <p>
+                        We sent a verification email to <strong>{email || "your inbox"}</strong>. Click the link
+                        inside to get started!
+                    </p>
+                )}
+                {status === "verifying" && <p>Verifying your email…</p>}
+                {status === "verified" && (
+                    <>
+                        <p>Your email is verified.</p>
+                        <Link className="auth-submit" href="/signin">Sign In</Link>
+                    </>
+                )}
+                {status === "failed" && (
+                    <p>That verification link is invalid or has expired. <Link href="/signup">Sign up again?</Link></p>
+                )}
             </div>
-        </div>
+        </AuthCard>
     )
 }
 

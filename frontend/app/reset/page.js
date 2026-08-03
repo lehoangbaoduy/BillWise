@@ -3,6 +3,8 @@
 import Link from "next/link"
 import { useState } from "react"
 import { authApi } from "@/lib/api"
+import AuthCard from "@/components/auth/AuthCard"
+import AuthField from "@/components/auth/AuthField"
 
 export default function Reset() {
     const [email, setEmail] = useState("")
@@ -23,57 +25,34 @@ export default function Reset() {
     }
 
     return (
-        <div className="authincation">
-            <div className="container">
-                <div className="row justify-content-center align-items-center g-0">
-                    <div className="col-xl-8">
-                        <div className="row g-0">
-                            <div className="col-lg-6">
-                                <div className="welcome-content">
-                                    <div className="welcome-title">
-                                        <div className="mini-logo">
-                                            <Link href="/">
-                                                <img src="/images/logo-white.png" alt="" width={30} /></Link>
-                                        </div>
-                                        <h3>Welcome to BillWise</h3>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="col-lg-6">
-                                <div className="auth-form">
-                                    <h4>Reset password</h4>
-                                    {isSubmitted ? (
-                                        <p className="mt-3">If an account exists for that email, a reset link has been sent.</p>
-                                    ) : (
-                                        <form onSubmit={handleSubmit}>
-                                            <div className="row">
-                                                <div className="col-12 mb-3">
-                                                    <label className="form-label" htmlFor="reset-email">Email</label>
-                                                    <input
-                                                        id="reset-email"
-                                                        name="email"
-                                                        type="email"
-                                                        className="form-control"
-                                                        value={email}
-                                                        onChange={(e) => setEmail(e.target.value)}
-                                                        required
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="mt-3 d-grid gap-2">
-                                                <button type="submit" className="btn btn-primary me-8 text-white" disabled={isSubmitting}>
-                                                    {isSubmitting ? "Sending..." : "Submit"}
-                                                </button>
-                                            </div>
-                                        </form>
-                                    )}
-                                    <p className="mt-3 mb-0">Already have an account?<Link className="text-primary" href="/signin"> Sign In</Link></p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+        <AuthCard
+            title="Reset password"
+            subtitle={isSubmitted ? undefined : "Enter your email and we'll send you a reset link."}
+        >
+            {isSubmitted ? (
+                <div className="auth-card-message">
+                    <p>If an account exists for that email, a reset link has been sent.</p>
                 </div>
-            </div>
-        </div>
+            ) : (
+                <form onSubmit={handleSubmit} className="auth-form-fields" noValidate>
+                    <AuthField
+                        id="reset-email"
+                        label="Email"
+                        type="email"
+                        autoComplete="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                    />
+                    <button type="submit" className="auth-submit" disabled={isSubmitting}>
+                        {isSubmitting ? "Sending…" : "Submit"}
+                    </button>
+                </form>
+            )}
+
+            <p className="auth-card-footer">
+                Already have an account? <Link href="/signin">Sign In</Link>
+            </p>
+        </AuthCard>
     )
 }

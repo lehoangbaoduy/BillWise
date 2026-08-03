@@ -1,9 +1,10 @@
 "use client"
 
-import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useState } from "react"
 import { ApiError, householdApi } from "@/lib/api"
+import AuthCard from "@/components/auth/AuthCard"
+import AuthField from "@/components/auth/AuthField"
 
 function AcceptInviteContent() {
     const router = useRouter()
@@ -51,92 +52,50 @@ function AcceptInviteContent() {
 
     if (!token) {
         return (
-            <div className="authincation">
-                <div className="container h-100">
-                    <div className="row justify-content-center h-100 align-items-center">
-                        <div className="col-xl-5 col-md-6">
-                            <div className="card">
-                                <div className="card-body identity-content text-center p-5">
-                                    <p>This invite link is missing a token. Ask the household owner to resend it.</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+            <AuthCard title="Invalid invite">
+                <div className="auth-card-message">
+                    <p>This invite link is missing a token. Ask the household owner to resend it.</p>
                 </div>
-            </div>
+            </AuthCard>
         )
     }
 
     return (
-        <div className="authincation">
-            <div className="container">
-                <div className="row justify-content-center align-items-center g-0">
-                    <div className="col-xl-8">
-                        <div className="row g-0">
-                            <div className="col-lg-6">
-                                <div className="welcome-content">
-                                    <div className="welcome-title">
-                                        <div className="mini-logo">
-                                            <Link href="/">
-                                                <img src="/images/logo-white.png" alt="" width={30} /></Link>
-                                        </div>
-                                        <h3>Welcome to BillWise</h3>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="col-lg-6">
-                                <div className="auth-form">
-                                    <h4>Join your household</h4>
-                                    {error && <div className="alert alert-danger">{error}</div>}
-                                    <form onSubmit={handleSubmit}>
-                                        <div className="row">
-                                            <div className="col-12 mb-3">
-                                                <label className="form-label" htmlFor="invite-display-name">Your name</label>
-                                                <input
-                                                    id="invite-display-name"
-                                                    type="text"
-                                                    className="form-control"
-                                                    value={displayName}
-                                                    onChange={(e) => setDisplayName(e.target.value)}
-                                                    required
-                                                />
-                                            </div>
-                                            <div className="col-12 mb-3">
-                                                <label className="form-label" htmlFor="invite-password">Password</label>
-                                                <input
-                                                    id="invite-password"
-                                                    type="password"
-                                                    className="form-control"
-                                                    value={password}
-                                                    onChange={(e) => setPassword(e.target.value)}
-                                                    required
-                                                />
-                                            </div>
-                                            <div className="col-12 mb-3">
-                                                <label className="form-label" htmlFor="invite-confirm-password">Confirm password</label>
-                                                <input
-                                                    id="invite-confirm-password"
-                                                    type="password"
-                                                    className="form-control"
-                                                    value={confirmPassword}
-                                                    onChange={(e) => setConfirmPassword(e.target.value)}
-                                                    required
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="mt-3 d-grid gap-2">
-                                            <button type="submit" className="btn btn-primary me-8 text-white" disabled={isSubmitting}>
-                                                {isSubmitting ? "Joining…" : "Accept invite"}
-                                            </button>
-                                        </div>
-                                    </form>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <AuthCard title="Join your household">
+            {error && <div className="auth-alert" role="alert">{error}</div>}
+            <form onSubmit={handleSubmit} className="auth-form-fields" noValidate>
+                <AuthField
+                    id="invite-display-name"
+                    label="Your name"
+                    type="text"
+                    autoComplete="name"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    required
+                />
+                <AuthField
+                    id="invite-password"
+                    label="Password"
+                    type="password"
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                />
+                <AuthField
+                    id="invite-confirm-password"
+                    label="Confirm password"
+                    type="password"
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                />
+                <button type="submit" className="auth-submit" disabled={isSubmitting}>
+                    {isSubmitting ? "Joining…" : "Accept invite"}
+                </button>
+            </form>
+        </AuthCard>
     )
 }
 
