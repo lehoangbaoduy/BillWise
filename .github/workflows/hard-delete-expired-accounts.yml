@@ -1,38 +1,10 @@
 name: Hard-delete expired accounts
 
-# PRD §22.6: purges an owner's data once their 30-day account-deletion grace
-# period has passed. Runs the script directly against the database rather
-# than executing inside any hosting platform's container — it only needs
-# DATABASE_URL and the repo's code, so this works regardless of which
-# backend host you're using. See DEPLOYMENT.md §3.2 ("Cron on Render").
-#
-# Required repo secrets (Settings -> Secrets and variables -> Actions):
-#   DATABASE_URL — same value as the backend's DATABASE_URL
-#   SECRET_KEY   — same value as the backend's SECRET_KEY (the script imports
-#                  app config at startup, which requires this field to be
-#                  present, even though the script itself never uses it)
-
 on:
-  schedule:
-    - cron: "0 6 * * *" # 06:00 UTC daily
   workflow_dispatch: {}
 
 jobs:
-  run:
+  ping:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - run: pip install -r requirements.txt
-
-      - run: python -m scripts.hard_delete_expired_accounts
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+      - run: echo "pong"
