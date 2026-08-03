@@ -185,12 +185,17 @@
 .auth-card-message p:last-child {
   margin-bottom: 0;
 }
-.auth-card-message a {
+/* :not(.auth-submit) matters here: the "Sign In" link in the verified state
+   reuses .auth-submit's solid-button styling (white text on an indigo
+   background) — without this exclusion, this higher-specificity rule
+   overrode its text back to the same indigo as the background, making the
+   label invisible until :hover changed the background shade. */
+.auth-card-message a:not(.auth-submit) {
   color: #2f2cd8;
   font-weight: 600;
   text-decoration: none;
 }
-.auth-card-message a:hover {
+.auth-card-message a:not(.auth-submit):hover {
   text-decoration: underline;
 }
 
