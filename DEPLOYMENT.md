@@ -3,7 +3,7 @@
 This covers two paths:
 
 - **Path A — Self-hosted** (a VPS, Oracle Cloud's Always Free tier, any bare Docker host): uses `docker-compose.prod.yml`, which also runs a Caddy reverse proxy (automatic TLS) and a cron container for the account hard-delete sweep. You manage everything yourself; it's the lowest-cost option.
-- **Path B — Managed platforms** (Vercel + Fly.io + Neon, or Railway): each platform builds `backend/Dockerfile` / `frontend/Dockerfile` directly. Less to manage, but TLS, cron, and Postgres are each a separate platform feature you configure instead of code you run.
+- **Path B — Managed platforms** (Vercel + Render + Neon, or Railway): each platform builds `backend/Dockerfile` / `frontend/Dockerfile` directly. Less to manage, but TLS, cron, and Postgres are each a separate platform feature you configure instead of code you run.
 
 Do the **manual pre-deployment steps** below regardless of which path you choose — they're not automatable and skipping them is the difference between "deployed" and "deployed safely."
 
@@ -112,7 +112,7 @@ Migrations re-run automatically on the backend/cron containers' next start (idem
 
 ## 3. Path B: Managed platforms (recommended for lowest cost / least ops)
 
-My recommendation for this app specifically: **Vercel (frontend) + Fly.io (backend) + Neon (Postgres)** — all have workable free tiers, all handle TLS automatically, and Fly.io's free allowance covers an always-on instance (unlike Render's free tier, which cold-starts after inactivity — that would make the notifications header badge feel sluggish on first load after idle).
+**Vercel (frontend) + Render (backend) + Neon (Postgres)** — all have genuinely free tiers with no payment method required. (Fly.io was the original recommendation here, but as of this writing it requires a card on file before provisioning *any* machine, even within its free monthly allowance — a real blocker if you want zero-card hosting. Render's free web-service tier does cold-start after ~15 minutes of inactivity, so the first request after idle takes 30-50s; for a personal/household app that's a minor UX cost, not a blocker.)
 
 ### 3.1 Database — Neon
 
@@ -122,52 +122,31 @@ My recommendation for this app specifically: **Vercel (frontend) + Fly.io (backe
    (Neon gives you a `postgresql://` string — just add `+psycopg` after `postgresql`.)
 3. Keep this — it's your `DATABASE_URL`.
 
-### 3.2 Backend — Fly.io
+### 3.2 Backend — Render
 
-Install `flyctl` (the `fly` command below is its alias, added to your PATH by the installer):
+1. Push this repo to GitHub (Render deploys from a connected repo — it doesn't take a local CLI push).
+2. In the Render dashboard: **New → Web Service**, connect the repo.
+3. **Root Directory**: `backend`. Render auto-detects `backend/Dockerfile` and uses it directly — no extra config needed there.
+4. **Instance Type**: Free.
+5. Under **Environment**, add:
+   ```
+   DATABASE_URL=postgresql+psycopg://...from Neon...
+   SECRET_KEY=<generate per §1.1>
+   COOKIE_SECURE=true
+   FRONTEND_BASE_URL=https://your-app.vercel.app
+   ANTHROPIC_API_KEY=...   # optional
+   ```
+6. Deploy. Migrations run automatically — `backend/entrypoint.sh` calls `alembic upgrade head` before uvicorn starts on every boot, so there's no separate "release command" step to configure.
+7. Render gives you a URL like `https://billwise-backend.onrender.com` with TLS already handled.
 
-```bash
-# macOS:
-brew install flyctl
+**Cron on Render**: Render's Cron Jobs product is not part of its free plan. Since the account hard-delete script (`scripts/hard_delete_expired_accounts.py`) only needs `DATABASE_URL` and the repo's code — not anything running *inside* the Render container specifically — the genuinely free option is a **GitHub Actions scheduled workflow** that checks out the repo and runs the script directly against your Neon database. This repo includes `.github/workflows/hard-delete-expired-accounts.yml` for exactly this. To enable it:
 
-# Linux / WSL:
-curl -L https://fly.io/install.sh | sh
-# then either open a new terminal, or: source ~/.bashrc
-```
+1. In your GitHub repo settings → **Secrets and variables → Actions**, add:
+   - `DATABASE_URL` — the same Neon connection string as above
+   - `SECRET_KEY` — the same value as set on Render (the script imports app config, which requires this field to be present, even though the script itself doesn't use it)
+2. That's it — it runs daily on GitHub's schedule automatically. Trigger it manually anytime from the Actions tab (`workflow_dispatch`) to verify it works before waiting for the schedule.
 
-```bash
-fly auth login
-cd backend
-fly launch --no-deploy   # creates fly.toml; say no to auto-detected Postgres, you're using Neon
-```
-
-Set secrets (Fly's equivalent of environment variables — never put these in `fly.toml`):
-
-```bash
-fly secrets set \
-  DATABASE_URL="postgresql+psycopg://...from Neon..." \
-  SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')" \
-  COOKIE_SECURE=true \
-  FRONTEND_BASE_URL="https://your-app.vercel.app" \
-  ANTHROPIC_API_KEY="..."
-```
-
-Migrations: add a `[deploy]` release command to `fly.toml` so it runs before each new version goes live:
-
-```toml
-[deploy]
-  release_command = "alembic upgrade head"
-```
-
-(`backend/entrypoint.sh` still runs it redundantly on every boot too — harmless, since `alembic upgrade head` is a no-op when already current.)
-
-```bash
-fly deploy
-```
-
-Fly.io terminates TLS automatically for the `*.fly.dev` domain it gives you (or your own custom domain via `fly certs add`).
-
-**Cron on Fly.io**: use a separate Fly Machine scheduled to run on an interval, or Fly's [Machines API scheduled runs](https://fly.io/docs/machines/) to invoke `python -m scripts.hard_delete_expired_accounts` daily. This is a platform-specific setup step — there's no single `fly cron` command; check Fly's current docs, since this feature has moved between their product tiers.
+If you're on a platform that *does* offer free cron (or you're on Path A), you don't need this workflow — disable it or ignore it.
 
 ### 3.3 Frontend — Vercel
 
@@ -179,12 +158,12 @@ npx vercel
 In the Vercel dashboard, set the environment variable:
 
 ```
-NEXT_PUBLIC_API_BASE_URL=https://your-backend.fly.dev
+NEXT_PUBLIC_API_BASE_URL=https://billwise-backend.onrender.com
 ```
 
 Vercel rebuilds the frontend when you change this (remember: it's baked in at build time, see §5.2). Vercel handles TLS and the production Next.js build automatically — it does not use `frontend/Dockerfile` at all (that Dockerfile matters for Path A / other Docker-based hosts, not Vercel).
 
-Set `FRONTEND_BASE_URL` back on the **backend** (Fly.io secret) to your real Vercel URL once you have it, so CORS allows it.
+Set `FRONTEND_BASE_URL` back on the **backend** (Render environment variable) to your real Vercel URL once you have it, so CORS allows it.
 
 ### 3.4 Alternative: Railway (single provider, simplest wiring)
 
@@ -234,6 +213,6 @@ Four dashboard endpoints (`monthly`, `category-breakdown`, `payment-method-break
 - [ ] `curl https://<your-api-domain>/health` returns `{"status":"ok"}`
 - [ ] Sign up a real account through the actual frontend URL and confirm the verification email flow works (or check `backend` logs if you haven't wired a real email provider — this app's email sending config is a separate thing to verify per your provider)
 - [ ] Confirm `SECRET_KEY` warning is **gone** from backend startup logs
-- [ ] Confirm the account hard-delete cron is actually running (check logs 24h after deploy, or on Fly.io check the scheduled Machine run history)
+- [ ] Confirm the account hard-delete cron is actually running (Path A: check `docker compose -f docker-compose.prod.yml logs cron` 24h after deploy; Path B/Render: manually trigger the GitHub Actions workflow once from the Actions tab and confirm it succeeds, then check back after the first scheduled run)
 - [ ] Confirm `Strict-Transport-Security` and `content-security-policy` headers are present on the live frontend (`curl -sI https://<your-app-domain>/`)
 - [ ] Bookmark `docker compose -f docker-compose.prod.yml logs -f` (Path A) or your platform's log viewer (Path B) — you'll want it the first time something goes wrong
