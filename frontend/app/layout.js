@@ -33,7 +33,11 @@ export default function RootLayout({ children }) {
 
     return (
         <html lang="en">
-            <link rel="icon" href="/images/favicon.png" sizes="16" />
+            {/* ?v=2 cache-busts the favicon after a recolor -- browsers cache
+                favicons far more aggressively than other assets and often
+                ignore a plain hard refresh; bump this whenever the file
+                changes again. */}
+            <link rel="icon" href="/images/favicon.png?v=2" sizes="16" />
             <body className={rubik.className}>
                 {children}
             </body>
