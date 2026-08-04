@@ -7,6 +7,7 @@ import useSWR from "swr"
 import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmptyState from "@/components/elements/EmptyState"
 import SharingBadge from "@/components/elements/SharingBadge"
+import TypeMultiSelect from "@/components/elements/TypeMultiSelect"
 import AnalyticsMenu from "@/components/layout/AnalyticsMenu"
 import Layout from "@/components/layout/Layout"
 import { categoriesApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
@@ -235,21 +236,12 @@ function TransactionHistoryContent() {
                                         </div>
                                         <div className="col-md-2">
                                             <label className="form-label" htmlFor="filter-type">Type</label>
-                                            <select
+                                            <TypeMultiSelect
                                                 id="filter-type"
-                                                className="form-select"
-                                                multiple
+                                                options={TRANSACTION_TYPES}
                                                 value={transactionTypes}
-                                                onChange={(event) =>
-                                                    setTransactionTypes(
-                                                        Array.from(event.target.selectedOptions, (option) => option.value)
-                                                    )
-                                                }
-                                            >
-                                                {TRANSACTION_TYPES.map((type) => (
-                                                    <option key={type} value={type}>{type}</option>
-                                                ))}
-                                            </select>
+                                                onChange={setTransactionTypes}
+                                            />
                                         </div>
                                         <div className="col-md-2">
                                             <label className="form-label" htmlFor="filter-amount-min">Min amount</label>

@@ -1,14 +1,32 @@
 "use client"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ocrApi } from "@/lib/api"
+import { usePlatformView } from "@/hooks/usePlatformView"
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 const ACCEPTED_TYPES = "image/jpeg,image/png,image/heic,image/heif,application/pdf"
+// Matches the app's existing mobile/PC layout breakpoint (see usePlatformView.js).
+const MOBILE_BREAKPOINT_QUERY = "(max-width: 767px)"
 
 export default function ReceiptUploadPanel({ onExtracted, onCancel }) {
     const [selectedFile, setSelectedFile] = useState(null)
     const [isScanning, setIsScanning] = useState(false)
     const [error, setError] = useState(null)
+    const { platformView } = usePlatformView()
+    const [isNarrowViewport, setIsNarrowViewport] = useState(false)
+
+    useEffect(() => {
+        const mediaQuery = window.matchMedia(MOBILE_BREAKPOINT_QUERY)
+        setIsNarrowViewport(mediaQuery.matches)
+        const handleChange = (event) => setIsNarrowViewport(event.matches)
+        mediaQuery.addEventListener("change", handleChange)
+        return () => mediaQuery.removeEventListener("change", handleChange)
+    }, [])
+
+    // PRD v2 §7.1: native camera picker on mobile, not a custom viewfinder --
+    // an explicit sidebar/bottom-nav override (platformView) wins over the
+    // real viewport width; "Auto" (null) follows the actual width.
+    const isMobile = platformView === "mobile" || (platformView === null && isNarrowViewport)
 
     function handleFileChange(event) {
         const file = event.target.files?.[0] ?? null
@@ -45,6 +63,7 @@ export default function ReceiptUploadPanel({ onExtracted, onCancel }) {
                 type="file"
                 className="form-control"
                 accept={ACCEPTED_TYPES}
+                capture={isMobile ? "environment" : undefined}
                 onChange={handleFileChange}
                 disabled={isScanning}
                 aria-label="Receipt file"
