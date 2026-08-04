@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from sqlmodel import delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import require_owner
+from app.api.deps import require_owner_or_co_owner
 from app.core.audit import log_audit_event
 from app.core.config import settings
 from app.core.db import get_session
@@ -62,7 +62,7 @@ async def _issue_link(
 
 @router.get("/transactions.csv", response_model=ExportLinkPublic)
 async def export_transactions_csv(
-    request: Request, user: User = Depends(require_owner), session: AsyncSession = Depends(get_session)
+    request: Request, user: User = Depends(require_owner_or_co_owner), session: AsyncSession = Depends(get_session)
 ) -> ExportLinkPublic:
     content = await build_transactions_csv(session, user)
     return await _issue_link(session, user, ExportType.CSV, "transactions.csv", content, request)
@@ -73,7 +73,7 @@ async def export_monthly_report_xlsx(
     request: Request,
     month: int = Query(ge=1, le=12),
     year: int = Query(ge=2000, le=2100),
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> ExportLinkPublic:
     content = await build_monthly_report_xlsx(session, user, month, year)
@@ -86,7 +86,7 @@ async def export_monthly_report_pdf(
     month: int = Query(ge=1, le=12),
     year: int = Query(ge=2000, le=2100),
     password: str | None = Query(default=None, min_length=4, max_length=128),
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> ExportLinkPublic:
     content = await build_monthly_report_pdf(session, user, month, year, password)

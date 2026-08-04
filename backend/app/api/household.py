@@ -61,6 +61,9 @@ async def get_household(
             can_add_transactions=permissions_by_partner[partner.id].can_add_transactions
             if partner.id in permissions_by_partner
             else False,
+            is_co_owner=permissions_by_partner[partner.id].is_co_owner
+            if partner.id in permissions_by_partner
+            else False,
             is_active=partner.is_active,
             joined_at=partner.created_at,
         )
@@ -105,6 +108,7 @@ async def invite_partner(
         invited_by_user_id=user.id,
         email=body.email,
         can_add_transactions=body.can_add_transactions,
+        is_co_owner=body.is_co_owner,
         token_hash=hash_token(token),
         expires_at=now + timedelta(hours=settings.partner_invite_token_expire_hours),
     )
@@ -150,7 +154,13 @@ async def accept_invite(
     session.add(partner)
     await session.flush()
 
-    session.add(PartnerPermission(partner_user_id=partner.id, can_add_transactions=invite.can_add_transactions))
+    session.add(
+        PartnerPermission(
+            partner_user_id=partner.id,
+            can_add_transactions=invite.can_add_transactions,
+            is_co_owner=invite.is_co_owner,
+        )
+    )
     invite.accepted_at = now
     session.add(invite)
 
@@ -222,9 +232,14 @@ async def update_partner_permissions(
         await session.exec(select(PartnerPermission).where(PartnerPermission.partner_user_id == partner.id))
     ).first()
     if permission is None:
-        permission = PartnerPermission(partner_user_id=partner.id, can_add_transactions=body.can_add_transactions)
+        permission = PartnerPermission(
+            partner_user_id=partner.id,
+            can_add_transactions=body.can_add_transactions,
+            is_co_owner=body.is_co_owner,
+        )
     else:
         permission.can_add_transactions = body.can_add_transactions
+        permission.is_co_owner = body.is_co_owner
         permission.updated_at = utcnow()
     session.add(permission)
     await session.commit()
@@ -235,7 +250,7 @@ async def update_partner_permissions(
         user_id=user.id,
         entity_type="user",
         entity_id=partner_id,
-        metadata={"can_add_transactions": body.can_add_transactions},
+        metadata={"can_add_transactions": body.can_add_transactions, "is_co_owner": body.is_co_owner},
         request=request,
     )
     return PartnerPublic(
@@ -243,6 +258,7 @@ async def update_partner_permissions(
         email=partner.email,
         display_name=partner.display_name,
         can_add_transactions=permission.can_add_transactions,
+        is_co_owner=permission.is_co_owner,
         is_active=partner.is_active,
         joined_at=partner.created_at,
     )

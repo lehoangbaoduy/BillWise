@@ -6,7 +6,7 @@ from sqlalchemy import extract, func
 from sqlmodel import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import household_owner_id, require_can_add_transactions, require_household_member, require_owner
+from app.api.deps import household_owner_id, require_can_add_transactions, require_household_member, require_owner_or_co_owner
 from app.core.audit import log_audit_event
 from app.core.db import get_session
 from app.models._common import utcnow
@@ -30,8 +30,13 @@ _MAX_LIMIT = 200
 
 
 async def _get_owned_or_404(session: AsyncSession, user: User, transaction_id: uuid.UUID) -> Transaction:
+    """Compares against household_owner_id(user), not user.id directly --
+    transactions are always stored under the owner's user_id, so a straight
+    user.id comparison would 404 for a co-owner (a PARTNER-role user granted
+    require_owner_or_co_owner access) even on a transaction they're allowed
+    to manage."""
     transaction = await session.get(Transaction, transaction_id)
-    if transaction is None or transaction.user_id != user.id:
+    if transaction is None or transaction.user_id != household_owner_id(user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
     return transaction
 
@@ -164,7 +169,7 @@ async def create_transaction(
 @router.get("/{transaction_id}", response_model=TransactionPublic)
 async def get_transaction(
     transaction_id: uuid.UUID,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> TransactionPublic:
     transaction = await _get_owned_or_404(session, user, transaction_id)
@@ -176,7 +181,7 @@ async def update_transaction(
     request: Request,
     transaction_id: uuid.UUID,
     body: TransactionUpdate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> TransactionPublic:
     transaction = await _get_owned_or_404(session, user, transaction_id)
@@ -249,7 +254,7 @@ async def update_transaction(
 async def delete_transaction(
     request: Request,
     transaction_id: uuid.UUID,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> None:
     transaction = await _get_owned_or_404(session, user, transaction_id)

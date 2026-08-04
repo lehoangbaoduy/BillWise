@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import require_owner
+from app.api.deps import household_owner_id, require_owner_or_co_owner
 from app.core.audit import log_audit_event
 from app.core.db import get_session
 from app.models._common import utcnow
@@ -25,7 +25,8 @@ _REGENERATION_INTERVAL = timedelta(hours=24)
 
 
 async def _latest_generated_at(session: AsyncSession, user: User):
-    return (await session.exec(select(func.max(AIInsight.generated_at)).where(AIInsight.user_id == user.id))).one()
+    owner_id = household_owner_id(user)
+    return (await session.exec(select(func.max(AIInsight.generated_at)).where(AIInsight.user_id == owner_id))).one()
 
 
 async def _generate_and_persist(session: AsyncSession, user: User, request: Request | None) -> None:
@@ -43,7 +44,7 @@ async def _generate_and_persist(session: AsyncSession, user: User, request: Requ
     for item in items:
         session.add(
             AIInsight(
-                user_id=user.id,
+                user_id=household_owner_id(user),
                 insight_type=item["insight_type"],
                 message=item["message"],
                 supporting_data=item["supporting_data"],
@@ -57,7 +58,7 @@ async def _generate_and_persist(session: AsyncSession, user: User, request: Requ
 @router.get("/dashboard/ai-insights", response_model=list[AIInsightPublic])
 async def get_ai_insights(
     request: Request,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> list[AIInsight]:
     latest_generated_at = await _latest_generated_at(session, user)
@@ -69,7 +70,7 @@ async def get_ai_insights(
         return []
 
     statement = select(AIInsight).where(
-        AIInsight.user_id == user.id,
+        AIInsight.user_id == household_owner_id(user),
         AIInsight.generated_at == latest_generated_at,
         AIInsight.is_dismissed == False,  # noqa: E712
     )
@@ -80,11 +81,11 @@ async def get_ai_insights(
 async def update_ai_insight(
     insight_id: uuid.UUID,
     body: AIInsightUpdate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> AIInsight:
     insight = await session.get(AIInsight, insight_id)
-    if insight is None or insight.user_id != user.id:
+    if insight is None or insight.user_id != household_owner_id(user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
     insight.is_dismissed = body.is_dismissed
     session.add(insight)

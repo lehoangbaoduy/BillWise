@@ -19,6 +19,7 @@ from app.api.goals import list_goals
 from app.api.payment_methods import list_payment_methods
 from app.api.recurring_bills import list_recurring_bills
 from app.api.transactions import list_transactions
+from app.api.deps import household_owner_id
 from app.models.ai_insight import AIInsight
 from app.models.user import User
 
@@ -30,13 +31,14 @@ async def latest_ai_insights(session: AsyncSession, user: User) -> list[AIInsigh
     triggers a real Anthropic API call when its 24h cache is stale. Export
     generation must never trigger an unwanted paid API call or add multi-second
     latency; it just reports whatever insights already exist."""
+    owner_id = household_owner_id(user)
     latest_generated_at = (
-        await session.exec(select(func.max(AIInsight.generated_at)).where(AIInsight.user_id == user.id))
+        await session.exec(select(func.max(AIInsight.generated_at)).where(AIInsight.user_id == owner_id))
     ).one()
     if latest_generated_at is None:
         return []
     statement = select(AIInsight).where(
-        AIInsight.user_id == user.id,
+        AIInsight.user_id == owner_id,
         AIInsight.generated_at == latest_generated_at,
         AIInsight.is_dismissed == False,  # noqa: E712
     )

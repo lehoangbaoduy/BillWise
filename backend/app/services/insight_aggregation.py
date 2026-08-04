@@ -10,6 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.cashback import get_cashback_summary
 from app.api.dashboard import category_expense_spend, previous_period, sum_by_type
+from app.api.deps import household_owner_id
 from app.api.goals import list_goals
 from app.models.budget import Budget
 from app.models.category import Category
@@ -40,7 +41,9 @@ async def _monthly_expense_trend(session: AsyncSession, user: User, month: int, 
 
 async def _budget_status(session: AsyncSession, user: User, month: int, year: int, spend_by_category: dict) -> list[dict]:
     budgets = (
-        await session.exec(select(Budget).where(Budget.user_id == user.id, Budget.month == month, Budget.year == year))
+        await session.exec(
+            select(Budget).where(Budget.user_id == household_owner_id(user), Budget.month == month, Budget.year == year)
+        )
     ).all()
     if not budgets:
         return []
@@ -60,7 +63,11 @@ async def _budget_status(session: AsyncSession, user: User, month: int, year: in
 
 async def _recurring_bill_summary(session: AsyncSession, user: User, monthly_expenses: Decimal) -> dict:
     bills = (
-        await session.exec(select(RecurringBill).where(RecurringBill.user_id == user.id, RecurringBill.is_active == True))  # noqa: E712
+        await session.exec(
+            select(RecurringBill).where(
+                RecurringBill.user_id == household_owner_id(user), RecurringBill.is_active == True  # noqa: E712
+            )
+        )
     ).all()
     # Only monthly-frequency bills are comparable to a single month's total
     # expenses — weekly/quarterly/yearly amounts aren't the same unit, so they're

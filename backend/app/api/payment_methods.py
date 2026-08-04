@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import require_owner
+from app.api.deps import household_owner_id, require_owner_or_co_owner
 from app.core.audit import log_audit_event
 from app.core.db import get_session
 from app.models._common import utcnow
@@ -17,17 +17,17 @@ router = APIRouter(prefix="/payment-methods", tags=["payment-methods"])
 
 async def _get_owned_or_404(session: AsyncSession, user: User, payment_method_id: uuid.UUID) -> PaymentMethod:
     payment_method = await session.get(PaymentMethod, payment_method_id)
-    if payment_method is None or payment_method.user_id != user.id:
+    if payment_method is None or payment_method.user_id != household_owner_id(user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment method not found")
     return payment_method
 
 
 @router.get("", response_model=list[PaymentMethodPublic])
 async def list_payment_methods(
-    user: User = Depends(require_owner), session: AsyncSession = Depends(get_session)
+    user: User = Depends(require_owner_or_co_owner), session: AsyncSession = Depends(get_session)
 ) -> list[PaymentMethod]:
     statement = select(PaymentMethod).where(
-        PaymentMethod.user_id == user.id, PaymentMethod.is_active == True  # noqa: E712
+        PaymentMethod.user_id == household_owner_id(user), PaymentMethod.is_active == True  # noqa: E712
     )
     return (await session.exec(statement)).all()
 
@@ -36,10 +36,10 @@ async def list_payment_methods(
 async def create_payment_method(
     request: Request,
     body: PaymentMethodCreate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> PaymentMethod:
-    payment_method = PaymentMethod(user_id=user.id, **body.model_dump())
+    payment_method = PaymentMethod(user_id=household_owner_id(user), **body.model_dump())
     session.add(payment_method)
     await session.commit()
     await session.refresh(payment_method)
@@ -53,7 +53,7 @@ async def create_payment_method(
 @router.get("/{payment_method_id}", response_model=PaymentMethodPublic)
 async def get_payment_method(
     payment_method_id: uuid.UUID,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> PaymentMethod:
     return await _get_owned_or_404(session, user, payment_method_id)
@@ -64,7 +64,7 @@ async def update_payment_method(
     request: Request,
     payment_method_id: uuid.UUID,
     body: PaymentMethodUpdate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> PaymentMethod:
     payment_method = await _get_owned_or_404(session, user, payment_method_id)
@@ -86,7 +86,7 @@ async def update_payment_method(
 async def deactivate_payment_method(
     request: Request,
     payment_method_id: uuid.UUID,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> None:
     payment_method = await _get_owned_or_404(session, user, payment_method_id)

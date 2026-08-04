@@ -65,18 +65,44 @@ def household_owner_id(user: User) -> uuid.UUID:
     return user.id
 
 
+async def _partner_permission(user: User, session: AsyncSession) -> PartnerPermission | None:
+    return (
+        await session.exec(select(PartnerPermission).where(PartnerPermission.partner_user_id == user.id))
+    ).first()
+
+
+async def require_owner_or_co_owner(
+    user: User = Depends(require_household_member),
+    session: AsyncSession = Depends(get_session),
+) -> User:
+    """Gates financial-data management (budgets, goals, categories, payment
+    methods, recurring bills, cashback, transactions, exports, net worth, AI
+    insights, receipt scanning) to the owner or a partner explicitly promoted
+    to co-owner. Deliberately narrower than require_owner's other callers:
+    household administration (inviting/removing partners, the audit log,
+    account deletion) stays require_owner-only, since a co-owner managing
+    finances is a different privilege than a co-owner controlling who's in
+    the household or seeing its security trail."""
+    if user.role == UserRole.OWNER:
+        return user
+    permission = await _partner_permission(user, session)
+    if permission is None or not permission.is_co_owner:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner or co-owner access required")
+    return user
+
+
 async def require_can_add_transactions(
     user: User = Depends(require_household_member),
     session: AsyncSession = Depends(get_session),
 ) -> User:
     """PRD §21.3: an owner invites a partner with either view-only or
     can-add-transactions permission. Owners always pass; a partner must have an
-    explicit PartnerPermission row with can_add_transactions=True."""
+    explicit PartnerPermission row with can_add_transactions=True. A co-owner
+    always passes too -- it would be incoherent for someone with full
+    financial-data management access to be blocked from adding a transaction."""
     if user.role != UserRole.PARTNER:
         return user
-    permission = (
-        await session.exec(select(PartnerPermission).where(PartnerPermission.partner_user_id == user.id))
-    ).first()
-    if permission is None or not permission.can_add_transactions:
+    permission = await _partner_permission(user, session)
+    if permission is None or not (permission.can_add_transactions or permission.is_co_owner):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not permitted to add transactions")
     return user

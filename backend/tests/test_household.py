@@ -34,17 +34,19 @@ async def _authed_client(client, session, unique_email):
     return user
 
 
-async def _invite(client, email, can_add_transactions=False):
+async def _invite(client, email, can_add_transactions=False, is_co_owner=False):
     return await client.post(
-        "/household/invite-partner", json={"email": email, "can_add_transactions": can_add_transactions}
+        "/household/invite-partner",
+        json={"email": email, "can_add_transactions": can_add_transactions, "is_co_owner": is_co_owner},
     )
 
 
-async def _make_pending_invite(session, owner, email, can_add_transactions=False, **kwargs):
+async def _make_pending_invite(session, owner, email, can_add_transactions=False, is_co_owner=False, **kwargs):
     defaults = dict(
         invited_by_user_id=owner.id,
         email=email,
         can_add_transactions=can_add_transactions,
+        is_co_owner=is_co_owner,
         token_hash=hash_token(generate_token()),
         expires_at=utcnow() + timedelta(hours=1),
     )
@@ -209,6 +211,21 @@ class TestAcceptInvite:
         ).one()
         assert permission.can_add_transactions is True
 
+    async def test_creates_co_owner_permission_from_invite(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        partner_email = "partner-" + unique_email
+        token = generate_token()
+        await _make_pending_invite(session, owner, partner_email, is_co_owner=True, token_hash=hash_token(token))
+
+        response = await _accept(client, token, email=partner_email)
+        assert response.status_code == 201
+
+        partner = (await session.exec(select(User).where(User.email == partner_email))).one()
+        permission = (
+            await session.exec(select(PartnerPermission).where(PartnerPermission.partner_user_id == partner.id))
+        ).one()
+        assert permission.is_co_owner is True
+
     async def test_accepted_partner_can_log_in(self, client, session, unique_email):
         owner = await _create_verified_owner(session, unique_email)
         partner_email = "partner-" + unique_email
@@ -305,3 +322,24 @@ class TestUpdatePartnerPermissions:
         owner = await _authed_client(client, session, unique_email)
         response = await client.patch(f"/household/partner/{owner.id}/permissions", json={"can_add_transactions": True})
         assert response.status_code == 404
+
+    async def test_updates_co_owner_flag(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        partner_email = "partner-" + unique_email
+        token = generate_token()
+        await _make_pending_invite(session, owner, partner_email, is_co_owner=False, token_hash=hash_token(token))
+        accept_response = await _accept(client, token, email=partner_email)
+        partner_id = accept_response.json()["id"]
+
+        await _login(client, unique_email)
+        response = await client.patch(
+            f"/household/partner/{partner_id}/permissions",
+            json={"can_add_transactions": False, "is_co_owner": True},
+        )
+        assert response.status_code == 200
+        assert response.json()["is_co_owner"] is True
+
+        permission = (
+            await session.exec(select(PartnerPermission).where(PartnerPermission.partner_user_id == partner_id))
+        ).one()
+        assert permission.is_co_owner is True

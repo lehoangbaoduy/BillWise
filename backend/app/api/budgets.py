@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlmodel import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import household_owner_id, require_household_member, require_owner
+from app.api.deps import household_owner_id, require_household_member, require_owner_or_co_owner
 from app.core.audit import log_audit_event
 from app.core.db import get_session
 from app.models._common import utcnow
@@ -22,7 +22,7 @@ async def _validate_category(session: AsyncSession, user: User, category_id: uui
     category = await session.get(Category, category_id)
     if (
         category is None
-        or category.user_id != user.id
+        or category.user_id != household_owner_id(user)
         or not category.is_active
         or category.category_type != CategoryType.EXPENSE
     ):
@@ -31,7 +31,7 @@ async def _validate_category(session: AsyncSession, user: User, category_id: uui
 
 async def _get_owned_or_404(session: AsyncSession, user: User, budget_id: uuid.UUID) -> Budget:
     budget = await session.get(Budget, budget_id)
-    if budget is None or budget.user_id != user.id:
+    if budget is None or budget.user_id != household_owner_id(user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Budget not found")
     return budget
 
@@ -56,15 +56,16 @@ async def list_budgets(
 async def create_budget(
     request: Request,
     body: BudgetCreate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> Budget:
     await _validate_category(session, user, body.category_id)
+    owner_id = household_owner_id(user)
 
     existing = (
         await session.exec(
             select(Budget).where(
-                Budget.user_id == user.id,
+                Budget.user_id == owner_id,
                 Budget.category_id == body.category_id,
                 Budget.month == body.month,
                 Budget.year == body.year,
@@ -77,7 +78,7 @@ async def create_budget(
             detail="A budget already exists for this category and month",
         )
 
-    budget = Budget(user_id=user.id, **body.model_dump())
+    budget = Budget(user_id=owner_id, **body.model_dump())
     session.add(budget)
     await session.commit()
     await session.refresh(budget)
@@ -93,7 +94,7 @@ async def update_budget(
     request: Request,
     budget_id: uuid.UUID,
     body: BudgetUpdate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> Budget:
     budget = await _get_owned_or_404(session, user, budget_id)
@@ -113,7 +114,7 @@ async def update_budget(
 async def delete_budget(
     request: Request,
     budget_id: uuid.UUID,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> None:
     budget = await _get_owned_or_404(session, user, budget_id)

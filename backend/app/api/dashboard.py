@@ -2,15 +2,18 @@
 shared categories only; payment methods and net worth stay owner-only
 regardless of sharing).
 
-Two scoping conventions coexist here by design:
+Two scoping conventions coexist here by design -- both derive
+`owner_id = household_owner_id(user)` rather than using `user.id` directly,
+since a co-owner (a PARTNER-role user granted require_owner_or_co_owner
+access) has a different id than the household's data:
 - Partner-visible helpers (sum_by_type, category_expense_spend, and the
-  monthly/yearly/category-breakdown/cash-flow endpoints) accept `user`,
-  derive `owner_id = household_owner_id(user)` internally, and call
-  apply_partner_transaction_visibility() to exclude private-category data.
-- Owner-only helpers (_payment_method_expense_spend, net_worth_dashboard,
-  payment_method_breakdown) use `user.id` directly and must only ever be
-  called from a `require_owner`-gated endpoint, where user.id IS the
-  household owner's id.
+  monthly/yearly/category-breakdown/cash-flow endpoints) additionally call
+  apply_partner_transaction_visibility() to exclude private-category data
+  for a plain (non-co-owner) partner.
+- Owner-or-co-owner-only helpers (_payment_method_expense_spend,
+  net_worth_dashboard, payment_method_breakdown) skip that visibility
+  filtering entirely and must only ever be called from a
+  `require_owner_or_co_owner`-gated endpoint.
 A new helper should pick whichever convention matches its endpoint's auth
 dependency, not mix the two.
 """
@@ -23,7 +26,7 @@ from sqlalchemy import extract
 from sqlmodel import and_, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import household_owner_id, require_household_member, require_owner
+from app.api.deps import household_owner_id, require_household_member, require_owner_or_co_owner
 from app.api.net_worth import load_balances_by_snapshot, to_snapshot_public
 from app.core.config import settings
 from app.core.db import get_session
@@ -103,9 +106,11 @@ async def category_expense_spend(session: AsyncSession, user: User, month: int, 
 
 
 async def _payment_method_expense_spend(session: AsyncSession, user: User, month: int, year: int) -> list[tuple]:
-    """Owner-only caller (payment_method_breakdown) — no partner-visibility
+    """Owner-or-co-owner caller (payment_method_breakdown) — no partner-visibility
     scoping needed since payment methods stay owner-only regardless of
-    sharing (PRD §21.4)."""
+    sharing (PRD §21.4); a co-owner sees the same household-scoped data an
+    owner would, via household_owner_id rather than their own user.id."""
+    owner_id = household_owner_id(user)
     statement = (
         select(
             PaymentMethod.id,
@@ -118,8 +123,8 @@ async def _payment_method_expense_spend(session: AsyncSession, user: User, month
         .select_from(Transaction)
         .join(PaymentMethod, PaymentMethod.id == Transaction.payment_method_id)
         .where(
-            Transaction.user_id == user.id,
-            PaymentMethod.user_id == user.id,
+            Transaction.user_id == owner_id,
+            PaymentMethod.user_id == owner_id,
             extract("month", Transaction.date) == month,
             extract("year", Transaction.date) == year,
             Transaction.transaction_type == TransactionType.EXPENSE,
@@ -373,7 +378,7 @@ async def category_breakdown(
 async def payment_method_breakdown(
     month: int = Query(ge=1, le=12),
     year: int = Query(ge=2000, le=2100),
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> list[PaymentMethodBreakdownItem]:
     rows = await _payment_method_expense_spend(session, user, month, year)
@@ -412,12 +417,14 @@ async def cash_flow(
 # Not rate-limited — also called directly by export_service.py (see
 # monthly_overview's comment above).
 async def net_worth_dashboard(
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> NetWorthDashboard:
     snapshots = (
         await session.exec(
-            select(NetWorthSnapshot).where(NetWorthSnapshot.user_id == user.id).order_by(NetWorthSnapshot.snapshot_date)
+            select(NetWorthSnapshot)
+            .where(NetWorthSnapshot.user_id == household_owner_id(user))
+            .order_by(NetWorthSnapshot.snapshot_date)
         )
     ).all()
     if not snapshots:

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import require_owner
+from app.api.deps import household_owner_id, require_owner_or_co_owner
 from app.core.db import get_session
 from app.models._common import utcnow
 from app.models.category import Category, CategoryType
@@ -30,7 +30,7 @@ _NOT_NULLABLE_UPDATE_FIELDS = {"payment_method_id", "category_id", "name", "amou
 
 async def _validate_expense_category(session: AsyncSession, user: User, category_id: uuid.UUID) -> None:
     category = await session.get(Category, category_id)
-    if category is None or category.user_id != user.id or not category.is_active:
+    if category is None or category.user_id != household_owner_id(user) or not category.is_active:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid category")
     if category.category_type != CategoryType.EXPENSE:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Recurring bills require an expense category")
@@ -38,7 +38,7 @@ async def _validate_expense_category(session: AsyncSession, user: User, category
 
 async def _get_owned_active_or_404(session: AsyncSession, user: User, bill_id: uuid.UUID) -> RecurringBill:
     bill = await session.get(RecurringBill, bill_id)
-    if bill is None or bill.user_id != user.id or not bill.is_active:
+    if bill is None or bill.user_id != household_owner_id(user) or not bill.is_active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recurring bill not found")
     return bill
 
@@ -70,12 +70,13 @@ def _to_public(bill: RecurringBill, payments: list[RecurringBillPayment]) -> Rec
 
 @router.get("", response_model=list[RecurringBillPublic])
 async def list_recurring_bills(
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> list[RecurringBillPublic]:
-    await ensure_recurring_bill_state(session, user.id)
+    owner_id = household_owner_id(user)
+    await ensure_recurring_bill_state(session, owner_id)
     bills = (
-        await session.exec(select(RecurringBill).where(RecurringBill.user_id == user.id, RecurringBill.is_active == True))  # noqa: E712
+        await session.exec(select(RecurringBill).where(RecurringBill.user_id == owner_id, RecurringBill.is_active == True))  # noqa: E712
     ).all()
     if not bills:
         return []
@@ -94,7 +95,7 @@ async def list_recurring_bills(
 @router.post("", response_model=RecurringBillPublic, status_code=status.HTTP_201_CREATED)
 async def create_recurring_bill(
     body: RecurringBillCreate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> RecurringBillPublic:
     await validate_payment_method(session, user, body.payment_method_id)
@@ -111,7 +112,7 @@ async def create_recurring_bill(
         )
 
     bill = RecurringBill(
-        user_id=user.id,
+        user_id=household_owner_id(user),
         payment_method_id=body.payment_method_id,
         category_id=body.category_id,
         name=body.name,
@@ -136,7 +137,7 @@ async def create_recurring_bill(
 async def update_recurring_bill(
     bill_id: uuid.UUID,
     body: RecurringBillUpdate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> RecurringBillPublic:
     bill = await _get_owned_active_or_404(session, user, bill_id)
@@ -192,7 +193,7 @@ async def update_recurring_bill(
 @router.delete("/{bill_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def deactivate_recurring_bill(
     bill_id: uuid.UUID,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> None:
     bill = await _get_owned_active_or_404(session, user, bill_id)
@@ -207,7 +208,7 @@ async def mark_recurring_bill_paid(
     request: Request,
     bill_id: uuid.UUID,
     body: MarkPaidRequest,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> RecurringBillPublic:
     bill = await _get_owned_active_or_404(session, user, bill_id)

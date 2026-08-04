@@ -5,7 +5,7 @@ from typing import TypeVar
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import require_owner
+from app.api.deps import require_owner_or_co_owner
 from app.core.audit import log_audit_event
 from app.core.config import settings
 from app.core.db import get_session
@@ -74,7 +74,7 @@ async def _extract_statement(file_bytes: bytes, content_type: str) -> StatementE
 async def scan_receipt(
     request: Request,
     file: UploadFile,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> ReceiptExtractionResult:
     file_bytes, content_type = await _read_and_validate_upload(request, file)
@@ -88,7 +88,7 @@ async def scan_receipt(
 async def scan_statement(
     request: Request,
     file: UploadFile,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
 ) -> StatementExtractionResult:
     """Stateless extraction only (PRD §11.4) — never writes to payment_methods. The
     client applies the reviewed/edited balance via the existing
@@ -102,7 +102,7 @@ async def scan_statement(
 async def confirm_transaction(
     request: Request,
     body: TransactionCreate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> TransactionPublic:
     """Creates the real Transaction from the user-reviewed/edited OCR extraction.

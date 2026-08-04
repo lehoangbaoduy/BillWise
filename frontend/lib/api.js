@@ -211,10 +211,10 @@ export const notificationsApi = {
 
 export const householdApi = {
   get: () => request("/household"),
-  invitePartner: (email, canAddTransactions) =>
+  invitePartner: (email, canAddTransactions, isCoOwner = false) =>
     request("/household/invite-partner", {
       method: "POST",
-      body: JSON.stringify({ email, can_add_transactions: canAddTransactions }),
+      body: JSON.stringify({ email, can_add_transactions: canAddTransactions, is_co_owner: isCoOwner }),
     }),
   acceptInvite: (token, password, displayName) =>
     request("/household/accept-invite", {
@@ -222,10 +222,10 @@ export const householdApi = {
       body: JSON.stringify({ token, password, display_name: displayName }),
     }),
   removePartner: (id) => request(`/household/partner/${id}`, { method: "DELETE" }),
-  updatePermissions: (id, canAddTransactions) =>
+  updatePermissions: (id, canAddTransactions, isCoOwner = false) =>
     request(`/household/partner/${id}/permissions`, {
       method: "PATCH",
-      body: JSON.stringify({ can_add_transactions: canAddTransactions }),
+      body: JSON.stringify({ can_add_transactions: canAddTransactions, is_co_owner: isCoOwner }),
     }),
 }
 

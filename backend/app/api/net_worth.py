@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import require_owner
+from app.api.deps import household_owner_id, require_owner_or_co_owner
 from app.core.db import get_session
 from app.models._common import utcnow
 from app.models.net_worth import NetWorthAccount, NetWorthAccountType, NetWorthBalance, NetWorthSnapshot
@@ -26,27 +26,29 @@ _ZERO = Decimal("0")
 
 async def _get_owned_active_account_or_404(session: AsyncSession, user: User, account_id: uuid.UUID) -> NetWorthAccount:
     account = await session.get(NetWorthAccount, account_id)
-    if account is None or account.user_id != user.id or not account.is_active:
+    if account is None or account.user_id != household_owner_id(user) or not account.is_active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Net worth account not found")
     return account
 
 
 @router.get("/net-worth-accounts", response_model=list[NetWorthAccountPublic])
 async def list_net_worth_accounts(
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> list[NetWorthAccount]:
-    statement = select(NetWorthAccount).where(NetWorthAccount.user_id == user.id, NetWorthAccount.is_active == True)  # noqa: E712
+    statement = select(NetWorthAccount).where(
+        NetWorthAccount.user_id == household_owner_id(user), NetWorthAccount.is_active == True  # noqa: E712
+    )
     return (await session.exec(statement)).all()
 
 
 @router.post("/net-worth-accounts", response_model=NetWorthAccountPublic, status_code=status.HTTP_201_CREATED)
 async def create_net_worth_account(
     body: NetWorthAccountCreate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> NetWorthAccount:
-    account = NetWorthAccount(user_id=user.id, name=body.name, type=body.type)
+    account = NetWorthAccount(user_id=household_owner_id(user), name=body.name, type=body.type)
     session.add(account)
     await session.commit()
     await session.refresh(account)
@@ -57,7 +59,7 @@ async def create_net_worth_account(
 async def update_net_worth_account(
     account_id: uuid.UUID,
     body: NetWorthAccountUpdate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> NetWorthAccount:
     account = await _get_owned_active_account_or_404(session, user, account_id)
@@ -80,7 +82,7 @@ async def update_net_worth_account(
 @router.delete("/net-worth-accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def deactivate_net_worth_account(
     account_id: uuid.UUID,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> None:
     account = await _get_owned_active_account_or_404(session, user, account_id)
@@ -136,15 +138,16 @@ def to_snapshot_public(snapshot: NetWorthSnapshot, balances: list[NetWorthBalanc
 @router.post("/net-worth-snapshots", response_model=NetWorthSnapshotPublic, status_code=status.HTTP_201_CREATED)
 async def create_net_worth_snapshot(
     body: NetWorthSnapshotCreate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> NetWorthSnapshotPublic:
     """PRD §24.11: 'manual asset/liability entry, monthly snapshot'. A snapshot
     must cover every active account — a partial snapshot would silently
     understate net worth, which the PRD's total-based framing (§18.7:
     Net Worth = Total Assets − Total Liabilities) doesn't intend."""
+    owner_id = household_owner_id(user)
     accounts = (
-        await session.exec(select(NetWorthAccount).where(NetWorthAccount.user_id == user.id, NetWorthAccount.is_active == True))  # noqa: E712
+        await session.exec(select(NetWorthAccount).where(NetWorthAccount.user_id == owner_id, NetWorthAccount.is_active == True))  # noqa: E712
     ).all()
     if not accounts:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No active net worth accounts to snapshot")
@@ -172,7 +175,7 @@ async def create_net_worth_snapshot(
             total_liabilities += entry.balance
 
     snapshot = NetWorthSnapshot(
-        user_id=user.id,
+        user_id=owner_id,
         snapshot_date=body.snapshot_date,
         total_assets=total_assets,
         total_liabilities=total_liabilities,
@@ -192,12 +195,14 @@ async def create_net_worth_snapshot(
 
 @router.get("/net-worth-snapshots", response_model=list[NetWorthSnapshotPublic])
 async def list_net_worth_snapshots(
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> list[NetWorthSnapshotPublic]:
     snapshots = (
         await session.exec(
-            select(NetWorthSnapshot).where(NetWorthSnapshot.user_id == user.id).order_by(NetWorthSnapshot.snapshot_date)
+            select(NetWorthSnapshot)
+            .where(NetWorthSnapshot.user_id == household_owner_id(user))
+            .order_by(NetWorthSnapshot.snapshot_date)
         )
     ).all()
     if not snapshots:

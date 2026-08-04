@@ -20,6 +20,7 @@ class InvitePartnerRequest(BaseModel):
 
     email: EmailStr
     can_add_transactions: bool = False
+    is_co_owner: bool = False
 
     _normalize_email = field_validator("email")(_normalize_email)
 
@@ -38,6 +39,7 @@ class UpdatePartnerPermissionsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     can_add_transactions: bool
+    is_co_owner: bool = False
 
 
 class PartnerPublic(BaseModel):
@@ -47,6 +49,7 @@ class PartnerPublic(BaseModel):
     email: str
     display_name: str
     can_add_transactions: bool
+    is_co_owner: bool
     is_active: bool
     joined_at: datetime
 
@@ -57,6 +60,7 @@ class PendingInvitePublic(BaseModel):
     id: uuid.UUID
     email: str
     can_add_transactions: bool
+    is_co_owner: bool
     expires_at: datetime
 
 

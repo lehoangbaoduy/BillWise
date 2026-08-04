@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import household_owner_id, require_household_member, require_owner
+from app.api.deps import household_owner_id, require_household_member, require_owner_or_co_owner
 from app.core.audit import log_audit_event
 from app.core.db import get_session
 from app.models._common import utcnow
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/goals", tags=["goals"])
 
 async def _get_owned_active_or_404(session: AsyncSession, user: User, goal_id: uuid.UUID) -> SavingsGoal:
     goal = await session.get(SavingsGoal, goal_id)
-    if goal is None or goal.user_id != user.id or not goal.is_active:
+    if goal is None or goal.user_id != household_owner_id(user) or not goal.is_active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
     return goal
 
@@ -81,10 +81,10 @@ async def list_goals(
 async def create_goal(
     request: Request,
     body: GoalCreate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> GoalPublic:
-    goal = SavingsGoal(user_id=user.id, **body.model_dump())
+    goal = SavingsGoal(user_id=household_owner_id(user), **body.model_dump())
     session.add(goal)
     await session.commit()
     await session.refresh(goal)
@@ -98,7 +98,7 @@ async def create_goal(
 @router.get("/{goal_id}", response_model=GoalDetail)
 async def get_goal(
     goal_id: uuid.UUID,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> GoalDetail:
     goal = await _get_owned_active_or_404(session, user, goal_id)
@@ -125,7 +125,7 @@ async def update_goal(
     request: Request,
     goal_id: uuid.UUID,
     body: GoalUpdate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> GoalPublic:
     goal = await _get_owned_active_or_404(session, user, goal_id)
@@ -148,7 +148,7 @@ async def update_goal_sharing(
     request: Request,
     goal_id: uuid.UUID,
     body: GoalSharingUpdate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> GoalPublic:
     goal = await _get_owned_active_or_404(session, user, goal_id)
@@ -168,7 +168,7 @@ async def update_goal_sharing(
 async def deactivate_goal(
     request: Request,
     goal_id: uuid.UUID,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> None:
     goal = await _get_owned_active_or_404(session, user, goal_id)
@@ -192,7 +192,7 @@ async def add_funds(
     request: Request,
     goal_id: uuid.UUID,
     body: AddFundsRequest,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> GoalPublic:
     goal = await _get_owned_active_or_404(session, user, goal_id)
@@ -200,8 +200,10 @@ async def add_funds(
     line_item = TransactionLineItemCreate(category_id=body.category_id, item_name=goal.name, amount=body.amount)
     await validate_line_items(session, user, TransactionType.SAVING_EXPENSE, body.amount, [line_item])
 
+    owner_id = household_owner_id(user)
     transaction = Transaction(
-        user_id=user.id,
+        user_id=owner_id,
+        created_by_user_id=user.id if user.id != owner_id else None,
         payment_method_id=body.payment_method_id,
         goal_id=goal.id,
         date=body.date,

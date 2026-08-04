@@ -7,6 +7,7 @@ from fastapi import HTTPException, Request, status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.api.deps import household_owner_id
 from app.core.audit import log_audit_event
 from app.models.payment_method import PaymentMethod
 from app.models.recurring_bill import RecurringBill, RecurringBillPayment, RecurringBillPaymentStatus, RecurringFrequency
@@ -157,5 +158,5 @@ async def mark_bill_paid(
 
     # ensure_recurring_bill_state only inserts new future periods — it never
     # touches this now-paid period, so no further refresh is needed.
-    await ensure_recurring_bill_state(session, user.id, today=date.today())
+    await ensure_recurring_bill_state(session, household_owner_id(user), today=date.today())
     return period, transaction

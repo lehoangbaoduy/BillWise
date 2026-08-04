@@ -20,6 +20,7 @@ export default function Household() {
 
     const [email, setEmail] = useState("")
     const [canAddTransactions, setCanAddTransactions] = useState(false)
+    const [isCoOwner, setIsCoOwner] = useState(false)
     const [formError, setFormError] = useState(null)
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [actioningId, setActioningId] = useState(null)
@@ -33,10 +34,11 @@ export default function Household() {
         setIsSubmitting(true)
         setFormError(null)
         try {
-            await householdApi.invitePartner(email.trim(), canAddTransactions)
+            await householdApi.invitePartner(email.trim(), canAddTransactions, isCoOwner)
             await mutate()
             setEmail("")
             setCanAddTransactions(false)
+            setIsCoOwner(false)
         } catch (err) {
             if (err instanceof ApiError && err.status === 409) {
                 setFormError("This email can't be invited right now. Please try again later.")
@@ -72,10 +74,22 @@ export default function Household() {
         }
     }
 
-    async function handleTogglePermission(partner) {
+    async function handleToggleCanAddTransactions(partner) {
         setActioningId(partner.id)
         try {
-            await householdApi.updatePermissions(partner.id, !partner.can_add_transactions)
+            await householdApi.updatePermissions(partner.id, !partner.can_add_transactions, partner.is_co_owner)
+            await mutate()
+        } catch (err) {
+            setFormError(err.message)
+        } finally {
+            setActioningId(null)
+        }
+    }
+
+    async function handleToggleCoOwner(partner) {
+        setActioningId(partner.id)
+        try {
+            await householdApi.updatePermissions(partner.id, partner.can_add_transactions, !partner.is_co_owner)
             await mutate()
         } catch (err) {
             setFormError(err.message)
@@ -131,6 +145,19 @@ export default function Household() {
                                         Allow adding transactions
                                     </label>
                                 </div>
+                                <div className="mb-3 form-check">
+                                    <input
+                                        id="partner-is-co-owner"
+                                        type="checkbox"
+                                        className="form-check-input"
+                                        checked={isCoOwner}
+                                        onChange={(event) => setIsCoOwner(event.target.checked)}
+                                    />
+                                    <label className="form-check-label" htmlFor="partner-is-co-owner">
+                                        Make co-owner (full access — budgets, goals, categories, payment methods,
+                                        recurring bills, cashback, transactions, exports, net worth)
+                                    </label>
+                                </div>
                                 {formError && <div className="text-danger mb-3" role="alert">{formError}</div>}
                                 <button type="submit" className="btn btn-success w-100" disabled={isSubmitting}>
                                     {isSubmitting ? "Sending invite…" : "Send invite"}
@@ -157,7 +184,11 @@ export default function Household() {
                                             <div>
                                                 <div>{invite.email}</div>
                                                 <small className="text-muted">
-                                                    {invite.can_add_transactions ? "Can add transactions" : "View only"} · Expires {formatDate(invite.expires_at)}
+                                                    {invite.is_co_owner
+                                                        ? "Co-owner"
+                                                        : invite.can_add_transactions
+                                                            ? "Can add transactions"
+                                                            : "View only"} · Expires {formatDate(invite.expires_at)}
                                                 </small>
                                             </div>
                                             <ConfirmButton
@@ -195,15 +226,24 @@ export default function Household() {
                                                 <small className="text-muted">{partner.email} · Joined {formatDate(partner.joined_at)}</small>
                                             </div>
                                             {partner.is_active && (
-                                                <div className="d-flex gap-2">
+                                                <div className="d-flex gap-2 flex-wrap justify-content-end">
                                                     <button
                                                         type="button"
                                                         className="btn btn-sm btn-outline-secondary"
                                                         aria-label={`${partner.can_add_transactions ? "Prevent" : "Allow"} ${partner.display_name || partner.email} from adding transactions`}
                                                         disabled={actioningId === partner.id}
-                                                        onClick={() => handleTogglePermission(partner)}
+                                                        onClick={() => handleToggleCanAddTransactions(partner)}
                                                     >
                                                         {partner.can_add_transactions ? "Can add transactions" : "View only"}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        className={`btn btn-sm ${partner.is_co_owner ? "btn-secondary" : "btn-outline-secondary"}`}
+                                                        aria-label={`${partner.is_co_owner ? "Remove co-owner access from" : "Make"} ${partner.display_name || partner.email}${partner.is_co_owner ? "" : " a co-owner"}`}
+                                                        disabled={actioningId === partner.id}
+                                                        onClick={() => handleToggleCoOwner(partner)}
+                                                    >
+                                                        {partner.is_co_owner ? "Co-owner" : "Make co-owner"}
                                                     </button>
                                                     <ConfirmButton
                                                         className="btn btn-sm btn-outline-danger"

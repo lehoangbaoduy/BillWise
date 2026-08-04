@@ -6,7 +6,7 @@ from sqlalchemy import extract
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import require_owner
+from app.api.deps import household_owner_id, require_owner_or_co_owner
 from app.core.db import get_session
 from app.models._common import utcnow
 from app.models.cashback import CashbackRecord, CashbackRule
@@ -33,27 +33,27 @@ async def _validate_category_if_set(session: AsyncSession, user: User, category_
     if category_id is None:
         return
     category = await session.get(Category, category_id)
-    if category is None or category.user_id != user.id or not category.is_active:
+    if category is None or category.user_id != household_owner_id(user) or not category.is_active:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid category")
 
 
 async def _get_owned_rule_or_404(session: AsyncSession, user: User, rule_id: uuid.UUID) -> CashbackRule:
     rule = await session.get(CashbackRule, rule_id)
-    if rule is None or rule.user_id != user.id:
+    if rule is None or rule.user_id != household_owner_id(user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cashback rule not found")
     return rule
 
 
 async def _get_owned_record_or_404(session: AsyncSession, user: User, record_id: uuid.UUID) -> CashbackRecord:
     record = await session.get(CashbackRecord, record_id)
-    if record is None or record.user_id != user.id:
+    if record is None or record.user_id != household_owner_id(user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cashback record not found")
     return record
 
 
 @router.get("/cashback-rules", response_model=list[CashbackRulePublic])
 async def list_cashback_rules(
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> list[CashbackRule]:
     """Not in PRD §25.9's literal endpoint list, but every other resource
@@ -62,19 +62,19 @@ async def list_cashback_rules(
     rule endpoints PRD §25.9 does list are unreachable from any UI, since
     there's no way to discover a rule's id. Added to match the app's
     established REST shape; a pure additive gap-fill, not a behavior change."""
-    rules = (await session.exec(select(CashbackRule).where(CashbackRule.user_id == user.id))).all()
+    rules = (await session.exec(select(CashbackRule).where(CashbackRule.user_id == household_owner_id(user)))).all()
     return rules
 
 
 @router.post("/cashback-rules", response_model=CashbackRulePublic, status_code=status.HTTP_201_CREATED)
 async def create_cashback_rule(
     body: CashbackRuleCreate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> CashbackRule:
     await validate_payment_method(session, user, body.payment_method_id)
     await _validate_category_if_set(session, user, body.category_id)
-    rule = CashbackRule(user_id=user.id, **body.model_dump())
+    rule = CashbackRule(user_id=household_owner_id(user), **body.model_dump())
     session.add(rule)
     await session.commit()
     await session.refresh(rule)
@@ -85,7 +85,7 @@ async def create_cashback_rule(
 async def update_cashback_rule(
     rule_id: uuid.UUID,
     body: CashbackRuleUpdate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> CashbackRule:
     rule = await _get_owned_rule_or_404(session, user, rule_id)
@@ -104,7 +104,7 @@ async def update_cashback_rule(
 @router.delete("/cashback-rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_cashback_rule(
     rule_id: uuid.UUID,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> None:
     rule = await _get_owned_rule_or_404(session, user, rule_id)
@@ -116,7 +116,7 @@ async def delete_cashback_rule(
 async def update_cashback_record(
     record_id: uuid.UUID,
     body: CashbackRecordUpdate,
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> CashbackRecord:
     """PRD §17.3: manually overridable at the line-item level (records are
@@ -139,7 +139,7 @@ async def update_cashback_record(
 async def get_cashback_summary(
     year: int = Query(ge=2000, le=2100),
     month: int | None = Query(default=None, ge=1, le=12),
-    user: User = Depends(require_owner),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> CashbackSummary:
     """PRD §17.4/§17.1: monthly (month set) or yearly (month omitted) earned,
@@ -147,7 +147,7 @@ async def get_cashback_summary(
     endpoint per PRD §25.9's list (no separate /monthly or /yearly variants,
     unlike the Dashboard section). Filters by the linked transaction's date
     since CashbackRecord itself has no date column (PRD §23.12)."""
-    conditions = [CashbackRecord.user_id == user.id, extract("year", Transaction.date) == year]
+    conditions = [CashbackRecord.user_id == household_owner_id(user), extract("year", Transaction.date) == year]
     if month is not None:
         conditions.append(extract("month", Transaction.date) == month)
 
