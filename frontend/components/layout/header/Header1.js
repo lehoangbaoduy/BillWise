@@ -55,14 +55,6 @@ export default function Header1({ isMobileMenu, handleMobileMenu, platformView, 
                             <div className="header-content">
                                 <div className="header-left">
                                     <div className="brand-logo"><Link className="mini-logo" href="/"><img src="./images/logoi.png" alt="" width={40} /></Link></div>
-                                    <div className="search">
-                                        <form action="#">
-                                            <div className="input-group">
-                                                <input type="text" className="form-control" placeholder="Search Here" aria-label="Search" />
-                                                <span className="input-group-text"><i className="fi fi-br-search" /></span>
-                                            </div>
-                                        </form>
-                                    </div>
                                 </div>
                                 <div className="header-right">
                                     <ThemeSwitch />
