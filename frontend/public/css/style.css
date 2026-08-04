@@ -2358,7 +2358,11 @@ textarea.form-control-lg {
   background-repeat: no-repeat;
   background-position: center;
   background-size: contain;
-  border: var(--bs-border-width) solid var(--bs-border-color);
+  /* --bs-border-color (rgb(229,234,239)) is a near-white "subtle card
+     divider" tone, fine for large flat surfaces but too faint for a small
+     interactive control's own outline against a white card -- give the
+     checkbox itself a more visible border. */
+  border: var(--bs-border-width) solid #B8BFCE;
   print-color-adjust: exact;
 }
 .form-check-input[type=checkbox] {
@@ -15103,6 +15107,22 @@ div {
   border-color: rgba(255, 255, 255, 0.08);
   color: #D8A8BC;
   background: #131129;
+}
+/* .form-check-input's unchecked background/border come from --bs-body-bg /
+   --bs-border-color, neither of which .dark-theme redefines (it only
+   redefines --bs-body-color and --bs-secondary-color) -- left alone, an
+   unchecked checkbox renders as a near-white box in dark mode. */
+.dark-theme .form-check-input {
+  background-color: #131129;
+  border-color: rgba(255, 255, 255, 0.35);
+}
+.dark-theme .form-check-input:checked {
+  background-color: #F8C8DC;
+  border-color: #F8C8DC;
+}
+.dark-theme .form-check-input:focus {
+  border-color: #F8C8DC;
+  box-shadow: 0 0 0 0.25rem rgba(248, 200, 220, 0.25);
 }
 .dark-theme .form-file-text {
   background-color: #131129;
