@@ -6,6 +6,7 @@ no-training-on-API-data requirement."""
 
 import json
 import logging
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from anthropic import AsyncAnthropic
@@ -47,12 +48,15 @@ Respond with ONLY a JSON object matching this exact shape — no prose, no markd
   "total": number or null,
   "tax": number or null,
   "items": [
-    {{"name": string, "amount": number, "suggested_category": string, "suggested_subcategory": string or null, "confidence": number between 0 and 1}}
+    {{"name": string, "amount": number, "suggested_category": string, "suggested_subcategory": string or null, "confidence": number between 0 and 1, "is_discount": boolean}}
   ],
   "warnings": [string, ...]
 }}
 suggested_category must be exactly one of: {sorted(_ALLOWED_CATEGORIES)}, or "Uncategorized" if you
-are not confident. If the item amounts do not sum to the total, still return your best-effort items
+are not confident. Set "is_discount" to true for any line that is a discount, coupon, credit, or
+other negative-amount adjustment rather than a purchased item — give it a negative "amount" so the
+items still sum correctly against the receipt total, but it is not a real purchase and does not need
+its own category. If the item amounts do not sum to the total, still return your best-effort items
 and add a warning describing the mismatch. If you cannot determine a field, use null rather than
 guessing — never invent a merchant, date, or amount that is not supported by the text."""
 
@@ -162,10 +166,57 @@ async def _call_and_parse_json(system_prompt: str, raw_text: str) -> dict[str, A
         ) from None
 
 
+def _is_discount_line(item: dict) -> bool:
+    if item.get("is_discount"):
+        return True
+    try:
+        return Decimal(str(item.get("amount", 0))) < 0
+    except Exception:
+        return False
+
+
+def _absorb_discounts(items: list[dict]) -> list[dict]:
+    """PRD v2 §7.3: a discount/coupon/credit line must not appear in the
+    reviewable line-item list (it's not a purchased item and doesn't need a
+    category), but the receipt total already reflects it, so its amount can't
+    just be dropped -- that would make the remaining items overcount by the
+    discount amount. Distribute it proportionally across the real items
+    instead, so their sum still reconciles against the total."""
+    discount_items = [item for item in items if _is_discount_line(item)]
+    real_items = [item for item in items if not _is_discount_line(item)]
+    if not discount_items or not real_items:
+        return real_items
+
+    total_discount = sum((Decimal(str(item["amount"])) for item in discount_items), Decimal("0"))
+    subtotal = sum((Decimal(str(item["amount"])) for item in real_items), Decimal("0"))
+    if subtotal == 0:
+        return real_items
+
+    adjusted: list[dict] = []
+    running_share = Decimal("0")
+    for index, item in enumerate(real_items):
+        amount = Decimal(str(item["amount"]))
+        if index == len(real_items) - 1:
+            share = total_discount - running_share
+        else:
+            share = (total_discount * amount / subtotal).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            running_share += share
+        adjusted.append(
+            {
+                "name": item.get("name"),
+                "amount": amount + share,
+                "suggested_category": item.get("suggested_category"),
+                "suggested_subcategory": item.get("suggested_subcategory"),
+                "confidence": item.get("confidence", 0),
+            }
+        )
+    return adjusted
+
+
 async def structure_receipt_text(raw_text: str) -> ReceiptExtractionResult:
     parsed = await _call_and_parse_json(_SYSTEM_PROMPT, raw_text)
 
-    items_raw = [_coerce_low_confidence(item) for item in parsed.get("items", [])]
+    items_raw = _absorb_discounts([_coerce_low_confidence(item) for item in parsed.get("items", [])])
     warnings = list(parsed.get("warnings", []))
 
     try:

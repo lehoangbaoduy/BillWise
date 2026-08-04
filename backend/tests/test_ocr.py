@@ -401,6 +401,57 @@ class TestAiStructuringService:
         result = await ai_structuring_service.structure_receipt_text("Costco receipt text")
         assert result.merchant == "Costco"
 
+    async def test_excludes_discount_line_and_absorbs_it_into_real_items(self, monkeypatch):
+        # PRD v2 §7.3: a discount/coupon/credit line is not a purchased item and
+        # must not appear in the reviewable line-item list, but the total still
+        # has to reconcile -- its negative amount is distributed across the real
+        # items rather than dropped.
+        monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
+        monkeypatch.setattr(ai_structuring_service, "_client_cache", None)
+        response_json = (
+            '"merchant": "Costco", "date": "2026-07-05", "total": 25.00, "tax": null, '
+            '"items": ['
+            '{"name": "Widget A", "amount": 10.00, "suggested_category": "Shopping", '
+            '"suggested_subcategory": null, "confidence": 0.9, "is_discount": false}, '
+            '{"name": "Widget B", "amount": 20.00, "suggested_category": "Shopping", '
+            '"suggested_subcategory": null, "confidence": 0.9, "is_discount": false}, '
+            '{"name": "Member Discount", "amount": -5.00, "suggested_category": "Shopping", '
+            '"suggested_subcategory": null, "confidence": 0.9, "is_discount": true}'
+            '], "warnings": []}'
+        )
+        monkeypatch.setattr(
+            ai_structuring_service,
+            "AsyncAnthropic",
+            lambda **kwargs: TestAiStructuringService._FakeAsyncAnthropic(response_json),
+        )
+        result = await ai_structuring_service.structure_receipt_text("Costco\nWidget A $10.00\nWidget B $20.00")
+        assert len(result.items) == 2
+        assert all(item.name != "Member Discount" for item in result.items)
+        assert sum((item.amount for item in result.items), Decimal("0")) == Decimal("25.00")
+
+    async def test_treats_negative_amount_as_discount_even_without_flag(self, monkeypatch):
+        # Defense in depth: rely on a negative amount alone, in case the model
+        # forgets to set is_discount explicitly.
+        monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
+        monkeypatch.setattr(ai_structuring_service, "_client_cache", None)
+        response_json = (
+            '"merchant": "Costco", "date": "2026-07-05", "total": 8.00, "tax": null, '
+            '"items": ['
+            '{"name": "Widget A", "amount": 10.00, "suggested_category": "Shopping", '
+            '"suggested_subcategory": null, "confidence": 0.9}, '
+            '{"name": "Coupon", "amount": -2.00, "suggested_category": "Shopping", '
+            '"suggested_subcategory": null, "confidence": 0.9}'
+            '], "warnings": []}'
+        )
+        monkeypatch.setattr(
+            ai_structuring_service,
+            "AsyncAnthropic",
+            lambda **kwargs: TestAiStructuringService._FakeAsyncAnthropic(response_json),
+        )
+        result = await ai_structuring_service.structure_receipt_text("Costco\nWidget A $10.00\nCoupon -$2.00")
+        assert len(result.items) == 1
+        assert result.items[0].amount == Decimal("8.00")
+
 
 class TestPartnerForbidden:
     """OCR scanning/confirmation stays owner-only — a permitted partner adds
