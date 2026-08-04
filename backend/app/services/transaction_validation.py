@@ -16,7 +16,12 @@ from app.schemas.transaction import TransactionCreate, TransactionLineItemPublic
 from app.services.item_visibility import user_can_access_item
 
 _CENTS = Decimal("0.01")
-EXPENSE_LIKE_TYPES = {TransactionType.EXPENSE, TransactionType.SAVING_EXPENSE}
+# REIMBURSEMENT included so it still requires an EXPENSE-type category and
+# still earns cashback (record_cashback_for_line_items checks this same set)
+# -- PRD §7.4: the card was actually charged, only the dashboard/budget spend
+# totals exclude it (those filter on `== TransactionType.EXPENSE` exactly,
+# so a distinct REIMBURSEMENT type is excluded from them automatically).
+EXPENSE_LIKE_TYPES = {TransactionType.EXPENSE, TransactionType.SAVING_EXPENSE, TransactionType.REIMBURSEMENT}
 GOAL_ELIGIBLE_TYPES = {TransactionType.SAVING_EXPENSE, TransactionType.ADJUSTMENT}
 
 
@@ -172,6 +177,9 @@ async def to_transaction_public(
         line_items=[TransactionLineItemPublic.model_validate(item) for item in line_items],
         possible_duplicate=possible_duplicate,
         created_by_user_id=transaction.created_by_user_id,
+        reimbursement_status=transaction.reimbursement_status,
+        reimbursement_paid_by=transaction.reimbursement_paid_by,
+        reimbursement_paid_at=transaction.reimbursement_paid_at,
     )
 
 

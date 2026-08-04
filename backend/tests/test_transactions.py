@@ -485,6 +485,74 @@ class TestListTransactions:
         amounts = {t["total_amount"] for t in response.json()}
         assert amounts == {"50.00"}
 
+    async def test_filters_by_multiple_transaction_types(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        income_category = await _make_category(session, user, category_type=CategoryType.INCOME, name="Salary")
+
+        await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id), "date": "2026-07-01", "merchant": "Groceries",
+                "total_amount": "10.00", "transaction_type": "Expense",
+                "line_items": [{"category_id": str(category.id), "item_name": "x", "amount": "10.00"}],
+            },
+        )
+        await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id), "date": "2026-07-01", "merchant": "Paycheck",
+                "total_amount": "1000.00", "transaction_type": "Income",
+                "line_items": [{"category_id": str(income_category.id), "item_name": "x", "amount": "1000.00"}],
+            },
+        )
+        await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id), "date": "2026-07-01", "merchant": "Team lunch",
+                "total_amount": "20.00", "transaction_type": "Reimbursement",
+                "line_items": [{"category_id": str(category.id), "item_name": "x", "amount": "20.00"}],
+            },
+        )
+
+        response = await client.get(
+            "/transactions", params=[("transaction_type", "Expense"), ("transaction_type", "Reimbursement")]
+        )
+        assert response.status_code == 200
+        merchants = {t["merchant"] for t in response.json()}
+        assert merchants == {"Groceries", "Team lunch"}
+
+    async def test_type_filter_composes_with_category_filter(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        grocery = await _make_category(session, user, name="Grocery")
+        shopping = await _make_category(session, user, name="Shopping")
+
+        await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id), "date": "2026-07-01", "merchant": "Grocery Run",
+                "total_amount": "10.00", "transaction_type": "Expense",
+                "line_items": [{"category_id": str(grocery.id), "item_name": "x", "amount": "10.00"}],
+            },
+        )
+        await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id), "date": "2026-07-01", "merchant": "Mall Trip",
+                "total_amount": "10.00", "transaction_type": "Expense",
+                "line_items": [{"category_id": str(shopping.id), "item_name": "x", "amount": "10.00"}],
+            },
+        )
+
+        response = await client.get(
+            "/transactions", params=[("category_id", str(grocery.id)), ("transaction_type", "Expense")]
+        )
+        assert response.status_code == 200
+        merchants = {t["merchant"] for t in response.json()}
+        assert merchants == {"Grocery Run"}
+
     async def test_search_matches_merchant(self, client, session, unique_email):
         user = await _authed_client(client, session, unique_email)
         pm = await _make_payment_method(session, user)
@@ -882,3 +950,75 @@ class TestDeleteTransaction:
 
         response = await client.delete(f"/transactions/{other_txn.id}")
         assert response.status_code == 404
+
+
+class TestReimbursementTransactions:
+    async def _create_reimbursement(self, client, pm_id, category_id, amount="45.50", tx_date="2026-07-01"):
+        response = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm_id),
+                "date": tx_date,
+                "merchant": "Costco",
+                "total_amount": amount,
+                "transaction_type": "Reimbursement",
+                "line_items": [{"category_id": str(category_id), "item_name": "Team lunch", "amount": amount}],
+            },
+        )
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    async def test_creates_reimbursement_transaction_defaults_to_unpaid(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+
+        body = await self._create_reimbursement(client, pm.id, category.id)
+        assert body["transaction_type"] == "Reimbursement"
+        assert body["reimbursement_status"] == "unpaid"
+        assert body["reimbursement_paid_by"] is None
+        assert body["reimbursement_paid_at"] is None
+
+    async def test_mark_paid_requires_non_empty_paid_by_and_is_one_way(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        transaction_id = (await self._create_reimbursement(client, pm.id, category.id))["id"]
+
+        empty = await client.post(f"/transactions/{transaction_id}/mark-reimbursement-paid", json={"paid_by": ""})
+        assert empty.status_code == 422
+
+        mark_paid = await client.post(f"/transactions/{transaction_id}/mark-reimbursement-paid", json={"paid_by": "Alex"})
+        assert mark_paid.status_code == 200
+        body = mark_paid.json()
+        assert body["reimbursement_status"] == "paid"
+        assert body["reimbursement_paid_by"] == "Alex"
+        assert body["reimbursement_paid_at"] is not None
+
+        already_paid = await client.post(
+            f"/transactions/{transaction_id}/mark-reimbursement-paid", json={"paid_by": "Sam"}
+        )
+        assert already_paid.status_code == 422
+
+    async def test_mark_paid_rejects_non_reimbursement_transaction(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+
+        response = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Costco",
+                "total_amount": "45.50",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(category.id), "item_name": "Groceries", "amount": "45.50"}],
+            },
+        )
+        transaction_id = response.json()["id"]
+
+        mark_paid = await client.post(
+            f"/transactions/{transaction_id}/mark-reimbursement-paid", json={"paid_by": "Alex"}
+        )
+        assert mark_paid.status_code == 422

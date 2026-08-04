@@ -328,6 +328,32 @@ class TestAutoComputationOnTransactionCreate:
         assert records[0].estimated_amount == Decimal("1.00")
         assert records[0].status == CashbackRecordStatus.ESTIMATED
 
+    async def test_creates_cashback_record_for_reimbursement(self, client, session, unique_email):
+        # PRD v2 §7.4: Reimbursement is excluded from spend/budget totals but
+        # still earns cashback, since the card was actually charged.
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        await _make_rule(session, user, pm, category_id=category.id, cashback_rate=Decimal("2.00"))
+
+        response = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-06-15",
+                "merchant": "Whole Foods",
+                "total_amount": "50.00",
+                "transaction_type": "Reimbursement",
+                "line_items": [{"category_id": str(category.id), "item_name": "Team lunch", "amount": "50.00"}],
+            },
+        )
+        assert response.status_code == 201
+        transaction_id = response.json()["id"]
+
+        records = (await session.exec(select(CashbackRecord).where(CashbackRecord.transaction_id == transaction_id))).all()
+        assert len(records) == 1
+        assert records[0].estimated_amount == Decimal("1.00")
+
     async def test_records_which_rule_matched(self, client, session, unique_email):
         # PRD v2 §5.4: distinguishing "no rule matched" from "matched a 0%
         # rule" requires knowing which rule (if any) actually applied, not

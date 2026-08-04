@@ -17573,6 +17573,9 @@ figure > img:hover {
 .dark-theme .confirm-popover-arrow {
   border-top-color: #1D1933;
 }
+.dark-theme .confirm-popover-message {
+  color: var(--bs-body-color);
+}
 
 /* MerchantInput -- creatable searchable select (trigger button + panel) */
 .merchant-select {

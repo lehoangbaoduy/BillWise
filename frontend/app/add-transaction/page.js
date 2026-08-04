@@ -9,7 +9,7 @@ import ReceiptUploadPanel from "@/components/receipt/ReceiptUploadPanel"
 import { categoriesApi, ocrApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
 import { revalidateDashboard } from "@/lib/dashboardCache"
 
-const TRANSACTION_TYPES = ["Expense", "Income", "Saving expense", "Adjustment"]
+const TRANSACTION_TYPES = ["Expense", "Income", "Saving expense", "Adjustment", "Reimbursement"]
 
 function todayISO() {
     // toISOString() reports the UTC date, which can be a day ahead of/behind

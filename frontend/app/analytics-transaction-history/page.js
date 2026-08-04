@@ -13,6 +13,7 @@ import { categoriesApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
 import { revalidateDashboard } from "@/lib/dashboardCache"
 
 const PAGE_SIZE = 20
+const TRANSACTION_TYPES = ["Expense", "Income", "Saving expense", "Adjustment", "Reimbursement"]
 
 function formatCurrency(value) {
     return `$${Number(value).toFixed(2)}`
@@ -23,11 +24,13 @@ function currentMonthKey() {
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`
 }
 
-function TransactionRow({ transaction, categoriesById, paymentMethodsById, onDelete, isDeleting }) {
+function TransactionRow({ transaction, categoriesById, paymentMethodsById, onDelete, isDeleting, onMarkPaid }) {
     const categoryNames = transaction.line_items
         .map((item) => categoriesById[item.category_id]?.name)
         .filter(Boolean)
         .join(", ")
+    const needsReimbursementAction =
+        transaction.transaction_type === "Reimbursement" && transaction.reimbursement_status === "unpaid"
 
     return (
         <tr>
@@ -36,6 +39,20 @@ function TransactionRow({ transaction, categoriesById, paymentMethodsById, onDel
             <td data-label="Category">{categoryNames || "—"}</td>
             <td data-label="Payment method">{paymentMethodsById[transaction.payment_method_id]?.name || "—"}</td>
             <td data-label="Type">{transaction.transaction_type}</td>
+            <td data-label="Action">
+                {needsReimbursementAction && (
+                    <ConfirmButton
+                        className="btn btn-sm btn-outline-warning"
+                        confirmLabel="Mark Paid"
+                        message={`Mark the ${formatCurrency(transaction.total_amount)} reimbursement at "${transaction.merchant}" as paid?`}
+                        inputLabel="Paid by who?"
+                        inputPlaceholder="Name"
+                        onConfirm={(paidBy) => onMarkPaid(transaction, paidBy)}
+                    >
+                        Mark Paid
+                    </ConfirmButton>
+                )}
+            </td>
             <td data-label="Private/Shared">
                 <SharingBadge isShared={transaction.is_shared} showText />
             </td>
@@ -72,6 +89,7 @@ function TransactionHistoryContent() {
     const [merchant, setMerchant] = useState("")
     const [amountMin, setAmountMin] = useState("")
     const [amountMax, setAmountMax] = useState("")
+    const [transactionTypes, setTransactionTypes] = useState([])
     const [page, setPage] = useState(1)
     const [deletingId, setDeletingId] = useState(null)
     const [listError, setListError] = useState(null)
@@ -83,6 +101,7 @@ function TransactionHistoryContent() {
         amount_min: amountMin || undefined,
         amount_max: amountMax || undefined,
         merchant: merchant || undefined,
+        transaction_type: transactionTypes.length > 0 ? transactionTypes : undefined,
     }
     const filtersKey = JSON.stringify(filters)
 
@@ -118,6 +137,16 @@ function TransactionHistoryContent() {
         }
     }
 
+    async function handleMarkPaid(transaction, paidBy) {
+        try {
+            await transactionsApi.markReimbursementPaid(transaction.id, paidBy)
+            await mutate()
+            setListError(null)
+        } catch (error) {
+            setListError(error.message)
+        }
+    }
+
     function clearFilters() {
         setMonth("")
         setCategoryId("")
@@ -125,6 +154,7 @@ function TransactionHistoryContent() {
         setMerchant("")
         setAmountMin("")
         setAmountMax("")
+        setTransactionTypes([])
     }
 
     return (
@@ -204,6 +234,24 @@ function TransactionHistoryContent() {
                                             </select>
                                         </div>
                                         <div className="col-md-2">
+                                            <label className="form-label" htmlFor="filter-type">Type</label>
+                                            <select
+                                                id="filter-type"
+                                                className="form-select"
+                                                multiple
+                                                value={transactionTypes}
+                                                onChange={(event) =>
+                                                    setTransactionTypes(
+                                                        Array.from(event.target.selectedOptions, (option) => option.value)
+                                                    )
+                                                }
+                                            >
+                                                {TRANSACTION_TYPES.map((type) => (
+                                                    <option key={type} value={type}>{type}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="col-md-2">
                                             <label className="form-label" htmlFor="filter-amount-min">Min amount</label>
                                             <input
                                                 id="filter-amount-min"
@@ -244,6 +292,7 @@ function TransactionHistoryContent() {
                                                         <th>Category</th>
                                                         <th>Payment method</th>
                                                         <th>Type</th>
+                                                        <th>Action</th>
                                                         <th>Private/Shared</th>
                                                         <th className="text-end">Amount</th>
                                                         <th className="text-end">Actions</th>
@@ -258,6 +307,7 @@ function TransactionHistoryContent() {
                                                             paymentMethodsById={paymentMethodsById}
                                                             onDelete={handleDelete}
                                                             isDeleting={deletingId === transaction.id}
+                                                            onMarkPaid={handleMarkPaid}
                                                         />
                                                     ))}
                                                 </tbody>

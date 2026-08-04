@@ -1,0 +1,43 @@
+name: Notify unpaid reimbursements
+
+# PRD v2 §7.4: emails each household owner a summary of unpaid Reimbursement
+# transactions from the month that just closed. Runs the script directly
+# against the database rather than executing inside any hosting platform's
+# container, same precedent as hard-delete-expired-accounts.yml — it only
+# needs DATABASE_URL, RESEND_API_KEY, and the repo's code.
+#
+# Required repo secrets (Settings -> Secrets and variables -> Actions):
+#   DATABASE_URL     — same value as the backend's DATABASE_URL
+#   SECRET_KEY       — same value as the backend's SECRET_KEY (the script imports
+#                       app config at startup, which requires this field to be
+#                       present, even though the script itself never uses it)
+#   RESEND_API_KEY   — same value as the backend's RESEND_API_KEY (omit to fall
+#                       back to the console email backend, which just logs)
+#   RESEND_FROM_EMAIL — same value as the backend's RESEND_FROM_EMAIL
+
+on:
+  schedule:
+    - cron: "5 0 1 * *" # 00:05 UTC on the 1st of each month
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: python -m scripts.notify_unpaid_reimbursements
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}

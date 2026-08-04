@@ -440,7 +440,7 @@ export default function RecurringBills() {
                                             />
                                             <button
                                                 type="button"
-                                                className="btn btn-sm btn-outline-secondary"
+                                                className="btn btn-sm btn-outline-primary"
                                                 onClick={() => {
                                                     setIsEditFormOpen((open) => !open)
                                                     setDetailError(null)

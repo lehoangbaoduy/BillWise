@@ -137,6 +137,8 @@ export const transactionsApi = {
   update: (id, data) => request(`/transactions/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   remove: (id) => request(`/transactions/${id}`, { method: "DELETE" }),
   merchants: () => request("/transactions/merchants"),
+  markReimbursementPaid: (id, paidBy) =>
+    request(`/transactions/${id}/mark-reimbursement-paid`, { method: "POST", body: JSON.stringify({ paid_by: paidBy }) }),
 }
 
 export const budgetsApi = {

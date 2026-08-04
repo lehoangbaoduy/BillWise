@@ -6,7 +6,7 @@ from enum import StrEnum
 
 from sqlmodel import Field, SQLModel
 
-from app.models._common import enum_field, required_timestamp_field
+from app.models._common import enum_field, optional_timestamp_field, required_timestamp_field
 
 
 class TransactionType(StrEnum):
@@ -14,6 +14,12 @@ class TransactionType(StrEnum):
     INCOME = "Income"
     SAVING_EXPENSE = "Saving expense"
     ADJUSTMENT = "Adjustment"
+    REIMBURSEMENT = "Reimbursement"
+
+
+class ReimbursementStatus(StrEnum):
+    UNPAID = "unpaid"
+    PAID = "paid"
 
 
 class TransactionSource(StrEnum):
@@ -45,6 +51,13 @@ class Transaction(SQLModel, table=True):
     transaction_type: TransactionType = enum_field(TransactionType)
     source: TransactionSource = enum_field(TransactionSource)
     notes: str | None = None
+    # Only meaningful when transaction_type == REIMBURSEMENT; unused/default
+    # otherwise. Plain string rather than enum_field's native Postgres ENUM —
+    # this only ever has two fixed values, so a check-constraint-free VARCHAR
+    # avoids the ALTER TYPE ADD VALUE migration class of bug entirely.
+    reimbursement_status: str = Field(default=ReimbursementStatus.UNPAID.value)
+    reimbursement_paid_by: str | None = None
+    reimbursement_paid_at: datetime | None = optional_timestamp_field()
     created_at: datetime = required_timestamp_field(default_now=True)
     updated_at: datetime = required_timestamp_field(default_now=True)
 

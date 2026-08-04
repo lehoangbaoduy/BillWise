@@ -22,7 +22,7 @@ from app.models.budget import Budget
 from app.models.category import Category
 from app.models.goal import SavingsGoal
 from app.models.recurring_bill import RecurringBill, RecurringBillPayment, RecurringBillPaymentStatus
-from app.models.transaction import Transaction
+from app.models.transaction import Transaction, TransactionType
 from app.models.user import User, UserRole
 from app.schemas.notification import NotificationItem
 from app.services.budget_rollover import ensure_budget_rollover_as_owner
@@ -239,6 +239,38 @@ async def _duplicate_transaction_notifications(
     ]
 
 
+async def _reimbursement_notifications(
+    session: AsyncSession, user: User, owner_id, today: date
+) -> list[NotificationItem]:
+    """PRD v2 §7.4: nags continuously (any past-month unpaid reimbursement,
+    not just the one from the month that just closed) until marked paid --
+    the separate scheduled job in scripts/notify_unpaid_reimbursements.py
+    handles the one-time end-of-month email specifically."""
+    current_month_start = date(today.year, today.month, 1)
+    conditions = [
+        Transaction.user_id == owner_id,
+        Transaction.transaction_type == TransactionType.REIMBURSEMENT,
+        Transaction.reimbursement_status == "unpaid",
+        Transaction.date < current_month_start,
+    ]
+    apply_partner_transaction_visibility(conditions, user, owner_id)
+    transactions = (await session.exec(select(Transaction).where(*conditions))).all()
+    return [
+        NotificationItem(
+            key=f"reimbursement_unpaid:{transaction.id}",
+            type="reimbursement_unpaid",
+            severity="warning",
+            title=f"Unpaid reimbursement from {transaction.merchant}",
+            message=(
+                f"{transaction.merchant} (${transaction.total_amount}) on {transaction.date} "
+                "hasn't been marked paid yet."
+            ),
+            entity_id=transaction.id,
+        )
+        for transaction in transactions
+    ]
+
+
 async def list_notifications(session: AsyncSession, user: User) -> list[NotificationItem]:
     owner_id = household_owner_id(user)
     today = utcnow().date()
@@ -249,6 +281,7 @@ async def list_notifications(session: AsyncSession, user: User) -> list[Notifica
     items += await _goal_notifications(session, user, owner_id, today)
     items += await _ai_insight_notifications(session, user, owner_id)
     items += await _duplicate_transaction_notifications(session, user, owner_id, today)
+    items += await _reimbursement_notifications(session, user, owner_id, today)
 
     acknowledged_keys = set(
         (

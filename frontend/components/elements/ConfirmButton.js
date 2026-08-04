@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 
 const POPOVER_GAP = 10
@@ -29,13 +29,24 @@ export default function ConfirmButton({
     onConfirm,
     className,
     children,
+    // When set, the popover also collects a required free-text value (e.g.
+    // "Paid by who?" for marking a Reimbursement transaction paid) and passes
+    // it as onConfirm's argument instead of calling onConfirm with no args.
+    inputLabel,
+    inputPlaceholder,
     ...buttonProps
 }) {
     const [isOpen, setIsOpen] = useState(false)
     const [position, setPosition] = useState(null)
+    const [inputValue, setInputValue] = useState("")
     const containerRef = useRef(null)
     const buttonRef = useRef(null)
     const popoverRef = useRef(null)
+    const inputId = useId()
+
+    useEffect(() => {
+        if (!isOpen) setInputValue("")
+    }, [isOpen])
 
     useEffect(() => {
         if (!isOpen) return
@@ -92,9 +103,13 @@ export default function ConfirmButton({
         popoverRef.current.style.left = `${clamped}px`
     }, [isOpen, position])
 
+    const trimmedInput = inputValue.trim()
+    const isConfirmDisabled = Boolean(inputLabel) && !trimmedInput
+
     function handleConfirm() {
+        if (isConfirmDisabled) return
         setIsOpen(false)
-        onConfirm()
+        onConfirm(inputLabel ? trimmedInput : undefined)
     }
 
     return (
@@ -120,8 +135,27 @@ export default function ConfirmButton({
                 >
                     <div className="confirm-popover-arrow" />
                     <p className="confirm-popover-message">{message}</p>
+                    {inputLabel && (
+                        <div className="mb-2 text-start">
+                            <label className="form-label small mb-1" htmlFor={inputId}>{inputLabel}</label>
+                            <input
+                                id={inputId}
+                                type="text"
+                                className="form-control form-control-sm"
+                                value={inputValue}
+                                onChange={(event) => setInputValue(event.target.value)}
+                                placeholder={inputPlaceholder}
+                                autoFocus
+                            />
+                        </div>
+                    )}
                     <div className="confirm-popover-actions">
-                        <button type="button" className="btn btn-sm btn-danger" onClick={handleConfirm}>
+                        <button
+                            type="button"
+                            className="btn btn-sm btn-danger"
+                            onClick={handleConfirm}
+                            disabled={isConfirmDisabled}
+                        >
                             {confirmLabel}
                         </button>
                         <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setIsOpen(false)}>

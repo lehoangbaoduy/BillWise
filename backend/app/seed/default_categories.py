@@ -21,7 +21,6 @@ _EXPENSE_TREE: list[tuple[str, str, list]] = [
     ("Subscription", "📱", []),
     ("Saving", "💰", []),
     ("Family & Support", "👨‍👩‍👧", []),
-    ("Reimbursement", "💵", []),
 ]
 
 _INCOME_TREE: list[tuple[str, str, list]] = [

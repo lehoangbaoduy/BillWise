@@ -36,7 +36,6 @@ _ALLOWED_CATEGORIES = {
     "Subscription",
     "Saving",
     "Family & Support",
-    "Reimbursement",
     "Income",
 }
 

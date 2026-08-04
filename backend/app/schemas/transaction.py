@@ -1,5 +1,6 @@
 import uuid
 from datetime import date as date_type
+from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -76,3 +77,13 @@ class TransactionPublic(BaseModel):
     # transaction made with a private wallet is automatically private, same
     # convention as CashbackRulePublic.is_shared/CashbackRecordPublic.is_shared.
     is_shared: bool
+    # Only meaningful when transaction_type == "Reimbursement".
+    reimbursement_status: str = "unpaid"
+    reimbursement_paid_by: str | None = None
+    reimbursement_paid_at: datetime | None = None
+
+
+class MarkReimbursementPaidRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    paid_by: str = Field(min_length=1, max_length=200)

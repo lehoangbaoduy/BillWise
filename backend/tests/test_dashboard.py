@@ -84,6 +84,18 @@ class TestMonthlyOverview:
         assert body["total_expenses"] == "60.00"
         assert body["net_cash_flow"] == "940.00"
 
+    async def test_excludes_reimbursement_transactions_from_total_expenses(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user, name="Grocery")
+
+        await _create_transaction(client, pm.id, category.id, "60.00", "2026-07-05")
+        await _create_transaction(client, pm.id, category.id, "25.00", "2026-07-06", transaction_type="Reimbursement")
+
+        response = await client.get("/dashboard/monthly", params={"month": 7, "year": 2026})
+        body = response.json()
+        assert body["total_expenses"] == "60.00"
+
     async def test_top_category_and_top_payment_method(self, client, session, unique_email):
         user = await _authed_client(client, session, unique_email)
         cash = await _make_payment_method(session, user, name="Cash")

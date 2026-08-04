@@ -508,7 +508,7 @@ export default function Wallets() {
                                             )}
                                             <button
                                                 type="button"
-                                                className="btn btn-sm btn-outline-secondary"
+                                                className="btn btn-sm btn-outline-primary"
                                                 onClick={() => {
                                                     setIsEditFormOpen((open) => !open)
                                                     setFormError(null)

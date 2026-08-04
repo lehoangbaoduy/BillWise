@@ -13,7 +13,7 @@ from app.models._common import utcnow
 from app.models.payment_method import PaymentMethod
 from app.models.transaction import Transaction, TransactionLineItem, TransactionSource, TransactionType
 from app.models.user import User
-from app.schemas.transaction import TransactionCreate, TransactionPublic, TransactionUpdate
+from app.schemas.transaction import MarkReimbursementPaidRequest, TransactionCreate, TransactionPublic, TransactionUpdate
 from app.services.cashback_service import record_cashback_for_line_items
 from app.services.partner_visibility import apply_partner_transaction_visibility
 from app.services.recurring_bill_service import reopen_payments_for_deleted_transaction
@@ -69,7 +69,7 @@ async def list_transactions(
     amount_max: Decimal | None = None,
     search: str | None = None,
     merchant: str | None = None,
-    transaction_type: TransactionType | None = None,
+    transaction_type: list[TransactionType] | None = Query(default=None),
     limit: int | None = Query(default=None, ge=1, le=_MAX_LIMIT),
     offset: int = Query(default=0, ge=0),
     response: Response = None,
@@ -101,8 +101,8 @@ async def list_transactions(
                 select(TransactionLineItem.transaction_id).where(TransactionLineItem.category_id == category_id)
             )
         )
-    if transaction_type is not None:
-        conditions.append(Transaction.transaction_type == transaction_type)
+    if transaction_type:
+        conditions.append(Transaction.transaction_type.in_(transaction_type))
 
     # limit is opt-in (existing callers like the dashboard's recent-transactions
     # widget and export_service.py rely on the unbounded default) — the total
@@ -159,6 +159,9 @@ async def list_transactions(
             possible_duplicate=False,
             created_by_user_id=t.created_by_user_id,
             is_shared=is_shared_by_payment_method.get(t.payment_method_id, True),
+            reimbursement_status=t.reimbursement_status,
+            reimbursement_paid_by=t.reimbursement_paid_by,
+            reimbursement_paid_at=t.reimbursement_paid_at,
         )
         for t in transactions
     ]
@@ -284,3 +287,37 @@ async def delete_transaction(
         session, "transaction.deleted", user_id=user.id, entity_type="transaction", entity_id=transaction_id,
         request=request,
     )
+
+
+@router.post("/{transaction_id}/mark-reimbursement-paid", response_model=TransactionPublic)
+async def mark_reimbursement_paid(
+    request: Request,
+    transaction_id: uuid.UUID,
+    body: MarkReimbursementPaidRequest,
+    user: User = Depends(require_owner_or_co_owner),
+    session: AsyncSession = Depends(get_session),
+) -> TransactionPublic:
+    """PRD §7.4: one-way transition (no un-mark through the UI) -- a correction
+    is a new Adjustment transaction, matching how goal corrections work."""
+    transaction = await _get_owned_or_404(session, user, transaction_id)
+    if transaction.transaction_type != TransactionType.REIMBURSEMENT:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only Reimbursement transactions can be marked paid",
+        )
+    if transaction.reimbursement_status == "paid":
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Already marked paid")
+
+    transaction.reimbursement_status = "paid"
+    transaction.reimbursement_paid_by = body.paid_by
+    transaction.reimbursement_paid_at = utcnow()
+    transaction.updated_at = utcnow()
+    session.add(transaction)
+    await session.commit()
+    await session.refresh(transaction)
+
+    await log_audit_event(
+        session, "transaction.reimbursement_paid", user_id=user.id, entity_type="transaction", entity_id=transaction.id,
+        metadata={"paid_by": body.paid_by}, request=request,
+    )
+    return await to_transaction_public(session, transaction)

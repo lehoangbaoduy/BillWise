@@ -360,6 +360,56 @@ class TestDuplicateTransactionNotifications:
         assert not any(item["type"] == "duplicate_transaction" for item in response.json())
 
 
+async def _create_reimbursement(client, pm_id, category_id, tx_date, amount="45.50"):
+    response = await client.post(
+        "/transactions",
+        json={
+            "payment_method_id": str(pm_id),
+            "date": tx_date,
+            "merchant": "Costco",
+            "total_amount": amount,
+            "transaction_type": "Reimbursement",
+            "line_items": [{"category_id": str(category_id), "item_name": "Team lunch", "amount": amount}],
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+class TestReimbursementNotifications:
+    async def test_flags_unpaid_reimbursement_from_a_closed_month(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        prior_month_date = (date.today().replace(day=1) - timedelta(days=1)).isoformat()
+        await _create_reimbursement(client, pm.id, category.id, prior_month_date)
+
+        response = await client.get("/notifications")
+        matching = [item for item in response.json() if item["type"] == "reimbursement_unpaid"]
+        assert len(matching) == 1
+        assert matching[0]["severity"] == "warning"
+
+    async def test_no_notification_for_reimbursement_from_current_month(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        await _create_reimbursement(client, pm.id, category.id, date.today().isoformat())
+
+        response = await client.get("/notifications")
+        assert not any(item["type"] == "reimbursement_unpaid" for item in response.json())
+
+    async def test_no_notification_once_marked_paid(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        prior_month_date = (date.today().replace(day=1) - timedelta(days=1)).isoformat()
+        transaction = await _create_reimbursement(client, pm.id, category.id, prior_month_date)
+        await client.post(f"/transactions/{transaction['id']}/mark-reimbursement-paid", json={"paid_by": "Alex"})
+
+        response = await client.get("/notifications")
+        assert not any(item["type"] == "reimbursement_unpaid" for item in response.json())
+
+
 class TestPartnerNotificationVisibility:
     """PRD §21.4: partners only see budget/goal alerts for shared categories
     and shared goals; recurring bills and AI insights stay owner-only."""
