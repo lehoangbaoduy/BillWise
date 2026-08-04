@@ -6,6 +6,8 @@ import DashboardSpendTrendChart from "@/components/chart/DashboardSpendTrendChar
 import ColorPicker, { COLOR_PRESETS } from "@/components/elements/ColorPicker"
 import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmptyState from "@/components/elements/EmptyState"
+import SharingBadge from "@/components/elements/SharingBadge"
+import SharingToggle from "@/components/elements/SharingToggle"
 import StatementUploadPanel from "@/components/statement/StatementUploadPanel"
 import { paymentMethodsApi, transactionsApi } from "@/lib/api"
 
@@ -49,7 +51,10 @@ function WalletNavItem({ method, isActive, monthSpend, onSelect }) {
                 </div>
                 <div className="wallet-nav-text flex-grow-1">
                     <div className="d-flex justify-content-between align-items-center gap-2">
-                        <h3>{method.name}</h3>
+                        <h3>
+                            {method.name}
+                            {" "}<SharingBadge isShared={method.is_shared} />
+                        </h3>
                         {monthSpend > 0 && (
                             <span className="wallet-nav-spend-badge">
                                 {formatCurrency(monthSpend)}<small>this mo.</small>
@@ -99,17 +104,117 @@ function TrackedBalanceVisual({ method }) {
     )
 }
 
+function WalletEditForm({ method, onSubmit, onCancel, isSubmitting }) {
+    const [name, setName] = useState(method.name ?? "")
+    const [issuer, setIssuer] = useState(method.issuer ?? "")
+    const [lastFour, setLastFour] = useState(method.last_four_optional ?? "")
+    const [currentBalance, setCurrentBalance] = useState(method.current_balance ?? "")
+    const [color, setColor] = useState(method.color ?? COLOR_PRESETS[0].value)
+    const [formError, setFormError] = useState(null)
+
+    function handleSubmit(event) {
+        event.preventDefault()
+        if (!name.trim()) {
+            setFormError("Name is required.")
+            return
+        }
+        if (lastFour && lastFour.length !== 4) {
+            setFormError("Last four digits must be exactly 4 digits.")
+            return
+        }
+        setFormError(null)
+        // type is immutable after creation (PaymentMethodUpdate doesn't accept it) --
+        // switching Credit Card <-> Cash etc. has downstream implications (card
+        // visual, cashback eligibility) that belong in a dedicated flow, not a quiet edit.
+        // Sharing is toggled from the title-row switch instead of this form
+        // (see SharingToggle in the parent) -- PaymentMethodUpdate (this
+        // form's PATCH) uses extra="forbid" and doesn't declare the field.
+        onSubmit({
+            name: name.trim(),
+            issuer: issuer.trim() || null,
+            last_four_optional: lastFour || null,
+            current_balance: currentBalance === "" ? null : Number(currentBalance),
+            color,
+        })
+    }
+
+    return (
+        <form onSubmit={handleSubmit}>
+            <div className="mb-3">
+                <label className="form-label" htmlFor="edit-payment-method-name">Name</label>
+                <input
+                    id="edit-payment-method-name"
+                    type="text"
+                    className="form-control"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                />
+            </div>
+            <div className="mb-3">
+                <label className="form-label">Type</label>
+                <input type="text" className="form-control" value={method.type} disabled readOnly />
+                <div className="form-text">Type can&apos;t be changed after creation.</div>
+            </div>
+            <div className="mb-3">
+                <label className="form-label" htmlFor="edit-payment-method-issuer">Issuer (optional)</label>
+                <input
+                    id="edit-payment-method-issuer"
+                    type="text"
+                    className="form-control"
+                    value={issuer}
+                    onChange={(event) => setIssuer(event.target.value)}
+                />
+            </div>
+            <div className="mb-3">
+                <label className="form-label" htmlFor="edit-payment-method-last-four">Last 4 digits (optional)</label>
+                <input
+                    id="edit-payment-method-last-four"
+                    type="text"
+                    className="form-control"
+                    maxLength={4}
+                    value={lastFour}
+                    onChange={(event) => setLastFour(event.target.value.replace(/\D/g, ""))}
+                />
+            </div>
+            <div className="mb-3">
+                <label className="form-label" htmlFor="edit-payment-method-balance">Current balance (optional)</label>
+                <input
+                    id="edit-payment-method-balance"
+                    type="number"
+                    step="0.01"
+                    className="form-control"
+                    value={currentBalance}
+                    onChange={(event) => setCurrentBalance(event.target.value)}
+                />
+            </div>
+            <div className="mb-3">
+                <label className="form-label">Card color</label>
+                <ColorPicker value={color} onChange={setColor} name="edit-payment-method-color" />
+            </div>
+            {formError && <div className="text-danger mb-3" role="alert">{formError}</div>}
+            <div className="d-flex gap-2">
+                <button type="submit" className="btn btn-success flex-grow-1" disabled={isSubmitting}>
+                    {isSubmitting ? "Saving…" : "Save changes"}
+                </button>
+                <button type="button" className="btn btn-outline-secondary" onClick={onCancel}>Cancel</button>
+            </div>
+        </form>
+    )
+}
+
 export default function Wallets() {
     const { data: methods, mutate } = useSWR("/payment-methods", () => paymentMethodsApi.list())
 
     const [selectedId, setSelectedId] = useState(null)
     const [isCreateFormOpen, setIsCreateFormOpen] = useState(false)
+    const [isEditFormOpen, setIsEditFormOpen] = useState(false)
     const [name, setName] = useState("")
     const [type, setType] = useState(TYPE_OPTIONS[0])
     const [issuer, setIssuer] = useState("")
     const [lastFour, setLastFour] = useState("")
     const [currentBalance, setCurrentBalance] = useState("")
     const [color, setColor] = useState(COLOR_PRESETS[0].value)
+    const [isShared, setIsShared] = useState(false)
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [formError, setFormError] = useState(null)
     const [deletingId, setDeletingId] = useState(null)
@@ -172,6 +277,7 @@ export default function Wallets() {
                 last_four_optional: lastFour || null,
                 current_balance: currentBalance === "" ? null : Number(currentBalance),
                 color,
+                is_shared: isShared,
             })
             await mutate()
             handleSelectWallet(created.id)
@@ -181,6 +287,7 @@ export default function Wallets() {
             setLastFour("")
             setCurrentBalance("")
             setColor(COLOR_PRESETS[0].value)
+            setIsShared(false)
             setIsCreateFormOpen(false)
         } catch (error) {
             setFormError(error.message)
@@ -193,6 +300,25 @@ export default function Wallets() {
         setSelectedId(id)
         setIsImportingStatement(false)
         setImportSuccess(null)
+        setIsEditFormOpen(false)
+    }
+
+    async function handleEdit(payload, isShared) {
+        if (!activeMethod) return
+        setIsSubmitting(true)
+        setFormError(null)
+        try {
+            await paymentMethodsApi.update(activeMethod.id, payload)
+            if (isShared !== activeMethod.is_shared) {
+                await paymentMethodsApi.updateSharing(activeMethod.id, isShared)
+            }
+            await mutate()
+            setIsEditFormOpen(false)
+        } catch (error) {
+            setFormError(error.message)
+        } finally {
+            setIsSubmitting(false)
+        }
     }
 
     async function handleStatementConfirm(newBalance) {
@@ -213,6 +339,16 @@ export default function Wallets() {
             setFormError(error.message)
         } finally {
             setDeletingId(null)
+        }
+    }
+
+    async function handleToggleSharing(method, isShared) {
+        setFormError(null)
+        try {
+            await paymentMethodsApi.updateSharing(method.id, isShared)
+            await mutate()
+        } catch (error) {
+            setFormError(error.message)
         }
     }
 
@@ -270,6 +406,7 @@ export default function Wallets() {
                                         </button>
                                     </div>
                                     <form onSubmit={handleCreate}>
+                                        <SharingToggle id="payment-method-shared" isShared={isShared} onChange={setIsShared} />
                                         <div className="mb-3">
                                             <label className="form-label" htmlFor="payment-method-name">Name</label>
                                             <input
@@ -348,9 +485,15 @@ export default function Wallets() {
                                 </div>
                             ) : (
                                 <>
-                                    <div className="wallet-tab-title d-flex justify-content-between align-items-center">
-                                        <h3>{activeMethod.name}</h3>
-                                        <div className="d-flex gap-2">
+                                    <div className="wallet-tab-title d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                        <h3 className="mb-0">{activeMethod.name}</h3>
+                                        <div className="d-flex align-items-center gap-2">
+                                            <SharingToggle
+                                                id="wallet-title-shared"
+                                                isShared={activeMethod.is_shared}
+                                                onChange={(checked) => handleToggleSharing(activeMethod, checked)}
+                                                compact
+                                            />
                                             {!isImportingStatement && (
                                                 <button
                                                     type="button"
@@ -363,6 +506,18 @@ export default function Wallets() {
                                                     Import statement
                                                 </button>
                                             )}
+                                            <button
+                                                type="button"
+                                                className="btn btn-sm btn-outline-secondary"
+                                                onClick={() => {
+                                                    setIsEditFormOpen((open) => !open)
+                                                    setFormError(null)
+                                                }}
+                                                aria-expanded={isEditFormOpen}
+                                                aria-controls="edit-wallet-form"
+                                            >
+                                                <i className="fi fi-rr-pencil" /> Edit
+                                            </button>
                                             <ConfirmButton
                                                 className="btn btn-sm btn-outline-danger"
                                                 aria-label={`Delete ${activeMethod.name}`}
@@ -374,6 +529,23 @@ export default function Wallets() {
                                             </ConfirmButton>
                                         </div>
                                     </div>
+                                    {formError && <div className="text-danger mb-3" role="alert">{formError}</div>}
+
+                                    {isEditFormOpen && (
+                                        <div className="card mb-3" id="edit-wallet-form">
+                                            <div className="card-header">
+                                                <h4 className="card-title">Edit wallet</h4>
+                                            </div>
+                                            <div className="card-body">
+                                                <WalletEditForm
+                                                    method={activeMethod}
+                                                    onSubmit={handleEdit}
+                                                    onCancel={() => setIsEditFormOpen(false)}
+                                                    isSubmitting={isSubmitting}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {importSuccess && (
                                         <div className="alert alert-success" role="status">{importSuccess}</div>

@@ -18,6 +18,7 @@ class RecurringBillCreate(BaseModel):
     due_date: date_type | None = None
     auto_create_transaction: bool = False
     reminder_enabled: bool = False
+    is_shared: bool = False
     notes: str | None = Field(default=None, max_length=1000)
 
 
@@ -33,6 +34,12 @@ class RecurringBillUpdate(BaseModel):
     auto_create_transaction: bool | None = None
     reminder_enabled: bool | None = None
     notes: str | None = Field(default=None, max_length=1000)
+
+
+class RecurringBillSharingUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    is_shared: bool
 
 
 class MarkPaidRequest(BaseModel):
@@ -65,6 +72,7 @@ class RecurringBillPublic(BaseModel):
     due_date: date_type
     auto_create_transaction: bool
     reminder_enabled: bool
+    is_shared: bool
     is_active: bool
     notes: str | None
     current_period: RecurringBillPaymentPublic | None

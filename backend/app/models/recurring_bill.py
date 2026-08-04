@@ -30,6 +30,11 @@ class RecurringBill(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(foreign_key="users.id", nullable=False, index=True)
+    # user_id is always the household owner's id (see app.api.deps.household_owner_id).
+    # created_by_user_id separately records which household member actually created
+    # this bill -- null when the owner created it, set to the acting user's id when a
+    # co-owner did. Private-item visibility is scoped to this creator, not to user_id.
+    created_by_user_id: uuid.UUID | None = Field(default=None, foreign_key="users.id")
     payment_method_id: uuid.UUID = Field(foreign_key="payment_methods.id", nullable=False)
     category_id: uuid.UUID = Field(foreign_key="categories.id", nullable=False)
     name: str
@@ -38,6 +43,7 @@ class RecurringBill(SQLModel, table=True):
     due_date: date_type
     auto_create_transaction: bool = False
     reminder_enabled: bool = False
+    is_shared: bool = False
     is_active: bool = True
     notes: str | None = None
     created_at: datetime = required_timestamp_field(default_now=True)

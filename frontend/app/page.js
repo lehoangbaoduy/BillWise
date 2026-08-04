@@ -220,7 +220,7 @@ export default function Home() {
                             <h4 className="card-title">Monthly Expenses Breakdown</h4>
                         </div>
                         <div className="card-body d-flex justify-content-center">
-                            {topCategories.length > 0 ? (
+                            {monthly && Number(monthly.total_expenses) > 0 ? (
                                 <DashboardCategoryDonut
                                     labels={topCategories.map((category) => category.name)}
                                     amounts={topCategories.map((category) => Number(category.amount))}

@@ -29,7 +29,17 @@ async def ensure_budget_rollover(session: AsyncSession, user: User, month: int, 
     source_rows = [b for b in candidates if (b.year, b.month) == source_period]
 
     for row in source_rows:
-        session.add(Budget(user_id=user.id, category_id=row.category_id, month=month, year=year, budget_amount=row.budget_amount))
+        session.add(
+            Budget(
+                user_id=user.id,
+                created_by_user_id=row.created_by_user_id,
+                category_id=row.category_id,
+                month=month,
+                year=year,
+                budget_amount=row.budget_amount,
+                is_shared=row.is_shared,
+            )
+        )
     try:
         await session.commit()
     except IntegrityError as error:

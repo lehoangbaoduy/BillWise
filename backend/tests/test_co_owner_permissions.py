@@ -90,6 +90,12 @@ class TestCoOwnerFinancialAccess:
         assert response.status_code == 403
 
     async def test_co_owner_budget_is_scoped_to_household_owner_not_partner(self, client, session, unique_email):
+        """The budget row's user_id (the storage/scoping key) is always the
+        household owner's id, never the co-owner's own id -- that part of
+        "scoped to household owner" is unconditional. But *visibility* is
+        creator-based (see item_visibility.py): a budget the co-owner creates
+        without explicitly sharing it defaults private, so it's invisible to
+        the owner until the co-owner marks it shared."""
         owner = await _create_verified_owner(session, unique_email)
         category = await _make_category(session, owner)
         partner_email = "partner-" + unique_email
@@ -101,11 +107,22 @@ class TestCoOwnerFinancialAccess:
             json={"category_id": str(category.id), "month": 6, "year": 2026, "budget_amount": "500.00"},
         )
         assert create_response.status_code == 201
+        budget_id = create_response.json()["id"]
 
         await _login(client, unique_email)
         owner_view = await client.get("/budgets?month=6&year=2026")
         assert owner_view.status_code == 200
-        assert len(owner_view.json()) == 1
+        assert owner_view.json() == []
+
+        await _login(client, partner_email)
+        share_response = await client.patch(f"/budgets/{budget_id}/sharing", json={"is_shared": True})
+        assert share_response.status_code == 200
+
+        await _login(client, unique_email)
+        owner_view_after_share = await client.get("/budgets?month=6&year=2026")
+        assert owner_view_after_share.status_code == 200
+        assert len(owner_view_after_share.json()) == 1
+        assert owner_view_after_share.json()[0]["id"] == budget_id
 
 
 class TestCoOwnerCannotAdministerHousehold:

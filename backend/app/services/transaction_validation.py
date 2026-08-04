@@ -6,13 +6,14 @@ from fastapi import HTTPException, status
 from sqlmodel import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import household_owner_id
+from app.api.deps import household_owner_id, is_owner_or_co_owner
 from app.models.category import Category, CategoryType
 from app.models.goal import SavingsGoal
 from app.models.payment_method import PaymentMethod
 from app.models.transaction import Transaction, TransactionLineItem, TransactionSource, TransactionType
 from app.models.user import User, UserRole
 from app.schemas.transaction import TransactionCreate, TransactionLineItemPublic, TransactionPublic
+from app.services.item_visibility import user_can_access_item
 
 _CENTS = Decimal("0.01")
 EXPENSE_LIKE_TYPES = {TransactionType.EXPENSE, TransactionType.SAVING_EXPENSE}
@@ -24,14 +25,26 @@ def quantize(amount: Decimal) -> Decimal:
 
 
 async def validate_payment_method(session: AsyncSession, user: User, payment_method_id: UUID) -> None:
-    """Payment methods stay owner-managed regardless of household sharing (PRD
-    §21.4), but a partner permitted to add transactions still selects from the
-    household's existing payment methods — scoped by household_owner_id, not
-    the acting user's own id, so this check passes identically for owner and
-    partner callers."""
+    """A private payment method may only be used by the household member who
+    created it -- not even the owner can spend against a co-owner's private
+    wallet, and vice versa (see item_visibility.user_can_access_item). A
+    shared payment method may be used by any owner/co-owner household member,
+    scoped by household_owner_id rather than the acting user's own id.
+
+    This distinction only ever applies between an owner and a co-owner: a
+    plain (non-co-owner) partner can never be the creator of a payment method
+    (Wallet CRUD is require_owner_or_co_owner-gated), so applying the private
+    check to them would just block them from spending against the owner's
+    default (non-shared) wallet -- a real regression from the pre-existing
+    behavior of PRD §21.4, where any active household payment method is
+    usable by a permitted partner regardless of sharing."""
     owner_id = household_owner_id(user)
     payment_method = await session.get(PaymentMethod, payment_method_id)
     if payment_method is None or payment_method.user_id != owner_id or not payment_method.is_active:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid payment method")
+    if await is_owner_or_co_owner(user, session) and not user_can_access_item(
+        payment_method.is_shared, payment_method.created_by_user_id, owner_id, user
+    ):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid payment method")
 
 
@@ -39,8 +52,9 @@ async def validate_goal(
     session: AsyncSession, user: User, transaction_type: TransactionType, goal_id: UUID | None
 ) -> None:
     """Shared by the Transactions router and the OCR confirm-transaction endpoint.
-    A partner may only contribute to a goal shared with them (PRD §21.4: goals
-    follow the same is_shared pattern as categories)."""
+    A private goal may only be contributed to by the household member who
+    created it -- not even the owner can contribute to a co-owner's private
+    goal, and vice versa (see item_visibility.user_can_access_item)."""
     if goal_id is None:
         return
     if transaction_type not in GOAL_ELIGIBLE_TYPES:
@@ -50,9 +64,12 @@ async def validate_goal(
         )
     owner_id = household_owner_id(user)
     goal = await session.get(SavingsGoal, goal_id)
-    if goal is None or goal.user_id != owner_id or not goal.is_active:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid goal")
-    if user.role == UserRole.PARTNER and not goal.is_shared:
+    if (
+        goal is None
+        or goal.user_id != owner_id
+        or not goal.is_active
+        or not user_can_access_item(goal.is_shared, goal.created_by_user_id, owner_id, user)
+    ):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid goal")
 
 
@@ -139,6 +156,7 @@ async def to_transaction_public(
 ) -> TransactionPublic:
     """Shared by the Transactions router and the OCR confirm-transaction endpoint."""
     line_items = await load_line_items(session, transaction.id)
+    payment_method = await session.get(PaymentMethod, transaction.payment_method_id)
     return TransactionPublic(
         id=transaction.id,
         payment_method_id=transaction.payment_method_id,
@@ -150,6 +168,7 @@ async def to_transaction_public(
         transaction_type=transaction.transaction_type,
         source=transaction.source,
         notes=transaction.notes,
+        is_shared=payment_method.is_shared if payment_method is not None else True,
         line_items=[TransactionLineItemPublic.model_validate(item) for item in line_items],
         possible_duplicate=possible_duplicate,
         created_by_user_id=transaction.created_by_user_id,

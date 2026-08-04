@@ -72,3 +72,7 @@ class TransactionPublic(BaseModel):
     line_items: list[TransactionLineItemPublic]
     possible_duplicate: bool = False
     created_by_user_id: uuid.UUID | None = None
+    # Derived from the linked payment method, not its own stored field -- a
+    # transaction made with a private wallet is automatically private, same
+    # convention as CashbackRulePublic.is_shared/CashbackRecordPublic.is_shared.
+    is_shared: bool

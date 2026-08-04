@@ -4,6 +4,8 @@ import useSWR from "swr"
 import Layout from "@/components/layout/Layout"
 import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmptyState from "@/components/elements/EmptyState"
+import SharingBadge from "@/components/elements/SharingBadge"
+import SharingToggle from "@/components/elements/SharingToggle"
 import { categoriesApi, paymentMethodsApi, recurringBillsApi } from "@/lib/api"
 
 const FREQUENCIES = ["weekly", "biweekly", "monthly", "quarterly", "yearly", "custom"]
@@ -44,23 +46,38 @@ function StatusBadge({ status }) {
     return <span className={`badge ${variant}`}>{capitalize(status)}</span>
 }
 
-function BillNavItem({ bill, isActive, onSelect }) {
+function BillNavItem({ bill, isActive, onSelect, onDelete }) {
     return (
         <div className="col-xl-12 col-md-6">
-            <button
-                type="button"
-                className={isActive ? "goals-nav active w-100 border-0 text-start" : "goals-nav w-100 border-0 text-start"}
-                aria-pressed={isActive}
-                onClick={() => onSelect(bill.id)}
-            >
-                <div className="goals-nav-text">
-                    <h3>{bill.name}</h3>
-                    <p>
-                        <strong>{formatCurrency(bill.amount)}</strong> · {formatDate(bill.current_period?.due_date)}{" "}
-                        <StatusBadge status={bill.current_period?.status} />
-                    </p>
+            <div className={isActive ? "goals-nav active w-100" : "goals-nav w-100"}>
+                <button
+                    type="button"
+                    className="goals-nav-trigger"
+                    aria-pressed={isActive}
+                    onClick={() => onSelect(bill.id)}
+                >
+                    <div className="goals-nav-text">
+                        <h3>
+                            {bill.name}
+                            {" "}<SharingBadge isShared={bill.is_shared} />
+                        </h3>
+                        <p>
+                            <strong>{formatCurrency(bill.amount)}</strong> · {formatDate(bill.current_period?.due_date)}{" "}
+                            <StatusBadge status={bill.current_period?.status} />
+                        </p>
+                    </div>
+                </button>
+                <div className="goals-nav-actions">
+                    <ConfirmButton
+                        className="btn btn-sm btn-outline-danger"
+                        aria-label={`Deactivate ${bill.name}`}
+                        message={`Deactivate "${bill.name}"? This bill won't generate future periods and there's no undo — you'd need to create it again.`}
+                        onConfirm={() => onDelete(bill)}
+                    >
+                        <i className="fi fi-rr-trash" />
+                    </ConfirmButton>
                 </div>
-            </button>
+            </div>
         </div>
     )
 }
@@ -74,25 +91,57 @@ function BillForm({ initial, categories, paymentMethods, onSubmit, isSubmitting,
     const [dueDate, setDueDate] = useState(initial?.due_date ?? "")
     const [autoCreateTransaction, setAutoCreateTransaction] = useState(initial?.auto_create_transaction ?? false)
     const [reminderEnabled, setReminderEnabled] = useState(initial?.reminder_enabled ?? false)
+    const [isShared, setIsShared] = useState(initial?.is_shared ?? false)
     const [notes, setNotes] = useState(initial?.notes ?? "")
+
+    const selectedPaymentMethod = paymentMethods.find((pm) => pm.id === paymentMethodId)
 
     function handleSubmit(event) {
         event.preventDefault()
-        onSubmit({
-            name: name.trim(),
-            category_id: categoryId,
-            payment_method_id: paymentMethodId,
-            amount: Number(amount),
-            frequency,
-            due_date: dueDate || null,
-            auto_create_transaction: autoCreateTransaction,
-            reminder_enabled: reminderEnabled,
-            notes: notes.trim() || null,
-        })
+        // A bill paid from a private wallet can never be shared (its spend is
+        // only ever visible to the wallet's creator) -- force this false rather
+        // than rely solely on the disabled checkbox, since switching to a
+        // private wallet after checking "shared" wouldn't otherwise reset it.
+        const effectiveIsShared = selectedPaymentMethod && !selectedPaymentMethod.is_shared ? false : isShared
+        // is_shared is only ever accepted on create (RecurringBillCreate) --
+        // RecurringBillUpdate uses extra="forbid" and doesn't declare it, so an
+        // edit submits it as a separate second argument instead (see
+        // handleEdit, which routes it to PATCH /recurring-bills/{id}/sharing).
+        onSubmit(
+            {
+                name: name.trim(),
+                category_id: categoryId,
+                payment_method_id: paymentMethodId,
+                amount: Number(amount),
+                frequency,
+                due_date: dueDate || null,
+                auto_create_transaction: autoCreateTransaction,
+                reminder_enabled: reminderEnabled,
+                notes: notes.trim() || null,
+                ...(initial ? {} : { is_shared: effectiveIsShared }),
+            },
+            effectiveIsShared,
+        )
     }
 
     return (
         <form onSubmit={handleSubmit}>
+            {/* Editing an existing bill toggles sharing from the title-row
+                switch instead (see SharingToggle in the parent) -- this
+                field only matters for declaring it at creation time. */}
+            {!initial && (
+                <SharingToggle
+                    id="bill-shared"
+                    isShared={isShared}
+                    onChange={setIsShared}
+                    disabled={Boolean(selectedPaymentMethod && !selectedPaymentMethod.is_shared)}
+                    hint={
+                        selectedPaymentMethod && !selectedPaymentMethod.is_shared
+                            ? "This bill's wallet is private, so the bill can't be shared — share the wallet first, or choose a shared wallet."
+                            : undefined
+                    }
+                />
+            )}
             <div className="mb-3">
                 <label className="form-label" htmlFor="bill-name">Name</label>
                 <input
@@ -217,6 +266,9 @@ export default function RecurringBills() {
 
     const activeBillId = selectedId ?? (bills ?? [])[0]?.id ?? null
     const activeBill = (bills ?? []).find((bill) => bill.id === activeBillId) ?? null
+    const activeBillPaymentMethod = activeBill
+        ? (paymentMethods ?? []).find((pm) => pm.id === activeBill.payment_method_id) ?? null
+        : null
 
     function selectBill(billId) {
         setSelectedId(billId)
@@ -245,12 +297,15 @@ export default function RecurringBills() {
         }
     }
 
-    async function handleEdit(payload) {
+    async function handleEdit(payload, isShared) {
         if (!activeBill) return
         setIsSubmitting(true)
         setDetailError(null)
         try {
             await recurringBillsApi.update(activeBill.id, payload)
+            if (isShared !== activeBill.is_shared) {
+                await recurringBillsApi.updateSharing(activeBill.id, isShared)
+            }
             await mutateBills()
             setIsEditFormOpen(false)
         } catch (error) {
@@ -279,11 +334,24 @@ export default function RecurringBills() {
         }
     }
 
-    async function handleDeactivate() {
-        if (!activeBill) return
+    async function handleDeactivate(bill) {
+        if (!bill) return
         try {
-            await recurringBillsApi.remove(activeBill.id)
-            setSelectedId(null)
+            await recurringBillsApi.remove(bill.id)
+            // Only clear the selection if the deactivated bill was the one
+            // currently showing -- deactivating a different row from the list
+            // shouldn't knock the user's current view back to the first bill.
+            if (bill.id === activeBillId) setSelectedId(null)
+            await mutateBills()
+        } catch (error) {
+            setDetailError(error.message)
+        }
+    }
+
+    async function handleToggleSharing(bill, isShared) {
+        setDetailError(null)
+        try {
+            await recurringBillsApi.updateSharing(bill.id, isShared)
             await mutateBills()
         } catch (error) {
             setDetailError(error.message)
@@ -298,7 +366,7 @@ export default function RecurringBills() {
                         <div className="nav d-block">
                             <div className="row">
                                 {(bills ?? []).map((bill) => (
-                                    <BillNavItem key={bill.id} bill={bill} isActive={activeBillId === bill.id} onSelect={selectBill} />
+                                    <BillNavItem key={bill.id} bill={bill} isActive={activeBillId === bill.id} onSelect={selectBill} onDelete={handleDeactivate} />
                                 ))}
                             </div>
                         </div>
@@ -355,9 +423,21 @@ export default function RecurringBills() {
                                 </div>
                             ) : (
                                 <>
-                                    <div className="goals-tab-title d-flex justify-content-between align-items-center">
-                                        <h3>{activeBill.name}</h3>
-                                        <div className="d-flex gap-2">
+                                    <div className="goals-tab-title d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                        <h3 className="mb-0">{activeBill.name}</h3>
+                                        <div className="d-flex align-items-center gap-2">
+                                            <SharingToggle
+                                                id="bill-title-shared"
+                                                isShared={activeBill.is_shared}
+                                                onChange={(checked) => handleToggleSharing(activeBill, checked)}
+                                                disabled={Boolean(activeBillPaymentMethod && !activeBillPaymentMethod.is_shared)}
+                                                hint={
+                                                    activeBillPaymentMethod && !activeBillPaymentMethod.is_shared
+                                                        ? "This bill's wallet is private, so the bill can't be shared — share the wallet first, or choose a shared wallet."
+                                                        : undefined
+                                                }
+                                                compact
+                                            />
                                             <button
                                                 type="button"
                                                 className="btn btn-sm btn-outline-secondary"
@@ -370,13 +450,6 @@ export default function RecurringBills() {
                                             >
                                                 <i className="fi fi-rr-pencil" /> Edit
                                             </button>
-                                            <ConfirmButton
-                                                className="btn btn-sm btn-outline-danger"
-                                                message={`Deactivate "${activeBill.name}"? This bill won't generate future periods and there's no undo — you'd need to create it again.`}
-                                                onConfirm={handleDeactivate}
-                                            >
-                                                <i className="fi fi-rr-trash" />
-                                            </ConfirmButton>
                                         </div>
                                     </div>
                                     {detailError && <div className="text-danger mb-3" role="alert">{detailError}</div>}

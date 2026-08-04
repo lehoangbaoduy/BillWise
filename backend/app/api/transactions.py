@@ -10,6 +10,7 @@ from app.api.deps import household_owner_id, require_can_add_transactions, requi
 from app.core.audit import log_audit_event
 from app.core.db import get_session
 from app.models._common import utcnow
+from app.models.payment_method import PaymentMethod
 from app.models.transaction import Transaction, TransactionLineItem, TransactionSource, TransactionType
 from app.models.user import User
 from app.schemas.transaction import TransactionCreate, TransactionPublic, TransactionUpdate
@@ -129,6 +130,18 @@ async def list_transactions(
         for item in all_line_items:
             line_items_by_transaction[item.transaction_id].append(item)
 
+    is_shared_by_payment_method: dict[uuid.UUID, bool] = {}
+    payment_method_ids = {t.payment_method_id for t in transactions}
+    if payment_method_ids:
+        pm_rows = (
+            await session.exec(
+                select(PaymentMethod.id, PaymentMethod.is_shared).where(
+                    PaymentMethod.id.in_(payment_method_ids)  # type: ignore[union-attr]
+                )
+            )
+        ).all()
+        is_shared_by_payment_method = dict(pm_rows)
+
     return [
         TransactionPublic(
             id=t.id,
@@ -144,6 +157,7 @@ async def list_transactions(
             line_items=line_items_by_transaction[t.id],
             possible_duplicate=False,
             created_by_user_id=t.created_by_user_id,
+            is_shared=is_shared_by_payment_method.get(t.payment_method_id, True),
         )
         for t in transactions
     ]

@@ -12,7 +12,11 @@ class CashbackRuleCreate(BaseModel):
 
     payment_method_id: uuid.UUID
     category_id: uuid.UUID | None = None
-    merchant: str | None = Field(default=None, max_length=200)
+    # min_length=2: cashback_service.resolve_cashback_rate now matches a rule's
+    # merchant as a substring of the transaction's merchant rather than an exact
+    # match (so "Costco" matches "COSTCO WHSE #1234") -- a 1-character merchant
+    # would then match almost any transaction, silently misapplying its rate.
+    merchant: str | None = Field(default=None, min_length=2, max_length=200)
     cashback_rate: Decimal = Field(ge=0, le=100)
     start_date: date_type
     end_date: date_type | None = None
@@ -23,7 +27,11 @@ class CashbackRuleUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     category_id: uuid.UUID | None = None
-    merchant: str | None = Field(default=None, max_length=200)
+    # min_length=2: cashback_service.resolve_cashback_rate now matches a rule's
+    # merchant as a substring of the transaction's merchant rather than an exact
+    # match (so "Costco" matches "COSTCO WHSE #1234") -- a 1-character merchant
+    # would then match almost any transaction, silently misapplying its rate.
+    merchant: str | None = Field(default=None, min_length=2, max_length=200)
     cashback_rate: Decimal | None = Field(default=None, ge=0, le=100)
     start_date: date_type | None = None
     end_date: date_type | None = None
@@ -41,6 +49,10 @@ class CashbackRulePublic(BaseModel):
     start_date: date_type
     end_date: date_type | None
     notes: str | None
+    # Derived from the linked payment method, not its own stored field -- a
+    # cashback rule tied to a private wallet is automatically private, since
+    # nobody but that wallet's creator could ever earn against it anyway.
+    is_shared: bool
 
 
 class CashbackRecordUpdate(BaseModel):
@@ -62,6 +74,8 @@ class CashbackRecordPublic(BaseModel):
     estimated_amount: Decimal
     redeemed_amount: Decimal
     status: CashbackRecordStatus
+    # Derived from the linked payment method -- see CashbackRulePublic.is_shared.
+    is_shared: bool
 
 
 class CashbackCardSummary(BaseModel):

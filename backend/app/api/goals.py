@@ -2,18 +2,20 @@ import uuid
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlmodel import func, select
+from sqlmodel import and_, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import household_owner_id, require_household_member, require_owner_or_co_owner
+from app.api.deps import household_owner_id, require_owner_or_co_owner
 from app.core.audit import log_audit_event
 from app.core.db import get_session
 from app.models._common import utcnow
 from app.models.goal import SavingsGoal
+from app.models.payment_method import PaymentMethod
 from app.models.transaction import Transaction, TransactionLineItem, TransactionSource, TransactionType
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.goal import AddFundsRequest, GoalContributionPublic, GoalCreate, GoalDetail, GoalPublic, GoalSharingUpdate, GoalUpdate
 from app.schemas.transaction import TransactionLineItemCreate
+from app.services.item_visibility import user_can_access_item, visibility_condition
 from app.services.transaction_validation import validate_line_items, validate_payment_method
 
 router = APIRouter(prefix="/goals", tags=["goals"])
@@ -21,25 +23,50 @@ router = APIRouter(prefix="/goals", tags=["goals"])
 
 async def _get_owned_active_or_404(session: AsyncSession, user: User, goal_id: uuid.UUID) -> SavingsGoal:
     goal = await session.get(SavingsGoal, goal_id)
-    if goal is None or goal.user_id != household_owner_id(user) or not goal.is_active:
+    owner_id = household_owner_id(user)
+    if (
+        goal is None
+        or goal.user_id != owner_id
+        or not goal.is_active
+        or not user_can_access_item(goal.is_shared, goal.created_by_user_id, owner_id, user)
+    ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
     return goal
 
 
-async def _current_amounts(session: AsyncSession, goal_ids: list[uuid.UUID]) -> dict[uuid.UUID, Decimal]:
+def _personal_contribution_condition(owner_id: uuid.UUID, user: User):
+    # Mirrors dashboard.py's _personal_visibility_condition: a shared goal's
+    # current_amount must not leak how much someone else privately contributed
+    # via their own private wallet -- only shared-wallet contributions and the
+    # viewer's own private-wallet contributions count toward what they see.
+    return or_(
+        PaymentMethod.is_shared == True,  # noqa: E712
+        PaymentMethod.created_by_user_id == user.id,
+        and_(PaymentMethod.created_by_user_id.is_(None), user.id == owner_id),
+    )
+
+
+async def _current_amounts(session: AsyncSession, owner_id: uuid.UUID, user: User, goal_ids: list[uuid.UUID]) -> dict[uuid.UUID, Decimal]:
     if not goal_ids:
         return {}
     statement = (
         select(Transaction.goal_id, func.sum(Transaction.total_amount))
-        .where(Transaction.goal_id.in_(goal_ids))  # type: ignore[union-attr]
+        .select_from(Transaction)
+        .join(PaymentMethod, PaymentMethod.id == Transaction.payment_method_id)
+        .where(Transaction.goal_id.in_(goal_ids), _personal_contribution_condition(owner_id, user))  # type: ignore[union-attr]
         .group_by(Transaction.goal_id)
     )
     rows = (await session.exec(statement)).all()
     return {goal_id: total for goal_id, total in rows}
 
 
-async def _current_amount(session: AsyncSession, goal_id: uuid.UUID) -> Decimal:
-    statement = select(func.sum(Transaction.total_amount)).where(Transaction.goal_id == goal_id)
+async def _current_amount(session: AsyncSession, owner_id: uuid.UUID, user: User, goal_id: uuid.UUID) -> Decimal:
+    statement = (
+        select(func.sum(Transaction.total_amount))
+        .select_from(Transaction)
+        .join(PaymentMethod, PaymentMethod.id == Transaction.payment_method_id)
+        .where(Transaction.goal_id == goal_id, _personal_contribution_condition(owner_id, user))
+    )
     total = (await session.exec(statement)).first()
     return total if total is not None else Decimal("0")
 
@@ -60,20 +87,17 @@ def _to_public(goal: SavingsGoal, current_amount: Decimal) -> GoalPublic:
 
 @router.get("", response_model=list[GoalPublic])
 async def list_goals(
-    user: User = Depends(require_household_member),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> list[GoalPublic]:
     owner_id = household_owner_id(user)
-    if user.role == UserRole.PARTNER:
-        statement = select(SavingsGoal).where(
-            SavingsGoal.user_id == owner_id,
-            SavingsGoal.is_shared == True,  # noqa: E712
-            SavingsGoal.is_active == True,  # noqa: E712
-        )
-    else:
-        statement = select(SavingsGoal).where(SavingsGoal.user_id == owner_id, SavingsGoal.is_active == True)  # noqa: E712
+    statement = select(SavingsGoal).where(
+        SavingsGoal.user_id == owner_id,
+        SavingsGoal.is_active == True,  # noqa: E712
+        visibility_condition(SavingsGoal, owner_id, user),
+    )
     goals = (await session.exec(statement)).all()
-    amounts = await _current_amounts(session, [g.id for g in goals])
+    amounts = await _current_amounts(session, owner_id, user, [g.id for g in goals])
     return [_to_public(goal, amounts.get(goal.id, Decimal("0"))) for goal in goals]
 
 
@@ -84,7 +108,8 @@ async def create_goal(
     user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> GoalPublic:
-    goal = SavingsGoal(user_id=household_owner_id(user), **body.model_dump())
+    owner_id = household_owner_id(user)
+    goal = SavingsGoal(user_id=owner_id, created_by_user_id=user.id if user.id != owner_id else None, **body.model_dump())
     session.add(goal)
     await session.commit()
     await session.refresh(goal)
@@ -102,9 +127,13 @@ async def get_goal(
     session: AsyncSession = Depends(get_session),
 ) -> GoalDetail:
     goal = await _get_owned_active_or_404(session, user, goal_id)
+    owner_id = household_owner_id(user)
     contributions = (
         await session.exec(
-            select(Transaction).where(Transaction.goal_id == goal_id).order_by(Transaction.date.desc())  # type: ignore[union-attr]
+            select(Transaction)
+            .join(PaymentMethod, PaymentMethod.id == Transaction.payment_method_id)
+            .where(Transaction.goal_id == goal_id, _personal_contribution_condition(owner_id, user))  # type: ignore[union-attr]
+            .order_by(Transaction.date.desc())
         )
     ).all()
     current_amount = sum((t.total_amount for t in contributions), Decimal("0"))
@@ -140,7 +169,8 @@ async def update_goal(
         session, "goal.updated", user_id=user.id, entity_type="goal", entity_id=goal.id,
         metadata={"fields": list(updated_fields.keys())}, request=request,
     )
-    return _to_public(goal, await _current_amount(session, goal.id))
+    owner_id = household_owner_id(user)
+    return _to_public(goal, await _current_amount(session, owner_id, user, goal.id))
 
 
 @router.patch("/{goal_id}/sharing", response_model=GoalPublic)
@@ -161,7 +191,8 @@ async def update_goal_sharing(
         session, "goal.updated", user_id=user.id, entity_type="goal", entity_id=goal.id,
         metadata={"fields": ["is_shared"], "is_shared": body.is_shared}, request=request,
     )
-    return _to_public(goal, await _current_amount(session, goal.id))
+    owner_id = household_owner_id(user)
+    return _to_public(goal, await _current_amount(session, owner_id, user, goal.id))
 
 
 @router.delete("/{goal_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -230,4 +261,4 @@ async def add_funds(
         request=request,
     )
 
-    return _to_public(goal, await _current_amount(session, goal.id))
+    return _to_public(goal, await _current_amount(session, owner_id, user, goal.id))

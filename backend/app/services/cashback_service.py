@@ -2,7 +2,7 @@ import uuid
 from datetime import date as date_type
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlmodel import and_, func, or_, select
+from sqlmodel import and_, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.models.cashback import CashbackRecord, CashbackRecordStatus, CashbackRule
@@ -31,18 +31,26 @@ async def resolve_cashback_rate(
     Deliberately does NOT fall back to the payment method's own
     default_cashback_rate column -- that field is display-only (Wallets card
     visual); §27.5 is explicit that estimation looks at rules alone."""
-    merchant_condition = CashbackRule.merchant.is_(None)  # type: ignore[union-attr]
-    if merchant:
-        merchant_condition = or_(merchant_condition, func.lower(CashbackRule.merchant) == merchant.strip().lower())
     statement = select(CashbackRule).where(
         CashbackRule.user_id == user_id,
         CashbackRule.payment_method_id == payment_method_id,
         CashbackRule.start_date <= on_date,
         or_(CashbackRule.end_date.is_(None), CashbackRule.end_date >= on_date),  # type: ignore[union-attr]
         or_(CashbackRule.category_id == category_id, CashbackRule.category_id.is_(None)),  # type: ignore[union-attr]
-        merchant_condition,
     )
-    candidates = (await session.exec(statement)).all()
+    all_candidates = (await session.exec(statement)).all()
+    # Substring match (not exact) rather than a SQL LIKE, so a rule's merchant
+    # doesn't need '%'/'_' escaping and stays simple to reason about: a rule
+    # merchant matches whenever it's contained in the transaction's merchant,
+    # case-insensitively -- "Costco" (the short name a user types when creating
+    # a rule) still matches "COSTCO WHSE #1234" (what an OCR-extracted or
+    # manually-typed transaction merchant often looks like in practice).
+    normalized_merchant = merchant.strip().lower() if merchant else ""
+    candidates = [
+        rule
+        for rule in all_candidates
+        if rule.merchant is None or (normalized_merchant and rule.merchant.strip().lower() in normalized_merchant)
+    ]
     if not candidates:
         return Decimal("0")
 

@@ -22,6 +22,7 @@ class PaymentMethodCreate(BaseModel):
     default_cashback_rate: Decimal | None = Field(default=None, ge=0, le=100)
     current_balance: Decimal | None = None
     color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    is_shared: bool = False
 
 
 class PaymentMethodUpdate(BaseModel):
@@ -37,6 +38,12 @@ class PaymentMethodUpdate(BaseModel):
     color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
+class PaymentMethodSharingUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    is_shared: bool
+
+
 class PaymentMethodPublic(BaseModel):
     id: uuid.UUID
     name: str
@@ -48,4 +55,5 @@ class PaymentMethodPublic(BaseModel):
     default_cashback_rate: Decimal | None
     current_balance: Decimal | None
     color: str | None
+    is_shared: bool
     is_active: bool

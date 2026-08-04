@@ -105,6 +105,8 @@ export const paymentMethodsApi = {
   list: () => request("/payment-methods"),
   create: (data) => request("/payment-methods", { method: "POST", body: JSON.stringify(data) }),
   update: (id, data) => request(`/payment-methods/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  updateSharing: (id, isShared) =>
+    request(`/payment-methods/${id}/sharing`, { method: "PATCH", body: JSON.stringify({ is_shared: isShared }) }),
   remove: (id) => request(`/payment-methods/${id}`, { method: "DELETE" }),
 }
 
@@ -141,6 +143,8 @@ export const budgetsApi = {
   list: (month, year) => request(`/budgets?month=${month}&year=${year}`),
   create: (data) => request("/budgets", { method: "POST", body: JSON.stringify(data) }),
   update: (id, data) => request(`/budgets/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  updateSharing: (id, isShared) =>
+    request(`/budgets/${id}/sharing`, { method: "PATCH", body: JSON.stringify({ is_shared: isShared }) }),
   remove: (id) => request(`/budgets/${id}`, { method: "DELETE" }),
 }
 
@@ -159,6 +163,8 @@ export const recurringBillsApi = {
   list: () => request("/recurring-bills"),
   create: (data) => request("/recurring-bills", { method: "POST", body: JSON.stringify(data) }),
   update: (id, data) => request(`/recurring-bills/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  updateSharing: (id, isShared) =>
+    request(`/recurring-bills/${id}/sharing`, { method: "PATCH", body: JSON.stringify({ is_shared: isShared }) }),
   remove: (id) => request(`/recurring-bills/${id}`, { method: "DELETE" }),
   markPaid: (id, data) => request(`/recurring-bills/${id}/mark-paid`, { method: "POST", body: JSON.stringify(data) }),
 }

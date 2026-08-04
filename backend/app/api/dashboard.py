@@ -22,11 +22,11 @@ import uuid
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import extract
-from sqlmodel import and_, func, select
+from sqlalchemy import extract, true
+from sqlmodel import and_, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import household_owner_id, require_household_member, require_owner_or_co_owner
+from app.api.deps import household_owner_id, is_owner_or_co_owner, require_household_member, require_owner_or_co_owner
 from app.api.net_worth import load_balances_by_snapshot, to_snapshot_public
 from app.core.config import settings
 from app.core.db import get_session
@@ -36,7 +36,7 @@ from app.models.category import Category
 from app.models.net_worth import NetWorthSnapshot
 from app.models.payment_method import PaymentMethod
 from app.models.transaction import Transaction, TransactionLineItem, TransactionType
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.dashboard import (
     BudgetStatusItem,
     CashFlow,
@@ -53,7 +53,30 @@ from app.schemas.dashboard import (
 )
 from app.schemas.net_worth import NetWorthDashboard
 from app.services.budget_rollover import ensure_budget_rollover_as_owner
+from app.services.item_visibility import effective_creator_id, visibility_condition
 from app.services.partner_visibility import apply_partner_transaction_visibility, shared_category_ids_subquery
+
+
+def _personal_visibility_condition(owner_id: uuid.UUID, user: User, viewer_is_owner_or_co_owner: bool):
+    """Every household/category/type total in this file is personalized per
+    viewer: shared-payment-method activity (visible to anyone) plus the
+    viewer's own private-payment-method activity (invisible to everyone
+    else). This is the Transaction-join equivalent of
+    item_visibility.visibility_condition, applied via PaymentMethod.
+
+    The private/shared *wallet* distinction only ever exists between an
+    owner and a co-owner -- a plain (non-co-owner) partner can never be a
+    payment method's creator (Wallet CRUD is require_owner_or_co_owner-
+    gated), so this condition is a no-op for them; their visibility stays
+    governed entirely by apply_partner_transaction_visibility's
+    category-based rule, same as before this feature existed."""
+    if not viewer_is_owner_or_co_owner:
+        return true()
+    return or_(
+        PaymentMethod.is_shared == True,  # noqa: E712
+        PaymentMethod.created_by_user_id == user.id,
+        and_(PaymentMethod.created_by_user_id.is_(None), user.id == owner_id),
+    )
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -71,27 +94,46 @@ def previous_period(month: int, year: int) -> tuple[int, int]:
     return (12, year - 1) if month == 1 else (month - 1, year)
 
 
-async def sum_by_type(session: AsyncSession, user: User, month: int, year: int, transaction_type: TransactionType) -> Decimal:
+async def sum_by_type(
+    session: AsyncSession, user: User, month: int, year: int, transaction_type: TransactionType
+) -> Decimal:
+    """Personalized per viewer -- shared-payment-method activity plus the
+    viewer's own private-payment-method activity. See
+    _personal_visibility_condition. For a solo owner with nothing marked
+    shared, this is identical to today's household-wide total (everything is
+    "their own"), so existing single-owner households see no change."""
     owner_id = household_owner_id(user)
+    viewer_is_owner_or_co_owner = await is_owner_or_co_owner(user, session)
     conditions = [
         Transaction.user_id == owner_id,
+        PaymentMethod.user_id == owner_id,
         extract("month", Transaction.date) == month,
         extract("year", Transaction.date) == year,
         Transaction.transaction_type == transaction_type,
+        _personal_visibility_condition(owner_id, user, viewer_is_owner_or_co_owner),
     ]
     apply_partner_transaction_visibility(conditions, user, owner_id)
-    statement = select(func.coalesce(func.sum(Transaction.total_amount), 0)).where(*conditions)
+    statement = (
+        select(func.coalesce(func.sum(Transaction.total_amount), 0))
+        .select_from(Transaction)
+        .join(PaymentMethod, PaymentMethod.id == Transaction.payment_method_id)
+        .where(*conditions)
+    )
     return (await session.exec(statement)).one()
 
 
 async def category_expense_spend(session: AsyncSession, user: User, month: int, year: int) -> list[tuple]:
+    """Personalized per viewer, same rule as sum_by_type -- see its docstring."""
     owner_id = household_owner_id(user)
+    viewer_is_owner_or_co_owner = await is_owner_or_co_owner(user, session)
     conditions = [
         Transaction.user_id == owner_id,
         Category.user_id == owner_id,
+        PaymentMethod.user_id == owner_id,
         extract("month", Transaction.date) == month,
         extract("year", Transaction.date) == year,
         Transaction.transaction_type == TransactionType.EXPENSE,
+        _personal_visibility_condition(owner_id, user, viewer_is_owner_or_co_owner),
     ]
     apply_partner_transaction_visibility(conditions, user, owner_id)
     statement = (
@@ -99,17 +141,63 @@ async def category_expense_spend(session: AsyncSession, user: User, month: int, 
         .select_from(TransactionLineItem)
         .join(Transaction, Transaction.id == TransactionLineItem.transaction_id)
         .join(Category, Category.id == TransactionLineItem.category_id)
+        .join(PaymentMethod, PaymentMethod.id == Transaction.payment_method_id)
         .where(*conditions)
         .group_by(Category.id, Category.name, Category.parent_category_id)
     )
     return (await session.exec(statement)).all()
 
 
+async def _visible_budgets_by_category(
+    session: AsyncSession, owner_id: uuid.UUID, user: User, month: int, year: int, viewer_is_owner_or_co_owner: bool
+) -> dict[uuid.UUID, Budget]:
+    """At most one budget per category, for this viewer: their own row (private
+    or shared) if they have one, else a shared row someone else created. A
+    category could in principle carry two simultaneous rows (the viewer's own
+    private target plus a co-owner's shared target) -- picking one keeps the
+    existing one-row-per-category UI shape rather than opening up a
+    multi-budget-per-category display, which is out of scope for now.
+
+    A plain (non-co-owner) partner was never part of the creator-based model
+    (Budget CRUD is require_owner_or_co_owner-gated, so they can never be a
+    budget's creator) -- their visibility stays the pre-existing rule: whichever
+    categories are shared with them, regardless of a specific Budget row's own
+    is_shared/created_by_user_id."""
+    if not viewer_is_owner_or_co_owner:
+        statement = select(Budget).where(
+            Budget.user_id == owner_id,
+            Budget.month == month,
+            Budget.year == year,
+            Budget.category_id.in_(shared_category_ids_subquery(owner_id)),
+        )
+        budgets = (await session.exec(statement)).all()
+        by_category: dict[uuid.UUID, Budget] = {}
+        for budget in budgets:
+            existing = by_category.get(budget.category_id)
+            if existing is None or (budget.is_shared and not existing.is_shared):
+                by_category[budget.category_id] = budget
+        return by_category
+
+    statement = select(Budget).where(
+        Budget.user_id == owner_id, Budget.month == month, Budget.year == year, visibility_condition(Budget, owner_id, user)
+    )
+    budgets = (await session.exec(statement)).all()
+    by_category: dict[uuid.UUID, Budget] = {}
+    for budget in budgets:
+        existing = by_category.get(budget.category_id)
+        is_own = effective_creator_id(budget.created_by_user_id, owner_id) == user.id
+        if existing is None or is_own:
+            by_category[budget.category_id] = budget
+    return by_category
+
+
 async def _payment_method_expense_spend(session: AsyncSession, user: User, month: int, year: int) -> list[tuple]:
-    """Owner-or-co-owner caller (payment_method_breakdown) — no partner-visibility
-    scoping needed since payment methods stay owner-only regardless of
-    sharing (PRD §21.4); a co-owner sees the same household-scoped data an
-    owner would, via household_owner_id rather than their own user.id."""
+    """Owner-or-co-owner caller (payment_method_breakdown, top_payment_method).
+    Each payment method's own total always includes every transaction against
+    it regardless of who created those transactions (PRD §21.4: using a
+    payment method in a transaction is unrestricted) -- what's scoped here is
+    only *which payment methods this viewer can see at all*, via
+    visibility_condition (their own private wallets plus any shared wallet)."""
     owner_id = household_owner_id(user)
     statement = (
         select(
@@ -128,6 +216,7 @@ async def _payment_method_expense_spend(session: AsyncSession, user: User, month
             extract("month", Transaction.date) == month,
             extract("year", Transaction.date) == year,
             Transaction.transaction_type == TransactionType.EXPENSE,
+            visibility_condition(PaymentMethod, owner_id, user),
         )
         .group_by(PaymentMethod.id, PaymentMethod.name, PaymentMethod.type, PaymentMethod.current_balance)
     )
@@ -146,6 +235,7 @@ async def monthly_overview(
     session: AsyncSession = Depends(get_session),
 ) -> MonthlyOverview:
     owner_id = household_owner_id(user)
+    viewer_is_owner_or_co_owner = await is_owner_or_co_owner(user, session)
     total_income = await sum_by_type(session, user, month, year, TransactionType.INCOME)
     total_expenses = await sum_by_type(session, user, month, year, TransactionType.EXPENSE)
 
@@ -155,20 +245,20 @@ async def monthly_overview(
         category_id, name, _parent_id, amount = max(category_rows, key=lambda row: row[3])
         top_category = TopCategory(category_id=category_id, name=name, amount=amount)
 
-    # Payment methods stay owner-only regardless of sharing (PRD §21.4) — a
-    # partner's monthly overview never identifies which payment method was used.
+    # Payment methods stay owner-or-co-owner-only regardless of sharing (PRD
+    # §21.4) — a plain partner's monthly overview never identifies which
+    # payment method was used.
     top_payment_method = None
-    if user.role != UserRole.PARTNER:
+    if viewer_is_owner_or_co_owner:
         payment_method_rows = await _payment_method_expense_spend(session, user, month, year)
         if payment_method_rows:
             pm_id, name, _type, _balance, amount, _count = max(payment_method_rows, key=lambda row: row[4])
             top_payment_method = TopPaymentMethod(payment_method_id=pm_id, name=name, amount=amount)
 
     await ensure_budget_rollover_as_owner(session, user, month, year)
-    budget_conditions = [Budget.user_id == owner_id, Budget.month == month, Budget.year == year]
-    if user.role == UserRole.PARTNER:
-        budget_conditions.append(Budget.category_id.in_(shared_category_ids_subquery(owner_id)))  # type: ignore[union-attr]
-    budgets = (await session.exec(select(Budget).where(*budget_conditions))).all()
+    budgets = list(
+        (await _visible_budgets_by_category(session, owner_id, user, month, year, viewer_is_owner_or_co_owner)).values()
+    )
     spend_by_category = {row[0]: row[3] for row in category_rows}
     budget_category_ids = {budget.category_id for budget in budgets}
     category_name_by_id: dict[uuid.UUID, str] = {}
@@ -224,15 +314,20 @@ async def yearly_overview(
     session: AsyncSession = Depends(get_session),
 ) -> YearlyOverview:
     owner_id = household_owner_id(user)
+    viewer_is_owner_or_co_owner = await is_owner_or_co_owner(user, session)
 
     month_conditions = [
         Transaction.user_id == owner_id,
+        PaymentMethod.user_id == owner_id,
         extract("year", Transaction.date) == year,
         Transaction.transaction_type == TransactionType.EXPENSE,
+        _personal_visibility_condition(owner_id, user, viewer_is_owner_or_co_owner),
     ]
     apply_partner_transaction_visibility(month_conditions, user, owner_id)
     month_statement = (
         select(extract("month", Transaction.date), func.sum(Transaction.total_amount))
+        .select_from(Transaction)
+        .join(PaymentMethod, PaymentMethod.id == Transaction.payment_method_id)
         .where(*month_conditions)
         .group_by(extract("month", Transaction.date))
     )
@@ -243,12 +338,16 @@ async def yearly_overview(
 
     income_month_conditions = [
         Transaction.user_id == owner_id,
+        PaymentMethod.user_id == owner_id,
         extract("year", Transaction.date) == year,
         Transaction.transaction_type == TransactionType.INCOME,
+        _personal_visibility_condition(owner_id, user, viewer_is_owner_or_co_owner),
     ]
     apply_partner_transaction_visibility(income_month_conditions, user, owner_id)
     income_month_statement = (
         select(extract("month", Transaction.date), func.sum(Transaction.total_amount))
+        .select_from(Transaction)
+        .join(PaymentMethod, PaymentMethod.id == Transaction.payment_method_id)
         .where(*income_month_conditions)
         .group_by(extract("month", Transaction.date))
     )
@@ -259,8 +358,10 @@ async def yearly_overview(
     category_conditions = [
         Transaction.user_id == owner_id,
         Category.user_id == owner_id,
+        PaymentMethod.user_id == owner_id,
         extract("year", Transaction.date) == year,
         Transaction.transaction_type == TransactionType.EXPENSE,
+        _personal_visibility_condition(owner_id, user, viewer_is_owner_or_co_owner),
     ]
     apply_partner_transaction_visibility(category_conditions, user, owner_id)
     category_statement = (
@@ -268,6 +369,7 @@ async def yearly_overview(
         .select_from(TransactionLineItem)
         .join(Transaction, Transaction.id == TransactionLineItem.transaction_id)
         .join(Category, Category.id == TransactionLineItem.category_id)
+        .join(PaymentMethod, PaymentMethod.id == Transaction.payment_method_id)
         .where(*category_conditions)
         .group_by(Category.id, Category.name)
     )
@@ -276,18 +378,22 @@ async def yearly_overview(
         for category_id, name, total in (await session.exec(category_statement)).all()
     ]
 
-    # Payment methods stay owner-only regardless of sharing (PRD §21.4).
+    # Per-payment-method totals only need visibility scoping (which wallets this
+    # viewer can see) -- each wallet's own total already includes every
+    # transaction against it regardless of creator (PRD §21.4), same as
+    # _payment_method_expense_spend above.
     spend_by_payment_method: list[PaymentMethodSpend] = []
-    if user.role != UserRole.PARTNER:
+    if viewer_is_owner_or_co_owner:
         pm_statement = (
             select(PaymentMethod.id, PaymentMethod.name, func.sum(Transaction.total_amount))
             .select_from(Transaction)
             .join(PaymentMethod, PaymentMethod.id == Transaction.payment_method_id)
             .where(
-                Transaction.user_id == user.id,
-                PaymentMethod.user_id == user.id,
+                Transaction.user_id == owner_id,
+                PaymentMethod.user_id == owner_id,
                 extract("year", Transaction.date) == year,
                 Transaction.transaction_type == TransactionType.EXPENSE,
+                visibility_condition(PaymentMethod, owner_id, user),
             )
             .group_by(PaymentMethod.id, PaymentMethod.name)
         )
@@ -302,11 +408,18 @@ async def yearly_overview(
 
     ytd_savings_conditions = [
         Transaction.user_id == owner_id,
+        PaymentMethod.user_id == owner_id,
         extract("year", Transaction.date) == year,
         Transaction.transaction_type == TransactionType.SAVING_EXPENSE,
+        _personal_visibility_condition(owner_id, user, viewer_is_owner_or_co_owner),
     ]
     apply_partner_transaction_visibility(ytd_savings_conditions, user, owner_id)
-    ytd_savings_statement = select(func.coalesce(func.sum(Transaction.total_amount), 0)).where(*ytd_savings_conditions)
+    ytd_savings_statement = (
+        select(func.coalesce(func.sum(Transaction.total_amount), 0))
+        .select_from(Transaction)
+        .join(PaymentMethod, PaymentMethod.id == Transaction.payment_method_id)
+        .where(*ytd_savings_conditions)
+    )
     ytd_savings_total = (await session.exec(ytd_savings_statement)).one()
 
     return YearlyOverview(
@@ -333,16 +446,15 @@ async def category_breakdown(
     session: AsyncSession = Depends(get_session),
 ) -> list[CategoryBreakdownItem]:
     owner_id = household_owner_id(user)
+    viewer_is_owner_or_co_owner = await is_owner_or_co_owner(user, session)
     category_rows = await category_expense_spend(session, user, month, year)
     total_expenses = await sum_by_type(session, user, month, year, TransactionType.EXPENSE)
     spend_by_category = {row[0]: (row[1], row[2], row[3]) for row in category_rows}
 
     await ensure_budget_rollover_as_owner(session, user, month, year)
-    budget_conditions = [Budget.user_id == owner_id, Budget.month == month, Budget.year == year]
-    if user.role == UserRole.PARTNER:
-        budget_conditions.append(Budget.category_id.in_(shared_category_ids_subquery(owner_id)))  # type: ignore[union-attr]
-    budgets = (await session.exec(select(Budget).where(*budget_conditions))).all()
-    budget_by_category = {budget.category_id: budget for budget in budgets}
+    budget_by_category = await _visible_budgets_by_category(
+        session, owner_id, user, month, year, viewer_is_owner_or_co_owner
+    )
 
     zero_spend_budgeted_ids = set(budget_by_category) - set(spend_by_category)
     if zero_spend_budgeted_ids:

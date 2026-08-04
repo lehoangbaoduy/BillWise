@@ -50,7 +50,13 @@
     }
 
     .right-category {
-        span,
+        // ConfirmButton (components/elements/ConfirmButton.js) wraps the real
+        // <button> in a `.confirm-popover-anchor` positioning <span>. Box styling
+        // must target the button only -- matching both the span and the button
+        // (as the old `span, button` selector did) double-boxes the element: the
+        // outer span gets the same padding/radius/background as the inner
+        // button, so its background renders larger and peeks out past the
+        // inner button's rounded corners as a squared-off overflow.
         button {
             display: inline-block;
             padding: 7px 10px;
@@ -67,17 +73,23 @@
                 opacity: 0.6;
                 cursor: not-allowed;
             }
+        }
 
-            &:first-child {
-                background-color: lighten($primary, 42%);
-                color: $primary;
-            }
+        // First/last-child color variants key off .right-category's own direct
+        // children (the ConfirmButton anchor span, or a bare button) rather than
+        // the button's position within its own wrapper -- the wrapper
+        // conditionally grows a sibling (.confirm-popover) while open, which
+        // would otherwise make `button:last-child` stop matching mid-interaction.
+        > :first-child button,
+        > button:first-child {
+            background-color: lighten($primary, 42%);
+            color: $primary;
+        }
 
-            &:last-child {
-                background-color: lighten($danger, 45%);
-                color: $danger;
-            }
-
+        > :last-child button,
+        > button:last-child {
+            background-color: lighten($danger, 45%);
+            color: $danger;
         }
     }
 }

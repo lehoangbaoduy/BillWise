@@ -15148,6 +15148,11 @@ div {
 .dark-theme .btn-outline-light {
   color: #fff;
 }
+.dark-theme .wallet-nav.active .btn-outline-danger,
+.dark-theme .budgets-nav.active .btn-outline-danger,
+.dark-theme .goals-nav.active .btn-outline-danger {
+  color: #7A2048;
+}
 .dark-theme .table {
   color: #D8A8BC;
 }
@@ -16050,7 +16055,6 @@ button:hover, button:focus, button:active,
 .budgets-nav {
   background: #fff;
   padding: 20px;
-  cursor: pointer;
   position: relative;
   display: flex;
   align-items: center;
@@ -16066,11 +16070,26 @@ button:hover, button:focus, button:active,
   color: #fff;
 }
 .budgets-nav.active .budgets-nav-text h3, .budgets-nav.active .budgets-nav-text .h3,
-.budgets-nav.active .budgets-nav-text p {
+.budgets-nav.active .budgets-nav-text p,
+.budgets-nav.active .budgets-nav-text strong {
   color: #7A2048;
 }
 .budgets-nav.active .show-time {
   color: #7A2048;
+}
+.budgets-nav .budgets-nav-trigger {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 }
 .budgets-nav .budgets-nav-icon {
   background: #FDF0F5;
@@ -16083,9 +16102,13 @@ button:hover, button:focus, button:active,
   font-size: 20px;
   color: #C93B7D;
   margin-right: 12px;
+  flex-shrink: 0;
 }
 .budgets-nav .budgets-nav-icon i {
   line-height: 0px;
+}
+.budgets-nav .budgets-nav-text {
+  min-width: 0;
 }
 .budgets-nav .budgets-nav-text p {
   color: #3d2b33;
@@ -16098,10 +16121,13 @@ button:hover, button:focus, button:active,
   font-size: 18px;
   margin-bottom: 0px;
 }
-.budgets-nav .show-time {
-  position: absolute;
-  right: 20px;
-  top: 28px;
+.budgets-nav .budgets-nav-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  margin-left: 12px;
+  flex-shrink: 0;
 }
 
 .budgets-tab-content {
@@ -16138,7 +16164,6 @@ button:hover, button:focus, button:active,
 .goals-nav {
   background: #fff;
   padding: 20px;
-  cursor: pointer;
   border-radius: 6px;
   position: relative;
   display: flex;
@@ -16157,6 +16182,24 @@ button:hover, button:focus, button:active,
 .goals-nav.active .goals-nav-circle span {
   color: #7A2048;
 }
+.goals-nav .goals-nav-trigger {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.goals-nav .goals-nav-actions {
+  margin-left: 12px;
+  flex-shrink: 0;
+}
 .goals-nav .goals-nav-circle {
   margin-right: 12px;
   position: relative;
@@ -16167,6 +16210,9 @@ button:hover, button:focus, button:active,
   top: 15px;
   font-size: 12px;
   font-weight: 700;
+}
+.goals-nav .goals-nav-text {
+  min-width: 0;
 }
 .goals-nav .goals-nav-text p {
   color: #3d2b33;
@@ -16942,9 +16988,10 @@ figure > img:hover {
   border-radius: 100px;
   font-size: 16px;
 }
-.category-type .right-category span {
+.category-type .right-category button {
   display: inline-block;
   padding: 7px 10px;
+  border: 0;
   border-radius: 4px;
   height: 30px;
   background-color: #d3fae2;
@@ -16952,11 +16999,17 @@ figure > img:hover {
   cursor: pointer;
   margin-left: 5px;
 }
-.category-type .right-category span:first-child {
+.category-type .right-category button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.category-type .right-category > :first-child button,
+.category-type .right-category > button:first-child {
   background-color: #e1e1f9;
   color: #C93B7D;
 }
-.category-type .right-category span:last-child {
+.category-type .right-category > :last-child button,
+.category-type .right-category > button:last-child {
   background-color: #fcecec;
   color: #DC2626;
 }
@@ -17479,9 +17532,7 @@ figure > img:hover {
   display: inline-block;
 }
 .confirm-popover {
-  position: absolute;
-  bottom: calc(100% + 10px);
-  left: 50%;
+  position: fixed;
   transform: translateX(-50%);
   z-index: 1000;
   width: max-content;

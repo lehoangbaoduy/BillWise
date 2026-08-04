@@ -71,6 +71,19 @@ async def _partner_permission(user: User, session: AsyncSession) -> PartnerPermi
     ).first()
 
 
+async def is_owner_or_co_owner(user: User, session: AsyncSession) -> bool:
+    """Non-DI boolean counterpart to require_owner_or_co_owner, for call sites
+    that need to branch behavior rather than reject the request outright --
+    e.g. the Private/Shared wallet model only distinguishes owner vs co-owner
+    identity; a plain (non-co-owner) partner was never able to create a
+    Wallet/Budget/Goal/RecurringBill in the first place, so private-item
+    checks against those entities should never apply to them."""
+    if user.role == UserRole.OWNER:
+        return True
+    permission = await _partner_permission(user, session)
+    return permission is not None and permission.is_co_owner
+
+
 async def require_owner_or_co_owner(
     user: User = Depends(require_household_member),
     session: AsyncSession = Depends(get_session),

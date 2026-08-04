@@ -228,6 +228,79 @@ class TestResolveCashbackRate:
         rate = await resolve_cashback_rate(session, user.id, pm.id, category.id, date(2026, 6, 1))
         assert rate == Decimal("0")
 
+    async def test_merchant_rule_matches_exact_case_insensitive(self, session, unique_email):
+        user = await _create_verified_owner(session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        await _make_rule(session, user, pm, category_id=None, cashback_rate=Decimal("5.00"), merchant="Costco")
+        rate = await resolve_cashback_rate(session, user.id, pm.id, category.id, date(2026, 6, 1), merchant="COSTCO")
+        assert rate == Decimal("5.00")
+
+    async def test_merchant_rule_matches_substring_of_longer_transaction_merchant(self, session, unique_email):
+        # A rule configured for a short, clean merchant name ("Costco") must still
+        # match real transaction merchants -- especially OCR-extracted ones --
+        # that carry extra text around it (e.g. a store number suffix).
+        user = await _create_verified_owner(session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        await _make_rule(session, user, pm, category_id=None, cashback_rate=Decimal("5.00"), merchant="Costco")
+        rate = await resolve_cashback_rate(
+            session, user.id, pm.id, category.id, date(2026, 6, 1), merchant="COSTCO WHSE #1234"
+        )
+        assert rate == Decimal("5.00")
+
+    async def test_merchant_substring_match_still_outranks_category_rule(self, session, unique_email):
+        user = await _create_verified_owner(session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        await _make_rule(session, user, pm, category_id=category.id, cashback_rate=Decimal("2.00"))
+        await _make_rule(session, user, pm, category_id=None, cashback_rate=Decimal("5.00"), merchant="Costco")
+        rate = await resolve_cashback_rate(
+            session, user.id, pm.id, category.id, date(2026, 6, 1), merchant="Costco Wholesale #99"
+        )
+        assert rate == Decimal("5.00")
+
+    async def test_unrelated_merchant_does_not_match(self, session, unique_email):
+        user = await _create_verified_owner(session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        await _make_rule(session, user, pm, category_id=None, cashback_rate=Decimal("5.00"), merchant="Costco")
+        rate = await resolve_cashback_rate(session, user.id, pm.id, category.id, date(2026, 6, 1), merchant="Target")
+        assert rate == Decimal("0")
+
+
+class TestCashbackRuleMerchantValidation:
+    async def test_rejects_single_character_merchant(self, client, session, unique_email):
+        # Guards the substring-match relaxation above: a 1-character rule
+        # merchant would match almost any transaction merchant containing that
+        # letter, silently misapplying the rate to unrelated purchases.
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        response = await client.post(
+            "/cashback-rules",
+            json={
+                "payment_method_id": str(pm.id),
+                "merchant": "A",
+                "cashback_rate": "5.00",
+                "start_date": "2026-01-01",
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_accepts_two_character_merchant(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        response = await client.post(
+            "/cashback-rules",
+            json={
+                "payment_method_id": str(pm.id),
+                "merchant": "TJ",
+                "cashback_rate": "5.00",
+                "start_date": "2026-01-01",
+            },
+        )
+        assert response.status_code == 201
+
 
 class TestAutoComputationOnTransactionCreate:
     async def test_creates_cashback_record_for_expense(self, client, session, unique_email):

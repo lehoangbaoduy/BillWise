@@ -1,6 +1,7 @@
 from app.core.security import hash_password
 from app.models._common import utcnow
 from app.models.category import Category, CategoryType
+from app.models.partner_permission import PartnerPermission
 from app.models.payment_method import PaymentMethod, PaymentMethodType
 from app.models.user import User, UserRole
 
@@ -63,6 +64,23 @@ async def _make_category(session, user, category_type=CategoryType.EXPENSE, name
     return category
 
 
+async def _make_co_owner(session, owner, email):
+    co_owner = User(
+        email=email,
+        password_hash=hash_password(VALID_PASSWORD),
+        display_name="Co-Owner User",
+        role=UserRole.PARTNER,
+        invited_by_user_id=owner.id,
+        email_verified_at=utcnow(),
+    )
+    session.add(co_owner)
+    await session.flush()
+    session.add(PartnerPermission(partner_user_id=co_owner.id, is_co_owner=True))
+    await session.commit()
+    await session.refresh(co_owner)
+    return co_owner
+
+
 class TestCreateGoal:
     async def test_requires_authentication(self, client):
         response = await client.post("/goals", json={"name": "Emergency Fund", "target_amount": "1000.00"})
@@ -101,22 +119,44 @@ class TestListGoals:
         names = {g["name"] for g in response.json()}
         assert names == {"Emergency Fund"}
 
-    async def test_partner_sees_only_shared_goals(self, client, session, unique_email):
-        from app.models.goal import SavingsGoal
-
+    async def test_plain_partner_forbidden(self, client, session, unique_email):
+        """Goals are owner-or-co-owner only, same gate as Wallets/Recurring
+        Bills/Budgets -- a plain (non-co-owner) partner never reaches
+        list_goals at all, regardless of sharing."""
         owner = await _authed_client(client, session, unique_email)
-        session.add(SavingsGoal(user_id=owner.id, name="Private Goal", target_amount="500.00", is_shared=False))
-        session.add(SavingsGoal(user_id=owner.id, name="Shared Goal", target_amount="1000.00", is_shared=True))
-        await session.commit()
+        await client.post("/goals", json={"name": "Emergency Fund", "target_amount": "500.00"})
 
         partner_email = f"partner-{unique_email}"
         await _create_verified_user(session, partner_email, role=UserRole.PARTNER, invited_by_user_id=owner.id)
         await _login(client, partner_email)
 
         response = await client.get("/goals")
+        assert response.status_code == 403
+
+    async def test_co_owner_sees_shared_goal_but_not_owners_private_goal(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        await client.post("/goals", json={"name": "Private Goal", "target_amount": "500.00"})
+        created = await client.post("/goals", json={"name": "Shared Goal", "target_amount": "1000.00"})
+        await client.patch(f"/goals/{created.json()['id']}/sharing", json={"is_shared": True})
+
+        co_owner = await _make_co_owner(session, owner, f"co-owner-{unique_email}")
+        await _login(client, co_owner.email)
+
+        response = await client.get("/goals")
         assert response.status_code == 200
         names = {g["name"] for g in response.json()}
         assert names == {"Shared Goal"}
+
+    async def test_owner_does_not_see_co_owners_private_goal(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        co_owner = await _make_co_owner(session, owner, f"co-owner-{unique_email}")
+        await _login(client, co_owner.email)
+        await client.post("/goals", json={"name": "Co-Owner's Private Goal", "target_amount": "200.00"})
+
+        await _login(client, owner.email)
+        response = await client.get("/goals")
+        assert response.status_code == 200
+        assert response.json() == []
 
 
 class TestAddFunds:

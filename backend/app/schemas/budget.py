@@ -11,12 +11,19 @@ class BudgetCreate(BaseModel):
     month: int = Field(ge=1, le=12)
     year: int = Field(ge=2000, le=2100)
     budget_amount: Decimal = Field(ge=0)
+    is_shared: bool = False
 
 
 class BudgetUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     budget_amount: Decimal = Field(ge=0)
+
+
+class BudgetSharingUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    is_shared: bool
 
 
 class BudgetPublic(BaseModel):
@@ -27,3 +34,4 @@ class BudgetPublic(BaseModel):
     month: int
     year: int
     budget_amount: Decimal
+    is_shared: bool

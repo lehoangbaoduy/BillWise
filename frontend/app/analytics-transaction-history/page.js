@@ -6,6 +6,7 @@ import { Suspense, useEffect, useState } from "react"
 import useSWR from "swr"
 import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmptyState from "@/components/elements/EmptyState"
+import SharingBadge from "@/components/elements/SharingBadge"
 import AnalyticsMenu from "@/components/layout/AnalyticsMenu"
 import Layout from "@/components/layout/Layout"
 import { categoriesApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
@@ -34,6 +35,9 @@ function TransactionRow({ transaction, categoriesById, paymentMethodsById, onDel
             <td data-label="Category">{categoryNames || "—"}</td>
             <td data-label="Payment method">{paymentMethodsById[transaction.payment_method_id]?.name || "—"}</td>
             <td data-label="Type">{transaction.transaction_type}</td>
+            <td data-label="Private/Shared">
+                <SharingBadge isShared={transaction.is_shared} showText />
+            </td>
             <td className="text-end" data-label="Amount">{formatCurrency(transaction.total_amount)}</td>
             <td className="text-end mobile-cards-actions" data-label="">
                 <Link
@@ -238,6 +242,7 @@ function TransactionHistoryContent() {
                                                         <th>Category</th>
                                                         <th>Payment method</th>
                                                         <th>Type</th>
+                                                        <th>Private/Shared</th>
                                                         <th className="text-end">Amount</th>
                                                         <th className="text-end">Actions</th>
                                                     </tr>

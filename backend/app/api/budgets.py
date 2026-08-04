@@ -1,19 +1,19 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlmodel import and_, select
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import household_owner_id, require_household_member, require_owner_or_co_owner
+from app.api.deps import household_owner_id, require_owner_or_co_owner
 from app.core.audit import log_audit_event
 from app.core.db import get_session
 from app.models._common import utcnow
 from app.models.budget import Budget
 from app.models.category import Category, CategoryType
-from app.models.user import User, UserRole
-from app.schemas.budget import BudgetCreate, BudgetPublic, BudgetUpdate
+from app.models.user import User
+from app.schemas.budget import BudgetCreate, BudgetPublic, BudgetSharingUpdate, BudgetUpdate
 from app.services.budget_rollover import ensure_budget_rollover_as_owner
-from app.services.partner_visibility import shared_category_ids_subquery
+from app.services.item_visibility import user_can_access_item, visibility_condition
 
 router = APIRouter(prefix="/budgets", tags=["budgets"])
 
@@ -31,7 +31,12 @@ async def _validate_category(session: AsyncSession, user: User, category_id: uui
 
 async def _get_owned_or_404(session: AsyncSession, user: User, budget_id: uuid.UUID) -> Budget:
     budget = await session.get(Budget, budget_id)
-    if budget is None or budget.user_id != household_owner_id(user):
+    owner_id = household_owner_id(user)
+    if (
+        budget is None
+        or budget.user_id != owner_id
+        or not user_can_access_item(budget.is_shared, budget.created_by_user_id, owner_id, user)
+    ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Budget not found")
     return budget
 
@@ -40,15 +45,17 @@ async def _get_owned_or_404(session: AsyncSession, user: User, budget_id: uuid.U
 async def list_budgets(
     month: int = Query(ge=1, le=12),
     year: int = Query(ge=2000, le=2100),
-    user: User = Depends(require_household_member),
+    user: User = Depends(require_owner_or_co_owner),
     session: AsyncSession = Depends(get_session),
 ) -> list[Budget]:
     owner_id = household_owner_id(user)
     await ensure_budget_rollover_as_owner(session, user, month, year)
-    conditions = [Budget.user_id == owner_id, Budget.month == month, Budget.year == year]
-    if user.role == UserRole.PARTNER:
-        conditions.append(Budget.category_id.in_(shared_category_ids_subquery(owner_id)))  # type: ignore[union-attr]
-    statement = select(Budget).where(and_(*conditions))
+    statement = select(Budget).where(
+        Budget.user_id == owner_id,
+        Budget.month == month,
+        Budget.year == year,
+        visibility_condition(Budget, owner_id, user),
+    )
     return (await session.exec(statement)).all()
 
 
@@ -62,6 +69,9 @@ async def create_budget(
     await _validate_category(session, user, body.category_id)
     owner_id = household_owner_id(user)
 
+    # A category can carry one budget target per creator -- an owner and a
+    # co-owner may each set their own independent target for the same
+    # category/month, so the duplicate check is scoped by creator too.
     existing = (
         await session.exec(
             select(Budget).where(
@@ -69,6 +79,7 @@ async def create_budget(
                 Budget.category_id == body.category_id,
                 Budget.month == body.month,
                 Budget.year == body.year,
+                Budget.created_by_user_id == (user.id if user.id != owner_id else None),
             )
         )
     ).first()
@@ -78,7 +89,11 @@ async def create_budget(
             detail="A budget already exists for this category and month",
         )
 
-    budget = Budget(user_id=owner_id, **body.model_dump())
+    budget = Budget(
+        user_id=owner_id,
+        created_by_user_id=user.id if user.id != owner_id else None,
+        **body.model_dump(),
+    )
     session.add(budget)
     await session.commit()
     await session.refresh(budget)
@@ -106,6 +121,27 @@ async def update_budget(
     await log_audit_event(
         session, "budget.updated", user_id=user.id, entity_type="budget", entity_id=budget.id,
         metadata={"budget_amount": str(budget.budget_amount)}, request=request,
+    )
+    return budget
+
+
+@router.patch("/{budget_id}/sharing", response_model=BudgetPublic)
+async def update_budget_sharing(
+    request: Request,
+    budget_id: uuid.UUID,
+    body: BudgetSharingUpdate,
+    user: User = Depends(require_owner_or_co_owner),
+    session: AsyncSession = Depends(get_session),
+) -> Budget:
+    budget = await _get_owned_or_404(session, user, budget_id)
+    budget.is_shared = body.is_shared
+    budget.updated_at = utcnow()
+    session.add(budget)
+    await session.commit()
+    await session.refresh(budget)
+    await log_audit_event(
+        session, "budget.updated", user_id=user.id, entity_type="budget", entity_id=budget.id,
+        metadata={"fields": ["is_shared"], "is_shared": body.is_shared}, request=request,
     )
     return budget
 

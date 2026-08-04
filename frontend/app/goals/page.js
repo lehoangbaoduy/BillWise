@@ -7,6 +7,8 @@ import ColorPicker, { COLOR_PRESETS } from "@/components/elements/ColorPicker"
 import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmojiPicker from "@/components/elements/EmojiPicker"
 import EmptyState from "@/components/elements/EmptyState"
+import SharingBadge from "@/components/elements/SharingBadge"
+import SharingToggle from "@/components/elements/SharingToggle"
 import { categoriesApi, goalsApi, paymentMethodsApi } from "@/lib/api"
 
 function todayISO() {
@@ -36,22 +38,124 @@ function progressPercent(goal) {
     return Math.min(100, Math.round((Number(goal.current_amount) / Number(goal.target_amount)) * 100))
 }
 
-function GoalNavItem({ goal, isActive, onSelect }) {
+// Quick-pick presets prefill the name/icon fields below but never lock them --
+// the free-text Name input and EmojiPicker stay fully editable so a preset is
+// a shortcut, not a restriction.
+const GOAL_PRESETS = [
+    { name: "Emergency Fund", icon: "💰" },
+    { name: "Vacation", icon: "✈️" },
+    { name: "New Car", icon: "🚗" },
+    { name: "Home", icon: "🏠" },
+    { name: "Wedding", icon: "💍" },
+    { name: "Education", icon: "🎓" },
+    { name: "New Gadget", icon: "📱" },
+    { name: "Gift", icon: "🎁" },
+]
+
+function GoalNavItem({ goal, isActive, onSelect, onDelete }) {
     return (
         <div className="col-xl-12 col-md-6">
-            <button
-                type="button"
-                className={isActive ? "goals-nav active w-100 border-0 text-start" : "goals-nav w-100 border-0 text-start"}
-                aria-pressed={isActive}
-                onClick={() => onSelect(goal.id)}
-            >
-                <CircularProgress value={progressPercent(goal)} height={50} width={50} margin="0 15px 0 0" />
-                <div className="goals-nav-text">
-                    <h3>{goal.icon ? `${goal.icon} ` : ""}{goal.name}</h3>
-                    <p><strong>{formatCurrency(goal.current_amount)}</strong> / {formatCurrency(goal.target_amount)}</p>
+            <div className={isActive ? "goals-nav active w-100" : "goals-nav w-100"}>
+                <button
+                    type="button"
+                    className="goals-nav-trigger"
+                    aria-pressed={isActive}
+                    onClick={() => onSelect(goal.id)}
+                >
+                    <CircularProgress value={progressPercent(goal)} height={50} width={50} margin="0 15px 0 0" />
+                    <div className="goals-nav-text">
+                        <h3>
+                            {goal.icon ? `${goal.icon} ` : ""}{goal.name}
+                            {" "}<SharingBadge isShared={goal.is_shared} />
+                        </h3>
+                        <p><strong>{formatCurrency(goal.current_amount)}</strong> / {formatCurrency(goal.target_amount)}</p>
+                    </div>
+                </button>
+                <div className="goals-nav-actions">
+                    <ConfirmButton
+                        className="btn btn-sm btn-outline-danger"
+                        aria-label={`Delete goal ${goal.name}`}
+                        message={`Delete goal "${goal.name}"? Linked transactions will stay, unlinked from this goal.`}
+                        onConfirm={() => onDelete(goal)}
+                    >
+                        <i className="fi fi-rr-trash" />
+                    </ConfirmButton>
                 </div>
-            </button>
+            </div>
         </div>
+    )
+}
+
+function GoalEditForm({ goal, onSubmit, onCancel, isSubmitting }) {
+    const [name, setName] = useState(goal.name ?? "")
+    const [targetAmount, setTargetAmount] = useState(goal.target_amount ?? "")
+    const [targetDate, setTargetDate] = useState(goal.target_date ? goal.target_date.slice(0, 10) : "")
+    const [icon, setIcon] = useState(goal.icon ?? "")
+    const [color, setColor] = useState(goal.color ?? COLOR_PRESETS[0].value)
+
+    function handleSubmit(event) {
+        event.preventDefault()
+        // Sharing is toggled from the title-row switch instead of this form --
+        // GoalUpdate (this form's PATCH /goals/{id}) uses extra="forbid" and
+        // doesn't declare the field anyway.
+        onSubmit({
+            name: name.trim(),
+            target_amount: Number(targetAmount),
+            target_date: targetDate || null,
+            icon: icon.trim() || null,
+            color: color || null,
+        })
+    }
+
+    return (
+        <form onSubmit={handleSubmit}>
+            <div className="mb-3">
+                <label className="form-label" htmlFor="edit-goal-name">Name</label>
+                <input
+                    id="edit-goal-name"
+                    type="text"
+                    className="form-control"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                />
+            </div>
+            <div className="mb-3">
+                <label className="form-label" htmlFor="edit-goal-target">Target amount</label>
+                <input
+                    id="edit-goal-target"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    className="form-control"
+                    value={targetAmount}
+                    onChange={(event) => setTargetAmount(event.target.value)}
+                />
+            </div>
+            <div className="mb-3">
+                <label className="form-label" htmlFor="edit-goal-date">Target date (optional)</label>
+                <input
+                    id="edit-goal-date"
+                    type="date"
+                    className="form-control"
+                    value={targetDate}
+                    onChange={(event) => setTargetDate(event.target.value)}
+                />
+            </div>
+            <div className="mb-3">
+                <label className="form-label">Icon (optional)</label>
+                <EmojiPicker value={icon} onChange={setIcon} name="edit-goal-icon" />
+            </div>
+            <div className="mb-3">
+                <label className="form-label">Color</label>
+                <ColorPicker value={color} onChange={setColor} name="edit-goal-color" />
+            </div>
+            <div className="d-flex gap-2">
+                <button type="submit" className="btn btn-success flex-grow-1" disabled={isSubmitting}>
+                    {isSubmitting ? "Saving…" : "Save changes"}
+                </button>
+                <button type="button" className="btn btn-outline-secondary" onClick={onCancel}>Cancel</button>
+            </div>
+        </form>
     )
 }
 
@@ -64,6 +168,7 @@ export default function Goals() {
     const [selectedId, setSelectedId] = useState(null)
     const [detail, setDetail] = useState(null)
     const [isCreateFormOpen, setIsCreateFormOpen] = useState(false)
+    const [isEditFormOpen, setIsEditFormOpen] = useState(false)
     const [formError, setFormError] = useState(null)
     const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -72,6 +177,7 @@ export default function Goals() {
     const [targetDate, setTargetDate] = useState("")
     const [icon, setIcon] = useState("")
     const [color, setColor] = useState(COLOR_PRESETS[0].value)
+    const [isShared, setIsShared] = useState(false)
 
     const [fundsAmount, setFundsAmount] = useState("")
     const [fundsPaymentMethodId, setFundsPaymentMethodId] = useState("")
@@ -85,6 +191,7 @@ export default function Goals() {
     async function loadDetail(goalId) {
         setSelectedId(goalId)
         setFormError(null)
+        setIsEditFormOpen(false)
         try {
             const goalDetail = await goalsApi.get(goalId)
             setDetail(goalDetail)
@@ -115,7 +222,7 @@ export default function Goals() {
                 target_date: targetDate || null,
                 icon: icon.trim() || null,
                 color: color || null,
-                is_shared: false,
+                is_shared: isShared,
             })
             await mutateGoals()
             setName("")
@@ -123,6 +230,7 @@ export default function Goals() {
             setTargetDate("")
             setIcon("")
             setColor(COLOR_PRESETS[0].value)
+            setIsShared(false)
             setIsCreateFormOpen(false)
             await loadDetail(created.id)
         } catch (error) {
@@ -159,23 +267,42 @@ export default function Goals() {
         }
     }
 
-    async function handleToggleSharing() {
-        if (!activeGoal) return
+    async function handleToggleSharing(goal, isShared) {
         setFormError(null)
         try {
-            await goalsApi.updateSharing(activeGoal.id, !activeGoal.is_shared)
+            await goalsApi.updateSharing(goal.id, isShared)
             await refreshDetail()
         } catch (error) {
             setFormError(error.message)
         }
     }
 
-    async function handleDelete() {
+    async function handleEdit(payload) {
         if (!activeGoal) return
+        setIsSubmitting(true)
+        setFormError(null)
         try {
-            await goalsApi.remove(activeGoal.id)
-            setSelectedId(null)
-            setDetail(null)
+            await goalsApi.update(activeGoal.id, payload)
+            await refreshDetail()
+            setIsEditFormOpen(false)
+        } catch (error) {
+            setFormError(error.message)
+        } finally {
+            setIsSubmitting(false)
+        }
+    }
+
+    async function handleDelete(goal) {
+        if (!goal) return
+        try {
+            await goalsApi.remove(goal.id)
+            // Only clear the selection/detail cache if the deleted goal was the
+            // one currently showing -- deleting a different row from the list
+            // shouldn't knock the user's current view back to the first goal.
+            if (goal.id === activeGoalId) {
+                setSelectedId(null)
+                setDetail(null)
+            }
             await mutateGoals()
         } catch (error) {
             setFormError(error.message)
@@ -195,6 +322,7 @@ export default function Goals() {
                                         goal={goal}
                                         isActive={activeGoalId === goal.id}
                                         onSelect={loadDetail}
+                                        onDelete={handleDelete}
                                     />
                                 ))}
                             </div>
@@ -227,6 +355,28 @@ export default function Goals() {
                                         </button>
                                     </div>
                                     <form onSubmit={handleCreate}>
+                                        <SharingToggle id="goal-shared" isShared={isShared} onChange={setIsShared} />
+                                        <div className="mb-3">
+                                            <label className="form-label">Quick pick (optional)</label>
+                                            <div className="emoji-picker" role="radiogroup" aria-label="Goal preset">
+                                                {GOAL_PRESETS.map((preset) => (
+                                                    <button
+                                                        key={preset.name}
+                                                        type="button"
+                                                        role="radio"
+                                                        aria-checked={name === preset.name && icon === preset.icon}
+                                                        aria-label={preset.name}
+                                                        title={preset.name}
+                                                        className={`emoji-picker-swatch emoji-picker-swatch--labeled${name === preset.name && icon === preset.icon ? " active" : ""}`}
+                                                        onClick={() => { setName(preset.name); setIcon(preset.icon) }}
+                                                    >
+                                                        <span aria-hidden="true">{preset.icon}</span>
+                                                        <span className="emoji-picker-swatch-name">{preset.name}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <div className="form-text">Pick a preset to prefill the name and icon below, or type your own.</div>
+                                        </div>
                                         <div className="mb-3">
                                             <label className="form-label" htmlFor="goal-name">Name</label>
                                             <input
@@ -289,22 +439,51 @@ export default function Goals() {
                                 </div>
                             ) : (
                                 <>
-                                    <div className="goals-tab-title d-flex justify-content-between align-items-center">
-                                        <h3>{activeGoal.icon ? `${activeGoal.icon} ` : ""}{activeGoal.name}</h3>
-                                        <div className="d-flex gap-2">
-                                            <button type="button" className="btn btn-sm btn-outline-secondary" onClick={handleToggleSharing}>
-                                                {activeGoal.is_shared ? "Shared" : "Private"}
-                                            </button>
-                                            <ConfirmButton
-                                                className="btn btn-sm btn-outline-danger"
-                                                message={`Delete goal "${activeGoal.name}"? Linked transactions will stay, unlinked from this goal.`}
-                                                onConfirm={handleDelete}
+                                    <div className="goals-tab-title d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                        <h3 className="mb-0">{activeGoal.icon ? `${activeGoal.icon} ` : ""}{activeGoal.name}</h3>
+                                        <div className="d-flex align-items-center gap-2">
+                                            <SharingToggle
+                                                id="goal-title-shared"
+                                                isShared={activeGoal.is_shared}
+                                                onChange={(checked) => handleToggleSharing(activeGoal, checked)}
+                                                compact
+                                            />
+                                            <button
+                                                type="button"
+                                                className="btn btn-sm btn-outline-secondary"
+                                                onClick={() => {
+                                                    setIsEditFormOpen((open) => !open)
+                                                    setFormError(null)
+                                                }}
+                                                aria-expanded={isEditFormOpen}
+                                                aria-controls="edit-goal-form"
                                             >
-                                                <i className="fi fi-rr-trash" />
-                                            </ConfirmButton>
+                                                <i className="fi fi-rr-pencil" /> Edit
+                                            </button>
                                         </div>
                                     </div>
                                     {formError && <div className="text-danger mb-3" role="alert">{formError}</div>}
+
+                                    {isEditFormOpen && (
+                                        <div className="row mb-3" id="edit-goal-form">
+                                            <div className="col-xl-12">
+                                                <div className="card">
+                                                    <div className="card-header">
+                                                        <h4 className="card-title">Edit goal</h4>
+                                                    </div>
+                                                    <div className="card-body">
+                                                        <GoalEditForm
+                                                            goal={activeGoal}
+                                                            onSubmit={handleEdit}
+                                                            onCancel={() => setIsEditFormOpen(false)}
+                                                            isSubmitting={isSubmitting}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <div className="row">
                                         <div className="col-xl-12">
                                             <div className="card">
