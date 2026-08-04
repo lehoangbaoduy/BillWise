@@ -344,6 +344,35 @@ class TestMarkPaid:
         assert response.status_code == 404
 
 
+class TestDeleteLinkedTransaction:
+    """Deleting a transaction that mark-paid auto-created must reopen the
+    period it was linked to, not 500. recurring_bill_payments.transaction_id
+    had no ON DELETE behavior, so Postgres raised a raw ForeignKeyViolation --
+    which surfaces in the browser as a CORS error, since a 500 response never
+    gets the CORS middleware's Access-Control-Allow-Origin header attached."""
+
+    async def test_deleting_the_auto_created_transaction_reopens_the_period(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        bill = await _make_bill(session, user, pm, category, auto_create_transaction=True)
+
+        mark_paid = await client.post(f"/recurring-bills/{bill.id}/mark-paid", json={"amount_paid": "15.99"})
+        assert mark_paid.status_code == 200
+        paid_period = next(p for p in mark_paid.json()["payments"] if p["status"] == "paid")
+        transaction_id = paid_period["transaction_id"]
+        assert transaction_id is not None
+
+        delete_response = await client.delete(f"/transactions/{transaction_id}")
+        assert delete_response.status_code == 204
+
+        bills_response = await client.get("/recurring-bills")
+        refreshed = next(b for b in bills_response.json() if b["id"] == str(bill.id))
+        period = next(p for p in refreshed["payments"] if p["id"] == paid_period["id"])
+        assert period["status"] in ("upcoming", "overdue")
+        assert period["transaction_id"] is None
+
+
 class TestNextDueDate:
     def test_weekly(self):
         assert next_due_date(RecurringFrequency.WEEKLY, date(2026, 1, 1)) == date(2026, 1, 8)

@@ -160,3 +160,21 @@ async def mark_bill_paid(
     # touches this now-paid period, so no further refresh is needed.
     await ensure_recurring_bill_state(session, household_owner_id(user), today=date.today())
     return period, transaction
+
+
+async def reopen_payments_for_deleted_transaction(session: AsyncSession, transaction_id: uuid.UUID) -> None:
+    """Deleting a transaction that mark-paid auto-created must reopen the period
+    it was linked to -- otherwise recurring_bill_payments.transaction_id keeps
+    pointing at a row that no longer exists (blocked outright before this fix,
+    since the FK had no ON DELETE behavior) or, once a defense-in-depth
+    ON DELETE SET NULL migration is applied, would leave the period stuck at
+    status='paid' with no transaction and no way to mark it paid again."""
+    payments = (
+        await session.exec(select(RecurringBillPayment).where(RecurringBillPayment.transaction_id == transaction_id))
+    ).all()
+    today = date.today()
+    for payment in payments:
+        payment.status = RecurringBillPaymentStatus.OVERDUE if payment.due_date < today else RecurringBillPaymentStatus.UPCOMING
+        payment.paid_date = None
+        payment.transaction_id = None
+        session.add(payment)

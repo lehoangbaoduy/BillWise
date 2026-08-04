@@ -51,6 +51,7 @@ def _record_to_public(record: CashbackRecord, payment_method_is_shared: bool) ->
         line_item_id=record.line_item_id,
         payment_method_id=record.payment_method_id,
         category_id=record.category_id,
+        cashback_rule_id=record.cashback_rule_id,
         estimated_amount=record.estimated_amount,
         redeemed_amount=record.redeemed_amount,
         status=record.status,

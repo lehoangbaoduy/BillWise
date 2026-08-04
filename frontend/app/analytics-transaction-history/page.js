@@ -10,6 +10,7 @@ import SharingBadge from "@/components/elements/SharingBadge"
 import AnalyticsMenu from "@/components/layout/AnalyticsMenu"
 import Layout from "@/components/layout/Layout"
 import { categoriesApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
+import { revalidateDashboard } from "@/lib/dashboardCache"
 
 const PAGE_SIZE = 20
 
@@ -108,6 +109,7 @@ function TransactionHistoryContent() {
         try {
             await transactionsApi.remove(transaction.id)
             await mutate()
+            revalidateDashboard()
             setListError(null)
         } catch (error) {
             setListError(error.message)

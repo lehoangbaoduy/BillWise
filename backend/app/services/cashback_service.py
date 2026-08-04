@@ -20,6 +20,21 @@ async def resolve_cashback_rate(
     on_date: date_type,
     merchant: str | None = None,
 ) -> Decimal:
+    """Thin wrapper over _resolve_best_rule for callers that only need the
+    rate, not which rule produced it (see that function's docstring for the
+    specificity/tie-break rules)."""
+    best = await _resolve_best_rule(session, user_id, payment_method_id, category_id, on_date, merchant)
+    return best.cashback_rate if best else Decimal("0")
+
+
+async def _resolve_best_rule(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    payment_method_id: uuid.UUID,
+    category_id: uuid.UUID,
+    on_date: date_type,
+    merchant: str | None = None,
+) -> CashbackRule | None:
     """PRD §17.2/§27.5: a category-specific rule (category_id set) takes
     precedence over the payment method's default rule (category_id null) when
     both are in effect for the same date. A merchant-specific rule (merchant
@@ -27,7 +42,7 @@ async def resolve_cashback_rate(
     principle -- "5% at Costco" should win over "2% on Shopping" even though
     both match. Among rules tied on specificity, the one with the latest
     start_date wins (§27.5: 'Rule changes mid-month → new rate applies going
-    forward only'). No matching rule → 0 (§27.5: 'No rule → $0 estimated').
+    forward only'). No matching rule → None (§27.5: 'No rule → $0 estimated').
     Deliberately does NOT fall back to the payment method's own
     default_cashback_rate column -- that field is display-only (Wallets card
     visual); §27.5 is explicit that estimation looks at rules alone."""
@@ -52,15 +67,14 @@ async def resolve_cashback_rate(
         if rule.merchant is None or (normalized_merchant and rule.merchant.strip().lower() in normalized_merchant)
     ]
     if not candidates:
-        return Decimal("0")
+        return None
 
     def specificity(rule: CashbackRule) -> int:
         return (2 if rule.merchant else 0) + (1 if rule.category_id == category_id else 0)
 
     best_specificity = max(specificity(r) for r in candidates)
     pool = [r for r in candidates if specificity(r) == best_specificity]
-    best = max(pool, key=lambda r: r.start_date)
-    return best.cashback_rate
+    return max(pool, key=lambda r: r.start_date)
 
 
 async def record_cashback_for_line_items(
@@ -91,7 +105,7 @@ async def record_cashback_for_line_items(
     if transaction.transaction_type not in EXPENSE_LIKE_TYPES:
         return
     for item in line_items:
-        rate = await resolve_cashback_rate(
+        rule = await _resolve_best_rule(
             session,
             transaction.user_id,
             transaction.payment_method_id,
@@ -99,7 +113,7 @@ async def record_cashback_for_line_items(
             transaction.date,
             merchant=transaction.merchant,
         )
-        estimated = quantize(item.amount * rate / Decimal("100")) if rate else Decimal("0.00")
+        estimated = quantize(item.amount * rule.cashback_rate / Decimal("100")) if rule else Decimal("0.00")
         session.add(
             CashbackRecord(
                 user_id=transaction.user_id,
@@ -107,6 +121,7 @@ async def record_cashback_for_line_items(
                 line_item_id=item.id,
                 payment_method_id=transaction.payment_method_id,
                 category_id=item.category_id,
+                cashback_rule_id=rule.id if rule else None,
                 estimated_amount=estimated,
                 redeemed_amount=Decimal("0"),
                 status=CashbackRecordStatus.ESTIMATED,

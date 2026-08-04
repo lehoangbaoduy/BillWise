@@ -46,6 +46,10 @@ class CashbackRecord(SQLModel, table=True):
     line_item_id: uuid.UUID = Field(foreign_key="transaction_line_items.id", nullable=False, index=True, ondelete="CASCADE")
     payment_method_id: uuid.UUID = Field(foreign_key="payment_methods.id", nullable=False)
     category_id: uuid.UUID = Field(foreign_key="categories.id", nullable=False)
+    # Null when no rule matched (rate defaulted to 0), distinct from matching a
+    # rule whose own rate happens to be 0 -- lets the frontend show a "no
+    # matching cashback rule" hint only in the former case (PRD v2 §5.4).
+    cashback_rule_id: uuid.UUID | None = Field(default=None, foreign_key="cashback_rules.id", ondelete="SET NULL")
     estimated_amount: Decimal
     redeemed_amount: Decimal = Decimal("0")
     status: CashbackRecordStatus = enum_field(CashbackRecordStatus)

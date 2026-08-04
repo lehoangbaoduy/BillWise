@@ -415,7 +415,17 @@ export default function Cashback() {
                                                         <tr>
                                                             <td>{paymentMethodName(record.payment_method_id)}</td>
                                                             <td>{categoryName(record.category_id)}</td>
-                                                            <td>{formatCurrency(record.estimated_amount)}</td>
+                                                            <td>
+                                                                {formatCurrency(record.estimated_amount)}
+                                                                {record.cashback_rule_id === null && Number(record.estimated_amount) === 0 && (
+                                                                    <span
+                                                                        className="badge bg-secondary ms-2"
+                                                                        title="No cashback rule matched this card/category/merchant -- $0 isn't a 0% rule, nothing matched at all."
+                                                                    >
+                                                                        No matching rule
+                                                                    </span>
+                                                                )}
+                                                            </td>
                                                             <td>{formatCurrency(record.redeemed_amount)}</td>
                                                             <td>
                                                                 <span className={`badge ${record.status === "redeemed" ? "bg-success" : "bg-warning text-dark"}`}>

@@ -16,6 +16,7 @@ from app.models.user import User
 from app.schemas.transaction import TransactionCreate, TransactionPublic, TransactionUpdate
 from app.services.cashback_service import record_cashback_for_line_items
 from app.services.partner_visibility import apply_partner_transaction_visibility
+from app.services.recurring_bill_service import reopen_payments_for_deleted_transaction
 from app.services.transaction_validation import (
     create_transaction_record,
     load_line_items,
@@ -272,6 +273,11 @@ async def delete_transaction(
     session: AsyncSession = Depends(get_session),
 ) -> None:
     transaction = await _get_owned_or_404(session, user, transaction_id)
+    # A transaction mark-paid auto-created is referenced by
+    # recurring_bill_payments.transaction_id -- reopen that period first so the
+    # FK is clear before the delete, and so the bill isn't left stuck at
+    # status="paid" pointing at a transaction that no longer exists.
+    await reopen_payments_for_deleted_transaction(session, transaction_id)
     await session.delete(transaction)
     await session.commit()
     await log_audit_event(

@@ -71,6 +71,11 @@ class CashbackRecordPublic(BaseModel):
     line_item_id: uuid.UUID
     payment_method_id: uuid.UUID
     category_id: uuid.UUID
+    # Null means no rule matched (rate defaulted to 0) -- distinct from
+    # matching a rule whose own rate is 0. Frontend uses this to show a "no
+    # matching cashback rule" hint only when estimated_amount is $0 because
+    # nothing matched, not because a matched rule earns 0%.
+    cashback_rule_id: uuid.UUID | None
     estimated_amount: Decimal
     redeemed_amount: Decimal
     status: CashbackRecordStatus

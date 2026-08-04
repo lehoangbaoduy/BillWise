@@ -328,6 +328,30 @@ class TestAutoComputationOnTransactionCreate:
         assert records[0].estimated_amount == Decimal("1.00")
         assert records[0].status == CashbackRecordStatus.ESTIMATED
 
+    async def test_records_which_rule_matched(self, client, session, unique_email):
+        # PRD v2 §5.4: distinguishing "no rule matched" from "matched a 0%
+        # rule" requires knowing which rule (if any) actually applied, not
+        # just the resulting rate.
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        rule = await _make_rule(session, user, pm, category_id=category.id, cashback_rate=Decimal("2.00"))
+
+        response = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-06-15",
+                "merchant": "Whole Foods",
+                "total_amount": "50.00",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(category.id), "item_name": "Groceries", "amount": "50.00"}],
+            },
+        )
+        transaction_id = response.json()["id"]
+        records = (await session.exec(select(CashbackRecord).where(CashbackRecord.transaction_id == transaction_id))).all()
+        assert records[0].cashback_rule_id == rule.id
+
     async def test_no_cashback_record_for_income(self, client, session, unique_email):
         user = await _authed_client(client, session, unique_email)
         pm = await _make_payment_method(session, user)
@@ -369,6 +393,7 @@ class TestAutoComputationOnTransactionCreate:
         transaction_id = response.json()["id"]
         records = (await session.exec(select(CashbackRecord).where(CashbackRecord.transaction_id == transaction_id))).all()
         assert records[0].estimated_amount == Decimal("0.00")
+        assert records[0].cashback_rule_id is None
 
 
 class TestUpdateTransactionRecomputesCashback:

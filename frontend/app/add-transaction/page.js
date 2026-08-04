@@ -7,6 +7,7 @@ import Layout from "@/components/layout/Layout"
 import MerchantInput from "@/components/elements/MerchantInput"
 import ReceiptUploadPanel from "@/components/receipt/ReceiptUploadPanel"
 import { categoriesApi, ocrApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
+import { revalidateDashboard } from "@/lib/dashboardCache"
 
 const TRANSACTION_TYPES = ["Expense", "Income", "Saving expense", "Adjustment"]
 
@@ -258,6 +259,7 @@ function AddTransactionContent() {
                 const created = await transactionsApi.create(payload)
                 possibleDuplicate = created.possible_duplicate
             }
+            revalidateDashboard()
             router.push(possibleDuplicate ? "/analytics-transaction-history?duplicate=1" : "/analytics-transaction-history")
         } catch (error) {
             setFormError(error.message)
