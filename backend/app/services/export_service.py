@@ -9,7 +9,6 @@ from reportlab.lib.pdfencrypt import StandardEncryption
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from sqlmodel import func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.categories import list_categories
@@ -19,30 +18,9 @@ from app.api.goals import list_goals
 from app.api.payment_methods import list_payment_methods
 from app.api.recurring_bills import list_recurring_bills
 from app.api.transactions import list_transactions
-from app.api.deps import household_owner_id
-from app.models.ai_insight import AIInsight
 from app.models.user import User
 
 _STYLES = getSampleStyleSheet()
-
-
-async def latest_ai_insights(session: AsyncSession, user: User) -> list[AIInsight]:
-    """Read-only — deliberately does NOT call GET /dashboard/ai-insights, which
-    triggers a real Anthropic API call when its 24h cache is stale. Export
-    generation must never trigger an unwanted paid API call or add multi-second
-    latency; it just reports whatever insights already exist."""
-    owner_id = household_owner_id(user)
-    latest_generated_at = (
-        await session.exec(select(func.max(AIInsight.generated_at)).where(AIInsight.user_id == owner_id))
-    ).one()
-    if latest_generated_at is None:
-        return []
-    statement = select(AIInsight).where(
-        AIInsight.user_id == owner_id,
-        AIInsight.generated_at == latest_generated_at,
-        AIInsight.is_dismissed == False,  # noqa: E712
-    )
-    return (await session.exec(statement)).all()
 
 
 async def build_transactions_csv(session: AsyncSession, user: User) -> bytes:
@@ -269,7 +247,6 @@ async def build_monthly_report_pdf(
     recurring_bills = await list_recurring_bills(user=user, session=session)
     goals = await list_goals(user=user, session=session)
     net_worth = await net_worth_dashboard(user=user, session=session)
-    insights = await latest_ai_insights(session, user)
 
     story = [
         Paragraph(f"BillWise Monthly Report — {date_type(year, month, 1).strftime('%B %Y')}", _STYLES["Title"]),
@@ -318,14 +295,7 @@ async def build_monthly_report_pdf(
             f"&nbsp;&nbsp; Liabilities: ${net_worth.total_liabilities if net_worth.total_liabilities is not None else 'N/A'}",
             _STYLES["Normal"],
         ),
-        Spacer(1, 0.2 * inch),
-        Paragraph("AI Insights", _STYLES["Heading2"]),
     ]
-    if insights:
-        for insight in insights:
-            story.append(Paragraph(f"• {insight.message}", _STYLES["Normal"]))
-    else:
-        story.append(Paragraph("No insights available for this period.", _STYLES["Normal"]))
 
     buffer = io.BytesIO()
     encrypt = StandardEncryption(userPassword=password, ownerPassword=password) if password else None

@@ -1,5 +1,6 @@
-"""PRD §24.15 scopes notifications to bill reminders, AI insights, and partner
-activity; the user additionally required a category budget-threshold alert as
+"""PRD §24.15 scopes notifications to bill reminders and partner activity (AI
+insights removed in PRD v2 Phase 4); the user additionally required a category
+budget-threshold alert as
 a mandatory, non-negotiable notification type. All notification types here are
 computed live on each request rather than persisted, consistent with this
 codebase's other dashboard-style read endpoints (app/api/dashboard.py) —
@@ -17,7 +18,6 @@ from app.api.dashboard import category_expense_spend
 from app.api.deps import household_owner_id
 from app.models._common import utcnow
 from app.models.acknowledged_notification import AcknowledgedNotification
-from app.models.ai_insight import AIInsight
 from app.models.budget import Budget
 from app.models.category import Category
 from app.models.goal import SavingsGoal
@@ -172,30 +172,6 @@ async def _goal_notifications(session: AsyncSession, user: User, owner_id, today
     return items
 
 
-async def _ai_insight_notifications(session: AsyncSession, user: User, owner_id) -> list[NotificationItem]:
-    # AI Insights are owner-only (app/api/ai_insights.py uses require_owner).
-    if user.role == UserRole.PARTNER:
-        return []
-
-    statement = (
-        select(AIInsight)
-        .where(AIInsight.user_id == owner_id, AIInsight.is_dismissed == False)  # noqa: E712
-        .order_by(AIInsight.generated_at.desc())
-    )
-    insights = (await session.exec(statement)).all()
-    return [
-        NotificationItem(
-            key=f"ai_insight:{insight.id}",
-            type="ai_insight",
-            severity="info",
-            title="New AI insight",
-            message=insight.message,
-            entity_id=insight.id,
-        )
-        for insight in insights
-    ]
-
-
 async def _duplicate_transaction_notifications(
     session: AsyncSession, user: User, owner_id, today: date
 ) -> list[NotificationItem]:
@@ -306,7 +282,6 @@ async def list_notifications(session: AsyncSession, user: User) -> list[Notifica
     items += await _budget_notifications(session, user, owner_id, today)
     items += await _recurring_bill_notifications(session, user, owner_id, today)
     items += await _goal_notifications(session, user, owner_id, today)
-    items += await _ai_insight_notifications(session, user, owner_id)
     items += await _duplicate_transaction_notifications(session, user, owner_id, today)
     items += await _reimbursement_notifications(session, user, owner_id, today)
     items += await _transaction_share_notifications(session, user)

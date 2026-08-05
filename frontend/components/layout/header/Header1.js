@@ -4,7 +4,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import useSWR from "swr"
 import { useAuth } from "@/hooks/useAuth"
-import { aiInsightsApi, authApi, notificationsApi } from "@/lib/api"
+import { authApi, notificationsApi } from "@/lib/api"
 import PlatformViewToggle from "@/components/elements/PlatformViewToggle"
 
 const ThemeSwitch = dynamic(() => import('@/components/elements/ThemeSwitch'), {
@@ -28,11 +28,7 @@ export default function Header1({ isMobileMenu, handleMobileMenu, platformView, 
     async function handleAcknowledge(event, notification) {
         event.preventDefault()
         event.stopPropagation()
-        if (notification.type === "ai_insight" && notification.entity_id) {
-            await aiInsightsApi.dismiss(notification.entity_id)
-        } else {
-            await notificationsApi.acknowledge(notification.key)
-        }
+        await notificationsApi.acknowledge(notification.key)
         await mutateNotifications()
     }
 

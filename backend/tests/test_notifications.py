@@ -3,7 +3,6 @@ from decimal import Decimal
 
 from app.core.security import hash_password
 from app.models._common import utcnow
-from app.models.ai_insight import AIInsight, AIInsightType
 from app.models.category import Category, CategoryType
 from app.models.payment_method import PaymentMethod, PaymentMethodType
 from app.models.user import User, UserRole
@@ -258,44 +257,6 @@ class TestGoalNotifications:
         assert not any(item["type"] == "goal_target_date_passed" for item in response.json())
 
 
-class TestAIInsightNotifications:
-    async def test_flags_undismissed_insight(self, client, session, unique_email):
-        user = await _authed_client(client, session, unique_email)
-        session.add(
-            AIInsight(
-                user_id=user.id,
-                insight_type=AIInsightType.OVER_BUDGET_ALERT,
-                message="You're spending more on Grocery than usual.",
-                supporting_data={},
-                generated_at=utcnow(),
-            )
-        )
-        await session.commit()
-
-        response = await client.get("/notifications")
-        items = response.json()
-        matching = [item for item in items if item["type"] == "ai_insight"]
-        assert len(matching) == 1
-        assert matching[0]["message"] == "You're spending more on Grocery than usual."
-
-    async def test_dismissed_insight_excluded(self, client, session, unique_email):
-        user = await _authed_client(client, session, unique_email)
-        session.add(
-            AIInsight(
-                user_id=user.id,
-                insight_type=AIInsightType.OVER_BUDGET_ALERT,
-                message="Already handled.",
-                supporting_data={},
-                generated_at=utcnow(),
-                is_dismissed=True,
-            )
-        )
-        await session.commit()
-
-        response = await client.get("/notifications")
-        assert not any(item["type"] == "ai_insight" for item in response.json())
-
-
 class TestDuplicateTransactionNotifications:
     async def test_flags_same_merchant_amount_and_date(self, client, session, unique_email):
         user = await _authed_client(client, session, unique_email)
@@ -412,7 +373,7 @@ class TestReimbursementNotifications:
 
 class TestPartnerNotificationVisibility:
     """PRD §21.4: partners only see budget/goal alerts for shared categories
-    and shared goals; recurring bills and AI insights stay owner-only."""
+    and shared goals; recurring bills stay owner-only."""
 
     async def test_partner_sees_shared_budget_but_not_owner_only_types(self, client, session, unique_email):
         owner = await _authed_client(client, session, unique_email)
@@ -425,17 +386,6 @@ class TestPartnerNotificationVisibility:
         await _create_expense(client, pm.id, shared_category.id, "75.00", today.isoformat())
         await _create_expense(client, pm.id, private_category.id, "75.00", today.isoformat())
         await _create_expense(client, pm.id, private_category.id, "75.00", today.isoformat())
-
-        session.add(
-            AIInsight(
-                user_id=owner.id,
-                insight_type=AIInsightType.OVER_BUDGET_ALERT,
-                message="Owner-only insight.",
-                supporting_data={},
-                generated_at=utcnow(),
-            )
-        )
-        await session.commit()
 
         bill_response = await client.post(
             "/recurring-bills",
@@ -477,7 +427,6 @@ class TestPartnerNotificationVisibility:
         items = response.json()
         assert any(item["category_id"] == str(shared_category.id) for item in items)
         assert not any(item["category_id"] == str(private_category.id) for item in items)
-        assert not any(item["type"] == "ai_insight" for item in items)
         assert not any(item["type"] in ("recurring_bill_overdue", "recurring_bill_due_soon") for item in items)
         assert not any(item["entity_id"] == private_goal_id for item in items)
         assert not any(item["type"] == "duplicate_transaction" for item in items)

@@ -210,11 +210,6 @@ export const dashboardApi = {
   categoryBreakdown: (month, year) => request(`/dashboard/category-breakdown?month=${month}&year=${year}`),
   paymentMethodBreakdown: (month, year) => request(`/dashboard/payment-method-breakdown?month=${month}&year=${year}`),
   cashFlow: (month, year) => request(`/dashboard/cash-flow?month=${month}&year=${year}`),
-  aiInsights: () => request("/dashboard/ai-insights"),
-}
-
-export const aiInsightsApi = {
-  dismiss: (id) => request(`/ai-insights/${id}`, { method: "PATCH", body: JSON.stringify({ is_dismissed: true }) }),
 }
 
 export const notificationsApi = {

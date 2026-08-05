@@ -2,7 +2,7 @@
 import useSWR from "swr"
 import EmptyState from "@/components/elements/EmptyState"
 import Layout from "@/components/layout/Layout"
-import { aiInsightsApi, notificationsApi } from "@/lib/api"
+import { notificationsApi } from "@/lib/api"
 
 const SEVERITY_ICON = {
     critical: "fi fi-rr-triangle-warning",
@@ -41,11 +41,7 @@ export default function Notifications() {
     const { data: notifications, isLoading, mutate } = useSWR("/notifications", () => notificationsApi.list())
 
     async function handleAcknowledge(notification) {
-        if (notification.type === "ai_insight" && notification.entity_id) {
-            await aiInsightsApi.dismiss(notification.entity_id)
-        } else {
-            await notificationsApi.acknowledge(notification.key)
-        }
+        await notificationsApi.acknowledge(notification.key)
         await mutate()
     }
 
