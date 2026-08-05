@@ -22,7 +22,7 @@ import uuid
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import extract, true
+from sqlalchemy import case, extract, true
 from sqlmodel import and_, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -36,6 +36,7 @@ from app.models.category import Category
 from app.models.net_worth import NetWorthSnapshot
 from app.models.payment_method import PaymentMethod
 from app.models.transaction import Transaction, TransactionLineItem, TransactionType
+from app.models.transaction_share import TransactionShare
 from app.models.user import User
 from app.schemas.dashboard import (
     BudgetStatusItem,
@@ -78,6 +79,65 @@ def _personal_visibility_condition(owner_id: uuid.UUID, user: User, viewer_is_ow
         and_(PaymentMethod.created_by_user_id.is_(None), user.id == owner_id),
     )
 
+def _split_share_subqueries(owner_id: uuid.UUID, user_id: uuid.UUID):
+    """Correlated subqueries (against the enclosing query's Transaction row)
+    used to prorate spend per PRD §7.5's true per-person split: how much of
+    this transaction was given away in total, and how much (if any) this
+    specific viewer was given."""
+    total_shared_out = (
+        select(func.coalesce(func.sum(TransactionShare.share_amount), 0))
+        .where(TransactionShare.transaction_id == Transaction.id)
+        .scalar_subquery()
+    )
+    viewer_share = (
+        select(TransactionShare.share_amount)
+        .where(TransactionShare.transaction_id == Transaction.id, TransactionShare.shared_with_user_id == user_id)
+        .scalar_subquery()
+    )
+    effective_payer_id = func.coalesce(Transaction.created_by_user_id, owner_id)
+    return effective_payer_id, total_shared_out, viewer_share
+
+
+def _split_adjusted_total(owner_id: uuid.UUID, user_id: uuid.UUID):
+    """Per-viewer net cost for a Transaction.total_amount-level sum: the
+    payer's own net cost drops by whatever they split away, a named
+    recipient sees only their prorated share instead of the pooled/
+    visibility-based full amount, and anyone else (no share relationship to
+    this transaction) is unaffected -- including transactions with no shares
+    at all, where this is a no-op identity."""
+    effective_payer_id, total_shared_out, viewer_share = _split_share_subqueries(owner_id, user_id)
+    return func.round(
+        case(
+            (effective_payer_id == user_id, Transaction.total_amount - total_shared_out),
+            (viewer_share.is_not(None), viewer_share),
+            else_=Transaction.total_amount,
+        ),
+        2,
+    )
+
+
+def _split_adjusted_line_item(line_item_amount, owner_id: uuid.UUID, user_id: uuid.UUID):
+    """Same rule as _split_adjusted_total, prorated across an individual line
+    item (for category-level spend) proportional to its share of the
+    transaction's total -- line items always reconcile to Transaction.total_amount
+    (see transaction_validation's reconciliation check), so this proportion is exact."""
+    effective_payer_id, total_shared_out, viewer_share = _split_share_subqueries(owner_id, user_id)
+    return func.round(
+        case(
+            (
+                effective_payer_id == user_id,
+                line_item_amount * (Transaction.total_amount - total_shared_out) / Transaction.total_amount,
+            ),
+            (
+                viewer_share.is_not(None),
+                line_item_amount * viewer_share / Transaction.total_amount,
+            ),
+            else_=line_item_amount,
+        ),
+        2,
+    )
+
+
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 _ZERO = Decimal("0")
@@ -114,7 +174,7 @@ async def sum_by_type(
     ]
     apply_partner_transaction_visibility(conditions, user, owner_id)
     statement = (
-        select(func.coalesce(func.sum(Transaction.total_amount), 0))
+        select(func.coalesce(func.sum(_split_adjusted_total(owner_id, user.id)), 0))
         .select_from(Transaction)
         .join(PaymentMethod, PaymentMethod.id == Transaction.payment_method_id)
         .where(*conditions)
@@ -137,7 +197,12 @@ async def category_expense_spend(session: AsyncSession, user: User, month: int, 
     ]
     apply_partner_transaction_visibility(conditions, user, owner_id)
     statement = (
-        select(Category.id, Category.name, Category.parent_category_id, func.sum(TransactionLineItem.amount))
+        select(
+            Category.id,
+            Category.name,
+            Category.parent_category_id,
+            func.sum(_split_adjusted_line_item(TransactionLineItem.amount, owner_id, user.id)),
+        )
         .select_from(TransactionLineItem)
         .join(Transaction, Transaction.id == TransactionLineItem.transaction_id)
         .join(Category, Category.id == TransactionLineItem.category_id)
@@ -325,7 +390,7 @@ async def yearly_overview(
     ]
     apply_partner_transaction_visibility(month_conditions, user, owner_id)
     month_statement = (
-        select(extract("month", Transaction.date), func.sum(Transaction.total_amount))
+        select(extract("month", Transaction.date), func.sum(_split_adjusted_total(owner_id, user.id)))
         .select_from(Transaction)
         .join(PaymentMethod, PaymentMethod.id == Transaction.payment_method_id)
         .where(*month_conditions)
@@ -365,7 +430,11 @@ async def yearly_overview(
     ]
     apply_partner_transaction_visibility(category_conditions, user, owner_id)
     category_statement = (
-        select(Category.id, Category.name, func.sum(TransactionLineItem.amount))
+        select(
+            Category.id,
+            Category.name,
+            func.sum(_split_adjusted_line_item(TransactionLineItem.amount, owner_id, user.id)),
+        )
         .select_from(TransactionLineItem)
         .join(Transaction, Transaction.id == TransactionLineItem.transaction_id)
         .join(Category, Category.id == TransactionLineItem.category_id)

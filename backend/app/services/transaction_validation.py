@@ -174,18 +174,21 @@ async def validate_shares(
 ) -> None:
     """PRD v2 §7.5: split recipients are limited to other active household
     members (owner/partner(s), not arbitrary external users per §3's
-    non-goals), and their amounts must sum to the transaction total -- same
-    reconciliation rule already used for line items."""
+    non-goals). Their amounts must not exceed the transaction total -- unlike
+    line items (which must reconcile exactly), shares are allowed to sum to
+    less than the total, with the remainder implicitly staying as the
+    payer's own share (e.g. a $90 dinner split 3 ways lists two $30 shares,
+    leaving $30 uncounted here for the payer)."""
     if not shares:
         return
     owner_id = household_owner_id(user)
     eligible_ids = (await household_member_ids(session, owner_id)) - {user.id}
 
     share_sum = sum((share.share_amount for share in shares), Decimal("0"))
-    if quantize(share_sum) != quantize(total_amount):
+    if quantize(share_sum) > quantize(total_amount):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Split amounts must sum to the transaction total",
+            detail="Split amounts must not exceed the transaction total",
         )
 
     seen: set[UUID] = set()

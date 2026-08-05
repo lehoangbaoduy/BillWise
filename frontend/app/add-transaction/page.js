@@ -88,10 +88,14 @@ function AddTransactionContent() {
     const [isLoadingExisting, setIsLoadingExisting] = useState(isEditing)
 
     // PRD v2 §7.5 cost-split ("Share this transaction with a household member").
+    // Shares only ever list the *other* recipients -- the payer's own share is
+    // never submitted as a row, it's whatever remains after the listed shares
+    // (see buildSharesPayload/evenSplitAmounts below).
     const [isSplitEnabled, setIsSplitEnabled] = useState(false)
     const [splitMode, setSplitMode] = useState("even")
     const [selectedMemberIds, setSelectedMemberIds] = useState([])
     const [customShareAmounts, setCustomShareAmounts] = useState({})
+    const [includeSelfInSplit, setIncludeSelfInSplit] = useState(true)
 
     // "manual" | "scan-upload" | "scan-review" — PRD §24.4 treats manual entry and
     // receipt scanning as two entry paths into one Add Transaction screen.
@@ -203,25 +207,25 @@ function AddTransactionContent() {
         )
     }
 
-    // Even split rounds down to the cent for every recipient, then folds the
-    // rounding remainder into the last recipient's share, so the amounts
-    // always sum exactly to the total (matching the backend's reconciliation
-    // rule) instead of drifting a cent short/over from naive division.
-    function evenSplitAmounts(total, count) {
-        const perPerson = Math.floor((total / count) * 100) / 100
-        const amounts = new Array(count).fill(perPerson)
-        const remainder = Math.round((total - perPerson * count) * 100) / 100
-        amounts[count - 1] = Math.round((amounts[count - 1] + remainder) * 100) / 100
-        return amounts
+    // Even split rounds down to the cent per participant. Recipients only ever
+    // get this flat per-person amount -- any rounding remainder, and the
+    // payer's own participant slot when includeSelfInSplit is on, is never
+    // submitted as a share; it's left implicit for the backend to attribute to
+    // the payer (validate_shares only requires shares to sum to *at most* the
+    // total, PRD v2 §7.5).
+    function evenSplitPerPerson(total, participantCount) {
+        if (participantCount <= 0) return 0
+        return Math.floor((total / participantCount) * 100) / 100
     }
 
     function buildSharesPayload() {
         if (!isSplitEnabled || selectedMemberIds.length === 0) return undefined
         if (splitMode === "even") {
-            const amounts = evenSplitAmounts(Number(totalAmount) || 0, selectedMemberIds.length)
-            return selectedMemberIds.map((id, index) => ({
+            const participantCount = selectedMemberIds.length + (includeSelfInSplit ? 1 : 0)
+            const perPerson = evenSplitPerPerson(Number(totalAmount) || 0, participantCount)
+            return selectedMemberIds.map((id) => ({
                 shared_with_user_id: id,
-                share_amount: amounts[index].toFixed(2),
+                share_amount: perPerson.toFixed(2),
             }))
         }
         return selectedMemberIds.map((id) => ({
@@ -276,9 +280,9 @@ function AddTransactionContent() {
         const shares = buildSharesPayload()
         if (shares) {
             const sharesSum = shares.reduce((sum, share) => sum + Number(share.share_amount), 0)
-            if (Math.round(sharesSum * 100) !== Math.round(total * 100)) {
+            if (Math.round(sharesSum * 100) > Math.round(total * 100)) {
                 setFormError(
-                    `Split amounts sum to ${sharesSum.toFixed(2)}, which doesn't match the total (${total.toFixed(2)}).`
+                    `Split amounts sum to ${sharesSum.toFixed(2)}, which exceeds the total (${total.toFixed(2)}).`
                 )
                 return
             }
@@ -601,6 +605,39 @@ function AddTransactionContent() {
                                                                         Custom amounts
                                                                     </button>
                                                                 </div>
+                                                                {splitMode === "even" && (
+                                                                    <div className="form-check mb-2">
+                                                                        <input
+                                                                            className="form-check-input"
+                                                                            type="checkbox"
+                                                                            id="split-include-self"
+                                                                            checked={includeSelfInSplit}
+                                                                            onChange={(event) => setIncludeSelfInSplit(event.target.checked)}
+                                                                        />
+                                                                        <label className="form-check-label" htmlFor="split-include-self">
+                                                                            Include my own share
+                                                                        </label>
+                                                                        {(() => {
+                                                                            const participantCount =
+                                                                                selectedMemberIds.length + (includeSelfInSplit ? 1 : 0)
+                                                                            const perPerson = evenSplitPerPerson(
+                                                                                Number(totalAmount) || 0,
+                                                                                participantCount
+                                                                            )
+                                                                            const myShare = (
+                                                                                (Number(totalAmount) || 0) -
+                                                                                perPerson * selectedMemberIds.length
+                                                                            ).toFixed(2)
+                                                                            return (
+                                                                                <p className="text-muted small mb-0 mt-1">
+                                                                                    Each of {selectedMemberIds.length} recipient
+                                                                                    {selectedMemberIds.length === 1 ? "" : "s"} owes $
+                                                                                    {perPerson.toFixed(2)} — your own share is ${myShare}.
+                                                                                </p>
+                                                                            )
+                                                                        })()}
+                                                                    </div>
+                                                                )}
                                                                 {splitMode === "custom" && (
                                                                     <div className="row g-2">
                                                                         {selectedMemberIds.map((id) => {

@@ -1050,7 +1050,7 @@ class TestCostSplit:
         assert body["shares"][0]["share_amount"] == "30.00"
         assert body["shares"][0]["status"] == "pending"
 
-    async def test_rejects_shares_not_summing_to_total(self, client, session, unique_email):
+    async def test_rejects_shares_exceeding_total(self, client, session, unique_email):
         owner = await _authed_client(client, session, unique_email)
         partner, partner_email = await _make_partner(session, owner, unique_email)
         pm = await _make_payment_method(session, owner)
@@ -1065,10 +1065,32 @@ class TestCostSplit:
                 "total_amount": "30.00",
                 "transaction_type": "Expense",
                 "line_items": [{"category_id": str(category.id), "item_name": "Groceries", "amount": "30.00"}],
-                "shares": [{"shared_with_user_id": str(partner.id), "share_amount": "10.00"}],
+                "shares": [{"shared_with_user_id": str(partner.id), "share_amount": "40.00"}],
             },
         )
         assert response.status_code == 422
+
+    async def test_allows_shares_summing_to_less_than_total(self, client, session, unique_email):
+        # $90 dinner split 3 ways: only the partner's $30 is listed as a share,
+        # leaving the remaining $60 as the payer's own implicit share.
+        owner = await _authed_client(client, session, unique_email)
+        partner, partner_email = await _make_partner(session, owner, unique_email)
+        pm = await _make_payment_method(session, owner)
+        category = await _make_category(session, owner)
+
+        response = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Dinner",
+                "total_amount": "90.00",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(category.id), "item_name": "Food", "amount": "90.00"}],
+                "shares": [{"shared_with_user_id": str(partner.id), "share_amount": "30.00"}],
+            },
+        )
+        assert response.status_code == 201, response.text
 
     async def test_rejects_recipient_outside_household(self, client, session, unique_email):
         owner = await _authed_client(client, session, unique_email)
@@ -1091,9 +1113,9 @@ class TestCostSplit:
         )
         assert response.status_code == 422
 
-    async def test_full_amount_still_counts_toward_payer_own_spend(self, client, session, unique_email):
-        # PRD v2 §7.5 confirmed default: splitting tracks who owes the payer,
-        # it does not reduce the payer's own recorded spend.
+    async def test_split_moves_spend_from_payer_to_recipient(self, client, session, unique_email):
+        # Whole amount given away: payer's own net spend drops to $0, and the
+        # recipient's own spend gains the full $30 instead.
         owner = await _authed_client(client, session, unique_email)
         partner, partner_email = await _make_partner(session, owner, unique_email)
         pm = await _make_payment_method(session, owner)
@@ -1111,8 +1133,75 @@ class TestCostSplit:
                 "shares": [{"shared_with_user_id": str(partner.id), "share_amount": "30.00"}],
             },
         )
-        response = await client.get("/dashboard/monthly", params={"month": 7, "year": 2026})
-        assert response.json()["total_expenses"] == "30.00"
+        owner_view = await client.get("/dashboard/monthly", params={"month": 7, "year": 2026})
+        assert owner_view.json()["total_expenses"] == "0.00"
+
+        await _login(client, partner_email)
+        partner_view = await client.get("/dashboard/monthly", params={"month": 7, "year": 2026})
+        assert partner_view.json()["total_expenses"] == "30.00"
+
+    async def test_partial_split_leaves_remainder_on_payer_own_spend(self, client, session, unique_email):
+        # $90 dinner, $30 split to the partner -> payer keeps $60 of their own
+        # spend, partner gains $30 of their own.
+        owner = await _authed_client(client, session, unique_email)
+        partner, partner_email = await _make_partner(session, owner, unique_email)
+        pm = await _make_payment_method(session, owner)
+        category = await _make_category(session, owner)
+
+        await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Dinner",
+                "total_amount": "90.00",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(category.id), "item_name": "Food", "amount": "90.00"}],
+                "shares": [{"shared_with_user_id": str(partner.id), "share_amount": "30.00"}],
+            },
+        )
+        owner_view = await client.get("/dashboard/monthly", params={"month": 7, "year": 2026})
+        assert owner_view.json()["total_expenses"] == "60.00"
+
+        await _login(client, partner_email)
+        partner_view = await client.get("/dashboard/monthly", params={"month": 7, "year": 2026})
+        assert partner_view.json()["total_expenses"] == "30.00"
+
+    async def test_split_prorates_across_categories(self, client, session, unique_email):
+        # A two-category $100 transaction split 50/50 should attribute each
+        # side's category spend proportionally to how the line items break down
+        # (80/20 grocery/restaurant), not just at the transaction-total level.
+        owner = await _authed_client(client, session, unique_email)
+        partner, partner_email = await _make_partner(session, owner, unique_email)
+        pm = await _make_payment_method(session, owner)
+        grocery = await _make_category(session, owner, name="Grocery")
+        restaurant = await _make_category(session, owner, name="Restaurant")
+
+        await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Costco",
+                "total_amount": "100.00",
+                "transaction_type": "Expense",
+                "line_items": [
+                    {"category_id": str(grocery.id), "item_name": "Food", "amount": "80.00"},
+                    {"category_id": str(restaurant.id), "item_name": "Snack", "amount": "20.00"},
+                ],
+                "shares": [{"shared_with_user_id": str(partner.id), "share_amount": "50.00"}],
+            },
+        )
+        owner_breakdown = await client.get("/dashboard/category-breakdown", params={"month": 7, "year": 2026})
+        owner_amounts = {row["name"]: row["amount"] for row in owner_breakdown.json()}
+        assert owner_amounts["Grocery"] == "40.00"
+        assert owner_amounts["Restaurant"] == "10.00"
+
+        await _login(client, partner_email)
+        partner_breakdown = await client.get("/dashboard/category-breakdown", params={"month": 7, "year": 2026})
+        partner_amounts = {row["name"]: row["amount"] for row in partner_breakdown.json()}
+        assert partner_amounts["Grocery"] == "40.00"
+        assert partner_amounts["Restaurant"] == "10.00"
 
     async def test_settle_requires_settled_by_and_is_one_way(self, client, session, unique_email):
         owner = await _authed_client(client, session, unique_email)
