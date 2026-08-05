@@ -38,6 +38,8 @@ export default function RootLayout({ children }) {
                 ignore a plain hard refresh; bump this whenever the file
                 changes again. */}
             <link rel="icon" href="/images/favicon.png?v=2" sizes="16" />
+            <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+            <link rel="manifest" href="/manifest.json" />
             <body className={rubik.className}>
                 {children}
             </body>

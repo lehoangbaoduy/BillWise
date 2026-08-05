@@ -1,0 +1,23 @@
+{
+  "name": "BillWise",
+  "short_name": "BillWise",
+  "description": "Personal expense tracking for BillWise households",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#C93B7D",
+  "background_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
