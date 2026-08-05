@@ -1023,6 +1023,46 @@ class TestReimbursementTransactions:
         )
         assert mark_paid.status_code == 422
 
+    async def test_editing_type_away_from_reimbursement_clears_payment_fields(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        transaction_id = (await self._create_reimbursement(client, pm.id, category.id))["id"]
+        await client.post(f"/transactions/{transaction_id}/mark-reimbursement-paid", json={"paid_by": "Alex"})
+
+        response = await client.patch(f"/transactions/{transaction_id}", json={"transaction_type": "Expense"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["transaction_type"] == "Expense"
+        assert body["reimbursement_status"] == "unpaid"
+        assert body["reimbursement_paid_by"] is None
+        assert body["reimbursement_paid_at"] is None
+
+    async def test_editing_type_to_reimbursement_resets_payment_fields(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        create_response = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Costco",
+                "total_amount": "45.50",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(category.id), "item_name": "Groceries", "amount": "45.50"}],
+            },
+        )
+        transaction_id = create_response.json()["id"]
+
+        response = await client.patch(f"/transactions/{transaction_id}", json={"transaction_type": "Reimbursement"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["transaction_type"] == "Reimbursement"
+        assert body["reimbursement_status"] == "unpaid"
+        assert body["reimbursement_paid_by"] is None
+        assert body["reimbursement_paid_at"] is None
+
 
 class TestCostSplit:
     async def test_creates_transaction_with_even_split(self, client, session, unique_email):

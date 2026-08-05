@@ -12,7 +12,13 @@ from app.core.config import settings
 from app.core.db import get_session
 from app.models._common import utcnow
 from app.models.payment_method import PaymentMethod
-from app.models.transaction import Transaction, TransactionLineItem, TransactionSource, TransactionType
+from app.models.transaction import (
+    ReimbursementStatus,
+    Transaction,
+    TransactionLineItem,
+    TransactionSource,
+    TransactionType,
+)
 from app.models.transaction_share import TransactionShare, TransactionShareStatus
 from app.models.user import User
 from app.schemas.transaction import (
@@ -340,6 +346,16 @@ async def update_transaction(
     elif body.total_amount is not None or body.transaction_type is not None:
         existing_line_items = await load_line_items(session, transaction.id)
         await validate_line_items(session, user, transaction_type, total_amount, existing_line_items)
+
+    # PRD v2 §7.4/§14: a Reimbursement transaction edited to a different type
+    # (or vice versa) must not carry over stale payment state -- otherwise an
+    # already-"paid" reimbursement that gets retyped to Expense and back would
+    # resurface its old paid_by/paid_at as if it were still marked paid.
+    if body.transaction_type is not None and body.transaction_type != transaction.transaction_type:
+        if TransactionType.REIMBURSEMENT in (body.transaction_type, transaction.transaction_type):
+            updates["reimbursement_status"] = ReimbursementStatus.UNPAID.value
+            updates["reimbursement_paid_by"] = None
+            updates["reimbursement_paid_at"] = None
 
     for field, value in updates.items():
         setattr(transaction, field, value)
