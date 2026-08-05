@@ -11,8 +11,16 @@ from app.models.category import Category, CategoryType
 from app.models.goal import SavingsGoal
 from app.models.payment_method import PaymentMethod
 from app.models.transaction import Transaction, TransactionLineItem, TransactionSource, TransactionType
+from app.models.transaction_share import TransactionShare
 from app.models.user import User, UserRole
-from app.schemas.transaction import TransactionCreate, TransactionLineItemPublic, TransactionPublic
+from app.schemas.transaction import (
+    TransactionCreate,
+    TransactionLineItemPublic,
+    TransactionPublic,
+    TransactionShareCreate,
+    TransactionSharePublic,
+)
+from app.services.household_service import household_member_ids
 from app.services.item_visibility import user_can_access_item
 
 _CENTS = Decimal("0.01")
@@ -156,11 +164,47 @@ async def load_line_items(session: AsyncSession, transaction_id: UUID) -> list[T
     return (await session.exec(statement)).all()
 
 
+async def load_shares(session: AsyncSession, transaction_id: UUID) -> list[TransactionShare]:
+    statement = select(TransactionShare).where(TransactionShare.transaction_id == transaction_id)
+    return (await session.exec(statement)).all()
+
+
+async def validate_shares(
+    session: AsyncSession, user: User, total_amount: Decimal, shares: list[TransactionShareCreate] | None
+) -> None:
+    """PRD v2 §7.5: split recipients are limited to other active household
+    members (owner/partner(s), not arbitrary external users per §3's
+    non-goals), and their amounts must sum to the transaction total -- same
+    reconciliation rule already used for line items."""
+    if not shares:
+        return
+    owner_id = household_owner_id(user)
+    eligible_ids = (await household_member_ids(session, owner_id)) - {user.id}
+
+    share_sum = sum((share.share_amount for share in shares), Decimal("0"))
+    if quantize(share_sum) != quantize(total_amount):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Split amounts must sum to the transaction total",
+        )
+
+    seen: set[UUID] = set()
+    for share in shares:
+        if share.share_amount <= 0:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Split amounts must be positive")
+        if share.shared_with_user_id not in eligible_ids:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid split recipient")
+        if share.shared_with_user_id in seen:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Duplicate split recipient")
+        seen.add(share.shared_with_user_id)
+
+
 async def to_transaction_public(
     session: AsyncSession, transaction: Transaction, possible_duplicate: bool = False
 ) -> TransactionPublic:
     """Shared by the Transactions router and the OCR confirm-transaction endpoint."""
     line_items = await load_line_items(session, transaction.id)
+    shares = await load_shares(session, transaction.id)
     payment_method = await session.get(PaymentMethod, transaction.payment_method_id)
     return TransactionPublic(
         id=transaction.id,
@@ -180,6 +224,7 @@ async def to_transaction_public(
         reimbursement_status=transaction.reimbursement_status,
         reimbursement_paid_by=transaction.reimbursement_paid_by,
         reimbursement_paid_at=transaction.reimbursement_paid_at,
+        shares=[TransactionSharePublic.model_validate(share) for share in shares],
     )
 
 
@@ -194,6 +239,7 @@ async def create_transaction_record(
     await validate_payment_method(session, user, body.payment_method_id)
     await validate_line_items(session, user, body.transaction_type, body.total_amount, body.line_items)
     await validate_goal(session, user, body.transaction_type, body.goal_id)
+    await validate_shares(session, user, body.total_amount, body.shares)
 
     owner_id = household_owner_id(user)
     possible_duplicate = await detect_duplicate(
@@ -225,6 +271,14 @@ async def create_transaction_record(
                 amount=item.amount,
                 quantity=item.quantity,
                 notes=item.notes,
+            )
+        )
+    for share in body.shares or []:
+        session.add(
+            TransactionShare(
+                transaction_id=transaction.id,
+                shared_with_user_id=share.shared_with_user_id,
+                share_amount=share.share_amount,
             )
         )
     await session.commit()

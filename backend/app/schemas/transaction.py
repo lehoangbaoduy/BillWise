@@ -29,6 +29,30 @@ class TransactionLineItemPublic(BaseModel):
     notes: str | None
 
 
+class TransactionShareCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    shared_with_user_id: uuid.UUID
+    share_amount: Decimal
+
+
+class TransactionSharePublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    shared_with_user_id: uuid.UUID
+    share_amount: Decimal
+    status: str
+    settled_by: str | None
+    settled_at: datetime | None
+
+
+class SettleTransactionShareRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    settled_by: str = Field(min_length=1, max_length=200)
+
+
 class TransactionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -41,6 +65,9 @@ class TransactionCreate(BaseModel):
     transaction_type: TransactionType
     notes: str | None = Field(default=None, max_length=1000)
     line_items: list[TransactionLineItemCreate] = Field(min_length=1)
+    # PRD v2 §7.5: optional cost-split -- shares' amounts must sum to
+    # total_amount, validated the same way line items are.
+    shares: list[TransactionShareCreate] | None = None
 
 
 class TransactionUpdate(BaseModel):
@@ -81,6 +108,7 @@ class TransactionPublic(BaseModel):
     reimbursement_status: str = "unpaid"
     reimbursement_paid_by: str | None = None
     reimbursement_paid_at: datetime | None = None
+    shares: list[TransactionSharePublic] = Field(default_factory=list)
 
 
 class MarkReimbursementPaidRequest(BaseModel):

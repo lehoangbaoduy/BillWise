@@ -6,7 +6,7 @@ import useSWR from "swr"
 import Layout from "@/components/layout/Layout"
 import MerchantInput from "@/components/elements/MerchantInput"
 import ReceiptUploadPanel from "@/components/receipt/ReceiptUploadPanel"
-import { categoriesApi, ocrApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
+import { categoriesApi, householdApi, ocrApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
 import { revalidateDashboard } from "@/lib/dashboardCache"
 
 const TRANSACTION_TYPES = ["Expense", "Income", "Saving expense", "Adjustment", "Reimbursement"]
@@ -73,6 +73,7 @@ function AddTransactionContent() {
 
     const { data: paymentMethods } = useSWR("/payment-methods", () => paymentMethodsApi.list())
     const { data: categories } = useSWR("/categories", () => categoriesApi.list())
+    const { data: householdMembers } = useSWR("/household/members", () => householdApi.members())
 
     const [date, setDate] = useState(todayISO())
     const [merchant, setMerchant] = useState("")
@@ -85,6 +86,12 @@ function AddTransactionContent() {
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [formError, setFormError] = useState(null)
     const [isLoadingExisting, setIsLoadingExisting] = useState(isEditing)
+
+    // PRD v2 §7.5 cost-split ("Share this transaction with a household member").
+    const [isSplitEnabled, setIsSplitEnabled] = useState(false)
+    const [splitMode, setSplitMode] = useState("even")
+    const [selectedMemberIds, setSelectedMemberIds] = useState([])
+    const [customShareAmounts, setCustomShareAmounts] = useState({})
 
     // "manual" | "scan-upload" | "scan-review" — PRD §24.4 treats manual entry and
     // receipt scanning as two entry paths into one Add Transaction screen.
@@ -190,6 +197,39 @@ function AddTransactionContent() {
         setEntryMode("scan-review")
     }
 
+    function toggleSplitMember(memberId) {
+        setSelectedMemberIds((current) =>
+            current.includes(memberId) ? current.filter((id) => id !== memberId) : [...current, memberId]
+        )
+    }
+
+    // Even split rounds down to the cent for every recipient, then folds the
+    // rounding remainder into the last recipient's share, so the amounts
+    // always sum exactly to the total (matching the backend's reconciliation
+    // rule) instead of drifting a cent short/over from naive division.
+    function evenSplitAmounts(total, count) {
+        const perPerson = Math.floor((total / count) * 100) / 100
+        const amounts = new Array(count).fill(perPerson)
+        const remainder = Math.round((total - perPerson * count) * 100) / 100
+        amounts[count - 1] = Math.round((amounts[count - 1] + remainder) * 100) / 100
+        return amounts
+    }
+
+    function buildSharesPayload() {
+        if (!isSplitEnabled || selectedMemberIds.length === 0) return undefined
+        if (splitMode === "even") {
+            const amounts = evenSplitAmounts(Number(totalAmount) || 0, selectedMemberIds.length)
+            return selectedMemberIds.map((id, index) => ({
+                shared_with_user_id: id,
+                share_amount: amounts[index].toFixed(2),
+            }))
+        }
+        return selectedMemberIds.map((id) => ({
+            shared_with_user_id: id,
+            share_amount: customShareAmounts[id] || "0",
+        }))
+    }
+
     function resetToManualEntry() {
         setEntryMode("manual")
         setOcrStatus(null)
@@ -233,6 +273,17 @@ function AddTransactionContent() {
             return
         }
 
+        const shares = buildSharesPayload()
+        if (shares) {
+            const sharesSum = shares.reduce((sum, share) => sum + Number(share.share_amount), 0)
+            if (Math.round(sharesSum * 100) !== Math.round(total * 100)) {
+                setFormError(
+                    `Split amounts sum to ${sharesSum.toFixed(2)}, which doesn't match the total (${total.toFixed(2)}).`
+                )
+                return
+            }
+        }
+
         setIsSubmitting(true)
         try {
             const payload = {
@@ -248,6 +299,7 @@ function AddTransactionContent() {
                     item_name: item.itemName.trim(),
                     amount: item.amount,
                 })),
+                ...(!isEditing && shares ? { shares } : {}),
             }
             let possibleDuplicate = false
             if (isEditing) {
@@ -486,6 +538,109 @@ function AddTransactionContent() {
                                         + Add new item
                                     </button>
                                 </fieldset>
+
+                                {!isEditing && (
+                                    <div className="mb-3">
+                                        <div className="form-check form-switch mb-2">
+                                            <input
+                                                className="form-check-input"
+                                                type="checkbox"
+                                                role="switch"
+                                                id="split-transaction-toggle"
+                                                checked={isSplitEnabled}
+                                                onChange={(event) => setIsSplitEnabled(event.target.checked)}
+                                            />
+                                            <label className="form-check-label" htmlFor="split-transaction-toggle">
+                                                Split this transaction
+                                            </label>
+                                        </div>
+                                        {isSplitEnabled && (
+                                            <div className="border rounded p-3">
+                                                {(householdMembers ?? []).length === 0 ? (
+                                                    <p className="text-muted mb-0">
+                                                        No other household members to split with yet.
+                                                    </p>
+                                                ) : (
+                                                    <>
+                                                        {householdMembers.map((member) => (
+                                                            <div className="form-check" key={member.id}>
+                                                                <input
+                                                                    className="form-check-input"
+                                                                    type="checkbox"
+                                                                    id={`split-member-${member.id}`}
+                                                                    checked={selectedMemberIds.includes(member.id)}
+                                                                    onChange={() => toggleSplitMember(member.id)}
+                                                                />
+                                                                <label
+                                                                    className="form-check-label"
+                                                                    htmlFor={`split-member-${member.id}`}
+                                                                >
+                                                                    {member.display_name}
+                                                                </label>
+                                                            </div>
+                                                        ))}
+                                                        {selectedMemberIds.length > 0 && (
+                                                            <>
+                                                                <div
+                                                                    className="btn-group btn-group-sm mt-2 mb-2"
+                                                                    role="group"
+                                                                    aria-label="Split mode"
+                                                                >
+                                                                    <button
+                                                                        type="button"
+                                                                        className={`btn ${splitMode === "even" ? "btn-primary" : "btn-outline-primary"}`}
+                                                                        onClick={() => setSplitMode("even")}
+                                                                    >
+                                                                        Even split
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        className={`btn ${splitMode === "custom" ? "btn-primary" : "btn-outline-primary"}`}
+                                                                        onClick={() => setSplitMode("custom")}
+                                                                    >
+                                                                        Custom amounts
+                                                                    </button>
+                                                                </div>
+                                                                {splitMode === "custom" && (
+                                                                    <div className="row g-2">
+                                                                        {selectedMemberIds.map((id) => {
+                                                                            const member = householdMembers.find(
+                                                                                (candidate) => candidate.id === id
+                                                                            )
+                                                                            return (
+                                                                                <div className="col-md-6" key={id}>
+                                                                                    <label
+                                                                                        className="form-label small mb-1"
+                                                                                        htmlFor={`split-amount-${id}`}
+                                                                                    >
+                                                                                        {member?.display_name}
+                                                                                    </label>
+                                                                                    <input
+                                                                                        id={`split-amount-${id}`}
+                                                                                        type="number"
+                                                                                        step="0.01"
+                                                                                        className="form-control form-control-sm"
+                                                                                        value={customShareAmounts[id] ?? ""}
+                                                                                        onChange={(event) =>
+                                                                                            setCustomShareAmounts((prev) => ({
+                                                                                                ...prev,
+                                                                                                [id]: event.target.value,
+                                                                                            }))
+                                                                                        }
+                                                                                    />
+                                                                                </div>
+                                                                            )
+                                                                        })}
+                                                                    </div>
+                                                                )}
+                                                            </>
+                                                        )}
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
 
                                 <div className="mb-3">
                                     <label className="form-label" htmlFor="txn-notes">Notes (optional)</label>

@@ -67,3 +67,10 @@ class PendingInvitePublic(BaseModel):
 class HouseholdSummary(BaseModel):
     partners: list[PartnerPublic]
     pending_invites: list[PendingInvitePublic]
+
+
+class HouseholdMemberPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    display_name: str

@@ -12,14 +12,23 @@ from app.core.db import get_session
 from app.models._common import utcnow
 from app.models.payment_method import PaymentMethod
 from app.models.transaction import Transaction, TransactionLineItem, TransactionSource, TransactionType
+from app.models.transaction_share import TransactionShare, TransactionShareStatus
 from app.models.user import User
-from app.schemas.transaction import MarkReimbursementPaidRequest, TransactionCreate, TransactionPublic, TransactionUpdate
+from app.schemas.transaction import (
+    MarkReimbursementPaidRequest,
+    SettleTransactionShareRequest,
+    TransactionCreate,
+    TransactionPublic,
+    TransactionSharePublic,
+    TransactionUpdate,
+)
 from app.services.cashback_service import record_cashback_for_line_items
 from app.services.partner_visibility import apply_partner_transaction_visibility
 from app.services.recurring_bill_service import reopen_payments_for_deleted_transaction
 from app.services.transaction_validation import (
     create_transaction_record,
     load_line_items,
+    load_shares,
     to_transaction_public,
     validate_goal,
     validate_line_items,
@@ -131,6 +140,18 @@ async def list_transactions(
         for item in all_line_items:
             line_items_by_transaction[item.transaction_id].append(item)
 
+    shares_by_transaction: dict[uuid.UUID, list[TransactionShare]] = {t.id: [] for t in transactions}
+    if transactions:
+        all_shares = (
+            await session.exec(
+                select(TransactionShare).where(
+                    TransactionShare.transaction_id.in_([t.id for t in transactions])  # type: ignore[union-attr]
+                )
+            )
+        ).all()
+        for share in all_shares:
+            shares_by_transaction[share.transaction_id].append(share)
+
     is_shared_by_payment_method: dict[uuid.UUID, bool] = {}
     payment_method_ids = {t.payment_method_id for t in transactions}
     if payment_method_ids:
@@ -162,6 +183,7 @@ async def list_transactions(
             reimbursement_status=t.reimbursement_status,
             reimbursement_paid_by=t.reimbursement_paid_by,
             reimbursement_paid_at=t.reimbursement_paid_at,
+            shares=[TransactionSharePublic.model_validate(share) for share in shares_by_transaction[t.id]],
         )
         for t in transactions
     ]
@@ -321,3 +343,37 @@ async def mark_reimbursement_paid(
         metadata={"paid_by": body.paid_by}, request=request,
     )
     return await to_transaction_public(session, transaction)
+
+
+@router.post("/{transaction_id}/shares/{share_id}/settle", response_model=TransactionSharePublic)
+async def settle_transaction_share(
+    request: Request,
+    transaction_id: uuid.UUID,
+    share_id: uuid.UUID,
+    body: SettleTransactionShareRequest,
+    user: User = Depends(require_owner_or_co_owner),
+    session: AsyncSession = Depends(get_session),
+) -> TransactionSharePublic:
+    """PRD §7.5: one-way, marked settled only by the transaction's creator --
+    same require_owner_or_co_owner gate as update/delete_transaction, so a
+    plain (non-co-owner) recipient can never settle their own owed share."""
+    transaction = await _get_owned_or_404(session, user, transaction_id)
+    share = await session.get(TransactionShare, share_id)
+    if share is None or share.transaction_id != transaction.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Share not found")
+    if share.status == TransactionShareStatus.SETTLED:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Already settled")
+
+    share.status = TransactionShareStatus.SETTLED
+    share.settled_by = body.settled_by
+    share.settled_at = utcnow()
+    share.updated_at = utcnow()
+    session.add(share)
+    await session.commit()
+    await session.refresh(share)
+
+    await log_audit_event(
+        session, "transaction_share.settled", user_id=user.id, entity_type="transaction_share", entity_id=share.id,
+        metadata={"settled_by": body.settled_by}, request=request,
+    )
+    return TransactionSharePublic.model_validate(share)

@@ -1022,3 +1022,161 @@ class TestReimbursementTransactions:
             f"/transactions/{transaction_id}/mark-reimbursement-paid", json={"paid_by": "Alex"}
         )
         assert mark_paid.status_code == 422
+
+
+class TestCostSplit:
+    async def test_creates_transaction_with_even_split(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        partner, partner_email = await _make_partner(session, owner, unique_email)
+        pm = await _make_payment_method(session, owner)
+        category = await _make_category(session, owner)
+
+        response = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Costco",
+                "total_amount": "30.00",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(category.id), "item_name": "Groceries", "amount": "30.00"}],
+                "shares": [{"shared_with_user_id": str(partner.id), "share_amount": "30.00"}],
+            },
+        )
+        assert response.status_code == 201, response.text
+        body = response.json()
+        assert len(body["shares"]) == 1
+        assert body["shares"][0]["shared_with_user_id"] == str(partner.id)
+        assert body["shares"][0]["share_amount"] == "30.00"
+        assert body["shares"][0]["status"] == "pending"
+
+    async def test_rejects_shares_not_summing_to_total(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        partner, partner_email = await _make_partner(session, owner, unique_email)
+        pm = await _make_payment_method(session, owner)
+        category = await _make_category(session, owner)
+
+        response = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Costco",
+                "total_amount": "30.00",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(category.id), "item_name": "Groceries", "amount": "30.00"}],
+                "shares": [{"shared_with_user_id": str(partner.id), "share_amount": "10.00"}],
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_rejects_recipient_outside_household(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        other_email = "stranger-" + unique_email
+        stranger = await _create_verified_owner(session, other_email)
+        pm = await _make_payment_method(session, owner)
+        category = await _make_category(session, owner)
+
+        response = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Costco",
+                "total_amount": "30.00",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(category.id), "item_name": "Groceries", "amount": "30.00"}],
+                "shares": [{"shared_with_user_id": str(stranger.id), "share_amount": "30.00"}],
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_full_amount_still_counts_toward_payer_own_spend(self, client, session, unique_email):
+        # PRD v2 §7.5 confirmed default: splitting tracks who owes the payer,
+        # it does not reduce the payer's own recorded spend.
+        owner = await _authed_client(client, session, unique_email)
+        partner, partner_email = await _make_partner(session, owner, unique_email)
+        pm = await _make_payment_method(session, owner)
+        category = await _make_category(session, owner)
+
+        await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Costco",
+                "total_amount": "30.00",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(category.id), "item_name": "Groceries", "amount": "30.00"}],
+                "shares": [{"shared_with_user_id": str(partner.id), "share_amount": "30.00"}],
+            },
+        )
+        response = await client.get("/dashboard/monthly", params={"month": 7, "year": 2026})
+        assert response.json()["total_expenses"] == "30.00"
+
+    async def test_settle_requires_settled_by_and_is_one_way(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        partner, partner_email = await _make_partner(session, owner, unique_email)
+        pm = await _make_payment_method(session, owner)
+        category = await _make_category(session, owner)
+
+        create = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Costco",
+                "total_amount": "30.00",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(category.id), "item_name": "Groceries", "amount": "30.00"}],
+                "shares": [{"shared_with_user_id": str(partner.id), "share_amount": "30.00"}],
+            },
+        )
+        transaction_id = create.json()["id"]
+        share_id = create.json()["shares"][0]["id"]
+
+        empty = await client.post(
+            f"/transactions/{transaction_id}/shares/{share_id}/settle", json={"settled_by": ""}
+        )
+        assert empty.status_code == 422
+
+        settled = await client.post(
+            f"/transactions/{transaction_id}/shares/{share_id}/settle", json={"settled_by": "Partner Pat"}
+        )
+        assert settled.status_code == 200
+        body = settled.json()
+        assert body["status"] == "settled"
+        assert body["settled_by"] == "Partner Pat"
+        assert body["settled_at"] is not None
+
+        already_settled = await client.post(
+            f"/transactions/{transaction_id}/shares/{share_id}/settle", json={"settled_by": "Someone Else"}
+        )
+        assert already_settled.status_code == 422
+
+    async def test_recipient_cannot_settle_their_own_share(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        partner, partner_email = await _make_partner(session, owner, unique_email)
+        pm = await _make_payment_method(session, owner)
+        category = await _make_category(session, owner)
+
+        create = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Costco",
+                "total_amount": "30.00",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(category.id), "item_name": "Groceries", "amount": "30.00"}],
+                "shares": [{"shared_with_user_id": str(partner.id), "share_amount": "30.00"}],
+            },
+        )
+        transaction_id = create.json()["id"]
+        share_id = create.json()["shares"][0]["id"]
+
+        await _login(client, partner_email)
+        response = await client.post(
+            f"/transactions/{transaction_id}/shares/{share_id}/settle", json={"settled_by": "Partner Pat"}
+        )
+        assert response.status_code == 403

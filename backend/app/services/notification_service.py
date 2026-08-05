@@ -23,6 +23,7 @@ from app.models.category import Category
 from app.models.goal import SavingsGoal
 from app.models.recurring_bill import RecurringBill, RecurringBillPayment, RecurringBillPaymentStatus
 from app.models.transaction import Transaction, TransactionType
+from app.models.transaction_share import TransactionShare, TransactionShareStatus
 from app.models.user import User, UserRole
 from app.schemas.notification import NotificationItem
 from app.services.budget_rollover import ensure_budget_rollover_as_owner
@@ -271,6 +272,34 @@ async def _reimbursement_notifications(
     ]
 
 
+async def _transaction_share_notifications(session: AsyncSession, user: User) -> list[NotificationItem]:
+    """PRD v2 §7.5: reuses this same notification surface as Reimbursement's
+    unpaid items (§7.4), just a distinct `type`. Scoped by `user.id` directly
+    (not owner_id) -- a split share is owed by one specific household member,
+    not "the household" collectively, so it's visible to its recipient
+    regardless of category-sharing rules."""
+    statement = (
+        select(TransactionShare, Transaction)
+        .join(Transaction, Transaction.id == TransactionShare.transaction_id)
+        .where(TransactionShare.shared_with_user_id == user.id, TransactionShare.status == TransactionShareStatus.PENDING)
+    )
+    rows = (await session.exec(statement)).all()
+    return [
+        NotificationItem(
+            key=f"transaction_share_pending:{share.id}",
+            type="transaction_share_pending",
+            severity="warning",
+            title=f"You owe {share.share_amount} for {transaction.merchant}",
+            message=(
+                f"Your split of the {transaction.total_amount} transaction at {transaction.merchant} "
+                f"on {transaction.date} is still pending."
+            ),
+            entity_id=share.id,
+        )
+        for share, transaction in rows
+    ]
+
+
 async def list_notifications(session: AsyncSession, user: User) -> list[NotificationItem]:
     owner_id = household_owner_id(user)
     today = utcnow().date()
@@ -282,6 +311,7 @@ async def list_notifications(session: AsyncSession, user: User) -> list[Notifica
     items += await _ai_insight_notifications(session, user, owner_id)
     items += await _duplicate_transaction_notifications(session, user, owner_id, today)
     items += await _reimbursement_notifications(session, user, owner_id, today)
+    items += await _transaction_share_notifications(session, user)
 
     acknowledged_keys = set(
         (

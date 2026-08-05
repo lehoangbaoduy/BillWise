@@ -7,7 +7,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.auth import to_user_public
-from app.api.deps import require_owner
+from app.api.deps import household_owner_id, require_household_member, require_owner
 from app.core.audit import log_audit_event
 from app.core.config import settings
 from app.core.db import get_session
@@ -19,12 +19,14 @@ from app.models.user import User, UserRole
 from app.schemas.auth import UserPublic
 from app.schemas.household import (
     AcceptInviteRequest,
+    HouseholdMemberPublic,
     HouseholdSummary,
     InvitePartnerRequest,
     PartnerPublic,
     PendingInvitePublic,
     UpdatePartnerPermissionsRequest,
 )
+from app.services.household_service import household_member_ids
 
 router = APIRouter(tags=["household"])
 
@@ -77,6 +79,24 @@ async def get_household(
     pending = [invite for invite in invites if _is_pending(invite, now)]
 
     return HouseholdSummary(partners=partner_public, pending_invites=[PendingInvitePublic.model_validate(i) for i in pending])
+
+
+@router.get("/household/members", response_model=list[HouseholdMemberPublic])
+async def list_household_members(
+    user: User = Depends(require_household_member),
+    session: AsyncSession = Depends(get_session),
+) -> list[HouseholdMemberPublic]:
+    """PRD v2 §7.5: populates the "split this transaction with" picker --
+    every active household member except the caller themselves. Available to
+    any household member (not owner-only like GET /household), since a
+    permitted partner can also create and split a transaction."""
+    owner_id = household_owner_id(user)
+    member_ids = await household_member_ids(session, owner_id)
+    other_ids = member_ids - {user.id}
+    if not other_ids:
+        return []
+    members = (await session.exec(select(User).where(User.id.in_(other_ids)))).all()  # type: ignore[union-attr]
+    return [HouseholdMemberPublic(id=member.id, display_name=member.display_name) for member in members]
 
 
 @router.post("/household/invite-partner", response_model=PendingInvitePublic, status_code=status.HTTP_201_CREATED)

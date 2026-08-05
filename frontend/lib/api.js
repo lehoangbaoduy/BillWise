@@ -139,6 +139,11 @@ export const transactionsApi = {
   merchants: () => request("/transactions/merchants"),
   markReimbursementPaid: (id, paidBy) =>
     request(`/transactions/${id}/mark-reimbursement-paid`, { method: "POST", body: JSON.stringify({ paid_by: paidBy }) }),
+  settleShare: (transactionId, shareId, settledBy) =>
+    request(`/transactions/${transactionId}/shares/${shareId}/settle`, {
+      method: "POST",
+      body: JSON.stringify({ settled_by: settledBy }),
+    }),
 }
 
 export const budgetsApi = {
@@ -219,6 +224,7 @@ export const notificationsApi = {
 
 export const householdApi = {
   get: () => request("/household"),
+  members: () => request("/household/members"),
   invitePartner: (email, canAddTransactions, isCoOwner = false) =>
     request("/household/invite-partner", {
       method: "POST",

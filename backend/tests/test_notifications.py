@@ -481,3 +481,44 @@ class TestPartnerNotificationVisibility:
         assert not any(item["type"] in ("recurring_bill_overdue", "recurring_bill_due_soon") for item in items)
         assert not any(item["entity_id"] == private_goal_id for item in items)
         assert not any(item["type"] == "duplicate_transaction" for item in items)
+
+
+class TestTransactionShareNotifications:
+    async def test_recipient_sees_pending_share_notification(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        partner = await _make_partner(session, owner, unique_email)
+        pm = await _make_payment_method(session, owner)
+        category = await _make_category(session, owner)
+
+        create = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": date.today().isoformat(),
+                "merchant": "Costco",
+                "total_amount": "30.00",
+                "transaction_type": "Expense",
+                "line_items": [{"category_id": str(category.id), "item_name": "x", "amount": "30.00"}],
+                "shares": [{"shared_with_user_id": str(partner.id), "share_amount": "30.00"}],
+            },
+        )
+        assert create.status_code == 201, create.text
+        transaction_id = create.json()["id"]
+        share_id = create.json()["shares"][0]["id"]
+
+        await _login(client, partner.email)
+        response = await client.get("/notifications")
+        items = response.json()
+        matching = [item for item in items if item["type"] == "transaction_share_pending"]
+        assert len(matching) == 1
+        assert matching[0]["severity"] == "warning"
+
+        await _login(client, unique_email)
+        await client.post(
+            f"/transactions/{transaction_id}/shares/{share_id}/settle", json={"settled_by": "Partner User"}
+        )
+
+        await _login(client, partner.email)
+        response = await client.get("/notifications")
+        items = response.json()
+        assert not any(item["type"] == "transaction_share_pending" for item in items)

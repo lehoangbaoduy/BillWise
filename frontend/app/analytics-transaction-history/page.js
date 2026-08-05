@@ -10,7 +10,7 @@ import SharingBadge from "@/components/elements/SharingBadge"
 import TypeMultiSelect from "@/components/elements/TypeMultiSelect"
 import AnalyticsMenu from "@/components/layout/AnalyticsMenu"
 import Layout from "@/components/layout/Layout"
-import { categoriesApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
+import { categoriesApi, householdApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
 import { revalidateDashboard } from "@/lib/dashboardCache"
 
 const PAGE_SIZE = 20
@@ -25,13 +25,14 @@ function currentMonthKey() {
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`
 }
 
-function TransactionRow({ transaction, categoriesById, paymentMethodsById, onDelete, isDeleting, onMarkPaid }) {
+function TransactionRow({ transaction, categoriesById, paymentMethodsById, membersById, onDelete, isDeleting, onMarkPaid, onSettleShare }) {
     const categoryNames = transaction.line_items
         .map((item) => categoriesById[item.category_id]?.name)
         .filter(Boolean)
         .join(", ")
     const needsReimbursementAction =
         transaction.transaction_type === "Reimbursement" && transaction.reimbursement_status === "unpaid"
+    const pendingShares = (transaction.shares ?? []).filter((share) => share.status === "pending")
 
     return (
         <tr>
@@ -41,18 +42,33 @@ function TransactionRow({ transaction, categoriesById, paymentMethodsById, onDel
             <td data-label="Payment method">{paymentMethodsById[transaction.payment_method_id]?.name || "—"}</td>
             <td data-label="Type">{transaction.transaction_type}</td>
             <td data-label="Action">
-                {needsReimbursementAction && (
-                    <ConfirmButton
-                        className="btn btn-sm btn-outline-warning"
-                        confirmLabel="Mark Paid"
-                        message={`Mark the ${formatCurrency(transaction.total_amount)} reimbursement at "${transaction.merchant}" as paid?`}
-                        inputLabel="Paid by who?"
-                        inputPlaceholder="Name"
-                        onConfirm={(paidBy) => onMarkPaid(transaction, paidBy)}
-                    >
-                        Mark Paid
-                    </ConfirmButton>
-                )}
+                <div className="d-flex flex-column align-items-start gap-1">
+                    {needsReimbursementAction && (
+                        <ConfirmButton
+                            className="btn btn-sm btn-outline-warning"
+                            confirmLabel="Mark Paid"
+                            message={`Mark the ${formatCurrency(transaction.total_amount)} reimbursement at "${transaction.merchant}" as paid?`}
+                            inputLabel="Paid by who?"
+                            inputPlaceholder="Name"
+                            onConfirm={(paidBy) => onMarkPaid(transaction, paidBy)}
+                        >
+                            Mark Paid
+                        </ConfirmButton>
+                    )}
+                    {pendingShares.map((share) => (
+                        <ConfirmButton
+                            key={share.id}
+                            className="btn btn-sm btn-outline-info"
+                            confirmLabel="Settle"
+                            message={`Mark ${membersById[share.shared_with_user_id] || "this member"}'s ${formatCurrency(share.share_amount)} share as settled?`}
+                            inputLabel="Settled by who?"
+                            inputPlaceholder="Name"
+                            onConfirm={(settledBy) => onSettleShare(transaction, share, settledBy)}
+                        >
+                            Settle {membersById[share.shared_with_user_id] || "split"} ({formatCurrency(share.share_amount)})
+                        </ConfirmButton>
+                    ))}
+                </div>
             </td>
             <td data-label="Private/Shared">
                 <SharingBadge isShared={transaction.is_shared} showText />
@@ -120,9 +136,11 @@ function TransactionHistoryContent() {
     const { data: categories } = useSWR("/categories", () => categoriesApi.list())
     const { data: paymentMethods } = useSWR("/payment-methods", () => paymentMethodsApi.list())
     const { data: merchants } = useSWR("/transactions/merchants", () => transactionsApi.merchants())
+    const { data: householdMembers } = useSWR("/household/members", () => householdApi.members())
 
     const categoriesById = Object.fromEntries((categories ?? []).map((category) => [category.id, category]))
     const paymentMethodsById = Object.fromEntries((paymentMethods ?? []).map((method) => [method.id, method]))
+    const membersById = Object.fromEntries((householdMembers ?? []).map((member) => [member.id, member.display_name]))
 
     async function handleDelete(transaction) {
         setDeletingId(transaction.id)
@@ -141,6 +159,16 @@ function TransactionHistoryContent() {
     async function handleMarkPaid(transaction, paidBy) {
         try {
             await transactionsApi.markReimbursementPaid(transaction.id, paidBy)
+            await mutate()
+            setListError(null)
+        } catch (error) {
+            setListError(error.message)
+        }
+    }
+
+    async function handleSettleShare(transaction, share, settledBy) {
+        try {
+            await transactionsApi.settleShare(transaction.id, share.id, settledBy)
             await mutate()
             setListError(null)
         } catch (error) {
@@ -297,9 +325,11 @@ function TransactionHistoryContent() {
                                                             transaction={transaction}
                                                             categoriesById={categoriesById}
                                                             paymentMethodsById={paymentMethodsById}
+                                                            membersById={membersById}
                                                             onDelete={handleDelete}
                                                             isDeleting={deletingId === transaction.id}
                                                             onMarkPaid={handleMarkPaid}
+                                                            onSettleShare={handleSettleShare}
                                                         />
                                                     ))}
                                                 </tbody>

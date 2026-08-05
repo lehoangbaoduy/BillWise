@@ -105,6 +105,44 @@ class TestGetHousehold:
         assert body["partners"][0]["is_active"] is True
 
 
+class TestListHouseholdMembers:
+    async def test_requires_authentication(self, client):
+        response = await client.get("/household/members")
+        assert response.status_code == 401
+
+    async def test_empty_when_no_partners(self, client, session, unique_email):
+        await _authed_client(client, session, unique_email)
+        response = await client.get("/household/members")
+        assert response.status_code == 200
+        assert response.json() == []
+
+    async def test_owner_sees_active_partner_not_self(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        partner_email = "partner-" + unique_email
+        token = generate_token()
+        await _make_pending_invite(session, owner, partner_email, token_hash=hash_token(token))
+        await _accept(client, token, email=partner_email, display_name="Partner Pat")
+
+        await _login(client, unique_email)
+        response = await client.get("/household/members")
+        assert response.status_code == 200
+        names = {member["display_name"] for member in response.json()}
+        assert names == {"Partner Pat"}
+
+    async def test_partner_sees_owner_not_self(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        partner_email = "partner-" + unique_email
+        token = generate_token()
+        await _make_pending_invite(session, owner, partner_email, token_hash=hash_token(token))
+        await _accept(client, token, email=partner_email, display_name="Partner Pat")
+
+        await _login(client, partner_email)
+        response = await client.get("/household/members")
+        assert response.status_code == 200
+        names = {member["display_name"] for member in response.json()}
+        assert names == {"Jamie Owner"}
+
+
 class TestInvitePartner:
     async def test_requires_authentication(self, client):
         response = await client.post("/household/invite-partner", json={"email": "a@b.com"})
