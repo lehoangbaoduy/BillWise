@@ -10,6 +10,7 @@ import SharingBadge from "@/components/elements/SharingBadge"
 import TypeMultiSelect from "@/components/elements/TypeMultiSelect"
 import AnalyticsMenu from "@/components/layout/AnalyticsMenu"
 import Layout from "@/components/layout/Layout"
+import ReceiptThumbnail from "@/components/receipt/ReceiptThumbnail"
 import { categoriesApi, householdApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
 import { revalidateDashboard } from "@/lib/dashboardCache"
 
@@ -72,6 +73,9 @@ function TransactionRow({ transaction, categoriesById, paymentMethodsById, membe
             </td>
             <td data-label="Private/Shared">
                 <SharingBadge isShared={transaction.is_shared} showText />
+            </td>
+            <td data-label="Receipt">
+                <ReceiptThumbnail transaction={transaction} />
             </td>
             <td className="text-end" data-label="Amount">{formatCurrency(transaction.total_amount)}</td>
             <td className="text-end mobile-cards-actions" data-label="">
@@ -314,6 +318,7 @@ function TransactionHistoryContent() {
                                                         <th>Type</th>
                                                         <th>Action</th>
                                                         <th>Private/Shared</th>
+                                                        <th>Receipt</th>
                                                         <th className="text-end">Amount</th>
                                                         <th className="text-end">Actions</th>
                                                     </tr>

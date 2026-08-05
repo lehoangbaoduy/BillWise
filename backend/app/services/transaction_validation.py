@@ -228,6 +228,7 @@ async def to_transaction_public(
         reimbursement_paid_by=transaction.reimbursement_paid_by,
         reimbursement_paid_at=transaction.reimbursement_paid_at,
         shares=[TransactionSharePublic.model_validate(share) for share in shares],
+        receipt_image_key=transaction.receipt_image_key,
     )
 
 

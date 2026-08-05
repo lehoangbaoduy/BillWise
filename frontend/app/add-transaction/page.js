@@ -97,11 +97,18 @@ function AddTransactionContent() {
     const [customShareAmounts, setCustomShareAmounts] = useState({})
     const [includeSelfInSplit, setIncludeSelfInSplit] = useState(true)
 
-    // "manual" | "scan-upload" | "scan-review" — PRD §24.4 treats manual entry and
-    // receipt scanning as two entry paths into one Add Transaction screen.
+    // "manual" | "scan-upload" | "scan-review" | "scan-fallback" — PRD §24.4 treats
+    // manual entry and receipt scanning as two entry paths into one Add Transaction
+    // screen; "scan-fallback" is PRD v2 §7.2's reduced-entry OCR-fail path (amount/
+    // merchant/payment method only, receipt image retained and attached on save).
     const [entryMode, setEntryMode] = useState("manual")
     const [ocrStatus, setOcrStatus] = useState(null)
     const [ocrWarnings, setOcrWarnings] = useState([])
+    // The File object survives here (not just in ReceiptUploadPanel's local state)
+    // because both OCR-failure and "dismiss a low-confidence result" can lead to
+    // scan-fallback, and only the second step (after the transaction row exists)
+    // actually uploads it -- an abandoned fallback form never calls the upload API.
+    const [retainedReceiptFile, setRetainedReceiptFile] = useState(null)
 
     useEffect(() => {
         if (!isEditing) return
@@ -175,7 +182,7 @@ function AddTransactionContent() {
         setLineItems((current) => current.filter((_, i) => i !== index))
     }
 
-    function handleExtracted(result) {
+    function handleExtracted(result, file) {
         setDate(result.date || todayISO())
         setMerchant(result.merchant || "")
         setDescription("")
@@ -198,7 +205,48 @@ function AddTransactionContent() {
         setOcrStatus(result.ocr_status)
         setOcrWarnings(result.warnings || [])
         setFormError(null)
+        // Retained even on a confident result -- if the user later dismisses a
+        // low-confidence one via skipToFallback, the file needs to already be here.
+        setRetainedReceiptFile(file)
         setEntryMode("scan-review")
+    }
+
+    // PRD v2 §7.2 trigger #3: user dismisses a low-confidence OCR result instead of
+    // fixing it inline. Keeps whatever the OCR guessed as a starting point, but
+    // switches to the reduced-requirement fallback form and drops the strict
+    // line-items-must-sum-to-total validation.
+    function skipToFallback() {
+        setEntryMode("scan-fallback")
+        setOcrStatus(null)
+        setOcrWarnings([])
+        setFormError(null)
+    }
+
+    // PRD v2 §7.2 triggers #1: OCR extraction fails outright (timeout/unreadable).
+    // The image was still uploaded successfully, so it's retained and offered
+    // through the reduced-entry fallback rather than discarded.
+    function handleScanFailed(file) {
+        setRetainedReceiptFile(file)
+        setDate(todayISO())
+        setMerchant("")
+        setDescription("")
+        setTotalAmount("")
+        setTransactionType("Expense")
+        setNotes("")
+        setLineItems([emptyLineItem()])
+        setOcrStatus(null)
+        setOcrWarnings([])
+        setFormError(null)
+        setEntryMode("scan-fallback")
+    }
+
+    async function ensureUncategorizedCategoryId() {
+        const existing = (categories ?? []).find(
+            (category) => category.category_type === "expense" && category.name.trim().toLowerCase() === "uncategorized"
+        )
+        if (existing) return existing.id
+        const created = await categoriesApi.create({ name: "Uncategorized", category_type: "expense" })
+        return created.id
     }
 
     function toggleSplitMember(memberId) {
@@ -238,6 +286,7 @@ function AddTransactionContent() {
         setEntryMode("manual")
         setOcrStatus(null)
         setOcrWarnings([])
+        setRetainedReceiptFile(null)
     }
 
     function startNewScan() {
@@ -251,12 +300,15 @@ function AddTransactionContent() {
         setOcrStatus(null)
         setOcrWarnings([])
         setFormError(null)
+        setRetainedReceiptFile(null)
         setEntryMode("scan-upload")
     }
 
     async function handleSubmit(event) {
         event.preventDefault()
         setFormError(null)
+
+        const isFallback = entryMode === "scan-fallback"
 
         if (!merchant.trim()) {
             setFormError("Merchant is required.")
@@ -266,15 +318,24 @@ function AddTransactionContent() {
             setFormError("Payment method is required.")
             return
         }
-        if (lineItems.some((item) => !item.categoryId || !item.itemName.trim() || item.amount === "")) {
-            setFormError("Every line item needs a category, name, and amount.")
+        if (!totalAmount || Number(totalAmount) <= 0) {
+            setFormError("Total amount is required.")
             return
         }
-        const lineItemsSum = sumLineItems(lineItems)
         const total = Number(totalAmount)
-        if (Math.round(lineItemsSum * 100) !== Math.round(total * 100)) {
-            setFormError(`Line items sum to ${lineItemsSum.toFixed(2)}, which doesn't match the total (${total.toFixed(2)}).`)
-            return
+        // PRD v2 §7.2: the fallback form only requires amount/merchant/payment
+        // method -- line items are optional and fall back to a single
+        // "Uncategorized" item at submit time when left incomplete.
+        if (!isFallback) {
+            if (lineItems.some((item) => !item.categoryId || !item.itemName.trim() || item.amount === "")) {
+                setFormError("Every line item needs a category, name, and amount.")
+                return
+            }
+            const lineItemsSum = sumLineItems(lineItems)
+            if (Math.round(lineItemsSum * 100) !== Math.round(total * 100)) {
+                setFormError(`Line items sum to ${lineItemsSum.toFixed(2)}, which doesn't match the total (${total.toFixed(2)}).`)
+                return
+            }
         }
 
         const shares = buildSharesPayload()
@@ -290,31 +351,57 @@ function AddTransactionContent() {
 
         setIsSubmitting(true)
         try {
+            let payloadLineItems = lineItems.map((item) => ({
+                category_id: item.categoryId,
+                item_name: item.itemName.trim(),
+                amount: item.amount,
+            }))
+            if (isFallback) {
+                const hasCompleteLineItems = lineItems.every(
+                    (item) => item.categoryId && item.itemName.trim() && item.amount !== ""
+                )
+                const matchesTotal = Math.round(sumLineItems(lineItems) * 100) === Math.round(total * 100)
+                if (!hasCompleteLineItems || !matchesTotal) {
+                    const uncategorizedId = await ensureUncategorizedCategoryId()
+                    payloadLineItems = [{ category_id: uncategorizedId, item_name: "Receipt", amount: totalAmount }]
+                }
+            }
+
             const payload = {
                 payment_method_id: paymentMethodId,
-                date,
+                date: date || todayISO(),
                 merchant: merchant.trim(),
                 description: description.trim() || null,
                 total_amount: totalAmount,
                 transaction_type: transactionType,
                 notes: notes.trim() || null,
-                line_items: lineItems.map((item) => ({
-                    category_id: item.categoryId,
-                    item_name: item.itemName.trim(),
-                    amount: item.amount,
-                })),
+                line_items: payloadLineItems,
                 ...(!isEditing && shares ? { shares } : {}),
             }
             let possibleDuplicate = false
+            let createdTransaction = null
             if (isEditing) {
                 await transactionsApi.update(editId, payload)
-            } else if (entryMode === "scan-review") {
-                const created = await ocrApi.confirmTransaction(payload)
-                possibleDuplicate = created.possible_duplicate
+            } else if (entryMode === "scan-review" || isFallback) {
+                createdTransaction = await ocrApi.confirmTransaction(payload)
+                possibleDuplicate = createdTransaction.possible_duplicate
             } else {
-                const created = await transactionsApi.create(payload)
-                possibleDuplicate = created.possible_duplicate
+                createdTransaction = await transactionsApi.create(payload)
+                possibleDuplicate = createdTransaction.possible_duplicate
             }
+
+            // PRD v2 §7.2: the image upload is a deliberate second step, only
+            // reachable once the transaction row above already exists -- best
+            // effort, since the transaction is already saved successfully by
+            // this point and shouldn't be blocked on a storage hiccup.
+            if (isFallback && retainedReceiptFile && createdTransaction) {
+                try {
+                    await transactionsApi.uploadReceiptImage(createdTransaction.id, retainedReceiptFile)
+                } catch {
+                    // Swallowed intentionally -- see comment above.
+                }
+            }
+
             revalidateDashboard()
             router.push(possibleDuplicate ? "/analytics-transaction-history?duplicate=1" : "/analytics-transaction-history")
         } catch (error) {
@@ -358,7 +445,10 @@ function AddTransactionContent() {
                                         type="button"
                                         aria-pressed={entryMode !== "manual"}
                                         className={`btn btn-sm ${entryMode !== "manual" ? "btn-primary" : "btn-outline-primary"}`}
-                                        onClick={() => setEntryMode("scan-upload")}
+                                        onClick={() => {
+                                            setRetainedReceiptFile(null)
+                                            setEntryMode("scan-upload")
+                                        }}
                                     >
                                         Scan receipt
                                     </button>
@@ -366,7 +456,11 @@ function AddTransactionContent() {
                             )}
 
                             {entryMode === "scan-upload" ? (
-                                <ReceiptUploadPanel onExtracted={handleExtracted} onCancel={resetToManualEntry} />
+                                <ReceiptUploadPanel
+                                    onExtracted={handleExtracted}
+                                    onScanFailed={handleScanFailed}
+                                    onCancel={resetToManualEntry}
+                                />
                             ) : (
                                 <form onSubmit={handleSubmit}>
                                 {entryMode === "scan-review" && (
@@ -385,6 +479,35 @@ function AddTransactionContent() {
                                                     ))}
                                                 </ul>
                                             )}
+                                        </div>
+                                        <div className="d-flex flex-column gap-2 align-items-end flex-shrink-0">
+                                            {ocrStatus === "low_confidence" && (
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-sm btn-outline-warning"
+                                                    onClick={skipToFallback}
+                                                >
+                                                    This doesn&apos;t look right — skip to quick entry
+                                                </button>
+                                            )}
+                                            <button type="button" className="btn btn-sm btn-outline-secondary" onClick={startNewScan}>
+                                                Scan a different receipt
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                                {entryMode === "scan-fallback" && (
+                                    <div
+                                        className="alert alert-info d-flex justify-content-between align-items-start"
+                                        role="alert"
+                                    >
+                                        <div>
+                                            <strong>Quick entry — receipt image kept</strong>
+                                            <p className="mb-0 mt-1">
+                                                We couldn&apos;t read this receipt automatically. Fill in the amount, merchant, and
+                                                payment method below and we&apos;ll save it with the photo attached — category and
+                                                other details are optional and can be filled in later.
+                                            </p>
                                         </div>
                                         <button type="button" className="btn btn-sm btn-outline-secondary" onClick={startNewScan}>
                                             Scan a different receipt
@@ -471,7 +594,14 @@ function AddTransactionContent() {
                                 </div>
 
                                 <fieldset className="mb-3">
-                                    <legend className="col-form-label pt-0">Line items</legend>
+                                    <legend className="col-form-label pt-0">
+                                        Line items
+                                        {entryMode === "scan-fallback" && (
+                                            <span className="text-muted fw-normal fs-6 ms-2">
+                                                (optional — defaults to a single &quot;Uncategorized&quot; item if left blank)
+                                            </span>
+                                        )}
+                                    </legend>
                                     {lineItems.map((item, index) => (
                                         <div className="row align-items-end mb-2" key={item.key}>
                                             <div className="col-md-4">
@@ -484,7 +614,7 @@ function AddTransactionContent() {
                                                     className="form-select"
                                                     value={item.categoryId}
                                                     onChange={(event) => updateLineItem(index, "categoryId", event.target.value)}
-                                                    required
+                                                    required={entryMode !== "scan-fallback"}
                                                 >
                                                     <option value="" disabled>Select a category</option>
                                                     {availableCategories.map((category) => (
@@ -503,7 +633,7 @@ function AddTransactionContent() {
                                                     placeholder="e.g. Groceries"
                                                     value={item.itemName}
                                                     onChange={(event) => updateLineItem(index, "itemName", event.target.value)}
-                                                    required
+                                                    required={entryMode !== "scan-fallback"}
                                                 />
                                             </div>
                                             <div className="col-md-3">
@@ -516,7 +646,7 @@ function AddTransactionContent() {
                                                     placeholder="0.00"
                                                     value={item.amount}
                                                     onChange={(event) => updateLineItem(index, "amount", event.target.value)}
-                                                    required
+                                                    required={entryMode !== "scan-fallback"}
                                                 />
                                             </div>
                                             <div className="col-md-1">
@@ -699,6 +829,8 @@ function AddTransactionContent() {
                                         ? "Save changes"
                                         : entryMode === "scan-review"
                                         ? "Confirm & save"
+                                        : entryMode === "scan-fallback"
+                                        ? "Save with receipt"
                                         : "Add transaction"}
                                 </button>
                             </form>

@@ -15000,6 +15000,17 @@ div {
 .dark-theme strong {
   color: #fff;
 }
+/* .alert-info/-warning/-success/-danger keep their light "subtle" background
+   in both themes (--bs-alert-* variables are only redefined under Bootstrap's
+   own [data-bs-theme=dark] attribute, which this app's class-based .dark-theme
+   toggle never sets) -- the blanket white rule above, meant for bold text on
+   the dark page background, otherwise renders an alert's <strong> heading as
+   white-on-light-blue/-green/etc. `inherit` restores the same dark, readable
+   color the alert's own paragraph text already gets from --bs-alert-color. */
+.dark-theme .alert strong,
+.dark-theme .alert b {
+  color: inherit;
+}
 .dark-theme .header,
 .dark-theme .demo {
   background-color: #131129;
@@ -15134,6 +15145,19 @@ div {
   background: #F8C8DC;
   color: #7A2048;
 }
+/* The actual native file-input button is `::file-selector-button` (Bootstrap
+   5.3), not `.form-file-button` above -- that class doesn't match this app's
+   DOM, so without this the browser default button (light gray bg, dark text)
+   was rendering with near-illegible contrast against .form-control's dark
+   background in dark mode. Reuses the same pink/maroon pairing as the
+   (unused) .form-file-button rule above for visual consistency. */
+.dark-theme .form-control::file-selector-button {
+  background-color: #F8C8DC;
+  color: #7A2048;
+}
+.dark-theme .form-control:hover:not(:disabled):not([readonly])::file-selector-button {
+  background-color: #FBDCE7;
+}
 .dark-theme .input-group-text {
   background: #1D1933;
   color: #fff;
@@ -15152,6 +15176,17 @@ div {
 .dark-theme .budgets-nav.active .btn-outline-danger,
 .dark-theme .goals-nav.active .btn-outline-danger {
   color: #7A2048;
+}
+/* Same "assumes it's sitting on the dark page background" trap as the .alert
+   strong/b rule above -- outline buttons placed inside an alert (e.g. Add
+   Transaction's "Scan a different receipt"/"skip to quick entry" actions,
+   PRD v2 §7.2) inherit this white text against the alert's own light subtle
+   background, which is nearly unreadable. `inherit` matches the alert's own
+   --bs-alert-color the same way the strong/b fix does. */
+.dark-theme .alert .btn-outline-secondary,
+.dark-theme .alert .btn-outline-warning {
+  color: inherit;
+  border-color: currentColor;
 }
 .dark-theme .table {
   color: #D8A8BC;

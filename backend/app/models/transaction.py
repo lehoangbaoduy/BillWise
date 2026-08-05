@@ -58,6 +58,12 @@ class Transaction(SQLModel, table=True):
     reimbursement_status: str = Field(default=ReimbursementStatus.UNPAID.value)
     reimbursement_paid_by: str | None = None
     reimbursement_paid_at: datetime | None = optional_timestamp_field()
+    # PRD v2 §7.2: set only for a transaction saved via the OCR-fail fallback
+    # that successfully uploaded its receipt image to R2 -- null for every
+    # other transaction, including successfully-OCR'd ones (explicit scope
+    # decision: retention is failure-path-only, not applied to the success
+    # path). References receipt_storage_service's object key, never a URL.
+    receipt_image_key: str | None = None
     created_at: datetime = required_timestamp_field(default_now=True)
     updated_at: datetime = required_timestamp_field(default_now=True)
 

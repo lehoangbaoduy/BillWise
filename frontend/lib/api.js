@@ -144,6 +144,30 @@ export const transactionsApi = {
       method: "POST",
       body: JSON.stringify({ settled_by: settledBy }),
     }),
+  // PRD v2 §7.2: second step of the OCR-fail fallback save -- only called once
+  // the transaction row already exists, so an abandoned fallback form never
+  // triggers an upload and never leaves an orphaned image.
+  uploadReceiptImage: (id, file) => {
+    const formData = new FormData()
+    formData.append("file", file)
+    return requestMultipart(`/transactions/${id}/receipt-image`, formData)
+  },
+  // Fetched as a blob (not a plain <img src>) so the browser's normal
+  // credentialed fetch/cookie path is used -- the endpoint is authenticated
+  // and never a public/presigned URL (PRD v2 §7.2). Resolved to a `data:` URI
+  // rather than a `blob:` object URL so it fits the CSP's existing
+  // `img-src 'self' data:` policy (see middleware.js) without loosening it.
+  receiptImageDataUrl: async (id) => {
+    const response = await fetch(`${API_BASE_URL}/transactions/${id}/receipt-image`, { credentials: "include" })
+    await throwIfError(response)
+    const blob = await response.blob()
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result)
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(blob)
+    })
+  },
 }
 
 export const budgetsApi = {

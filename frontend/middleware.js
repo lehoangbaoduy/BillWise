@@ -7,8 +7,11 @@ import { NextResponse } from "next/server"
 //   - next/font/google (app/layout.js) self-hosts the font at build time —
 //     no runtime request to Google, so no fonts.googleapis.com/gstatic.com
 //     exception is needed.
-//   - No blob:/data: image usage (no client-side file preview); no data:
-//     URIs in the vendored CSS. img-src still allows `data:` as a narrow,
+//   - No blob: image usage anywhere -- the one place that fetches binary
+//     image data client-side (the retained-receipt-image viewer, PRD v2
+//     §7.2) resolves it to a `data:` URI instead of `URL.createObjectURL`,
+//     specifically so it doesn't need a blob: exception here. No data: URIs
+//     in the vendored CSS either; img-src still allows `data:` as a narrow,
 //     script-incapable fallback rather than assuming the audit is exhaustive.
 //   - style="" attributes ARE used (inline `style={{...}}` props compile to
 //     them), so style-src needs 'unsafe-inline' — CSS injection can't

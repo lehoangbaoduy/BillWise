@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     # Resend's HTTP API.
     resend_api_key: str = ""
     resend_from_email: str = "BillWise <onboarding@resend.dev>"
+    # Empty by default -> receipt_storage_service raises a 503 at first use
+    # (same lazy-validation pattern as anthropic_api_key) rather than blocking
+    # app startup for households that haven't provisioned R2 yet.
+    r2_account_id: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_bucket_name: str = ""
 
     @field_validator("frontend_base_url")
     @classmethod

@@ -1,13 +1,14 @@
 import uuid
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile, status
 from sqlalchemy import extract, func
 from sqlmodel import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import household_owner_id, require_can_add_transactions, require_household_member, require_owner_or_co_owner
 from app.core.audit import log_audit_event
+from app.core.config import settings
 from app.core.db import get_session
 from app.models._common import utcnow
 from app.models.payment_method import PaymentMethod
@@ -24,6 +25,7 @@ from app.schemas.transaction import (
 )
 from app.services.cashback_service import record_cashback_for_line_items
 from app.services.partner_visibility import apply_partner_transaction_visibility
+from app.services.receipt_storage_service import build_receipt_image_key, delete_receipt_image, get_receipt_image, upload_receipt_image
 from app.services.recurring_bill_service import reopen_payments_for_deleted_transaction
 from app.services.transaction_validation import (
     create_transaction_record,
@@ -38,6 +40,10 @@ from app.services.transaction_validation import (
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 _MAX_LIMIT = 200
+# PRD v2 §7.2: the same four types receipt_storage_service.build_receipt_image_key
+# knows how to name -- anything else is rejected rather than stored with a
+# generic extension.
+_ALLOWED_RECEIPT_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/heic", "image/heif"}
 
 
 async def _get_owned_or_404(session: AsyncSession, user: User, transaction_id: uuid.UUID) -> Transaction:
@@ -184,6 +190,7 @@ async def list_transactions(
             reimbursement_paid_by=t.reimbursement_paid_by,
             reimbursement_paid_at=t.reimbursement_paid_at,
             shares=[TransactionSharePublic.model_validate(share) for share in shares_by_transaction[t.id]],
+            receipt_image_key=t.receipt_image_key,
         )
         for t in transactions
     ]
@@ -214,6 +221,72 @@ async def get_transaction(
 ) -> TransactionPublic:
     transaction = await _get_owned_or_404(session, user, transaction_id)
     return await to_transaction_public(session, transaction)
+
+
+@router.post("/{transaction_id}/receipt-image", response_model=TransactionPublic)
+async def upload_transaction_receipt_image(
+    request: Request,
+    transaction_id: uuid.UUID,
+    file: UploadFile,
+    user: User = Depends(require_owner_or_co_owner),
+    session: AsyncSession = Depends(get_session),
+) -> TransactionPublic:
+    """PRD v2 §7.2: the OCR-fail fallback's second step -- the transaction row
+    is created first (via POST /transactions), so an abandoned fallback form
+    never reaches this endpoint and never leaves an orphaned image."""
+    transaction = await _get_owned_or_404(session, user, transaction_id)
+
+    content_type = file.content_type or ""
+    if content_type not in _ALLOWED_RECEIPT_IMAGE_CONTENT_TYPES:
+        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Unsupported image type")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > settings.ocr_max_upload_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File exceeds the 10MB limit"
+        )
+
+    key = build_receipt_image_key(household_owner_id(user), transaction.id, content_type)
+    try:
+        await upload_receipt_image(key, file_bytes, content_type)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not store the receipt image"
+        ) from exc
+
+    transaction.receipt_image_key = key
+    transaction.updated_at = utcnow()
+    session.add(transaction)
+    await session.commit()
+    await session.refresh(transaction)
+
+    await log_audit_event(
+        session, "transaction.receipt_image_uploaded", user_id=user.id, entity_type="transaction",
+        entity_id=transaction.id, request=request,
+    )
+    return await to_transaction_public(session, transaction)
+
+
+@router.get("/{transaction_id}/receipt-image")
+async def get_transaction_receipt_image(
+    transaction_id: uuid.UUID,
+    user: User = Depends(require_household_member),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Streams bytes through the backend on every request rather than a
+    presigned R2 URL, so the same visibility rule that gates the transaction
+    itself (apply_partner_transaction_visibility) also gates its image."""
+    owner_id = household_owner_id(user)
+    conditions = [Transaction.id == transaction_id, Transaction.user_id == owner_id]
+    apply_partner_transaction_visibility(conditions, user, owner_id)
+    transaction = (await session.exec(select(Transaction).where(and_(*conditions)))).first()
+    if transaction is None or transaction.receipt_image_key is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receipt image not found")
+
+    file_bytes, content_type = await get_receipt_image(transaction.receipt_image_key)
+    return Response(content=file_bytes, media_type=content_type)
 
 
 @router.patch("/{transaction_id}", response_model=TransactionPublic)
@@ -303,6 +376,8 @@ async def delete_transaction(
     # FK is clear before the delete, and so the bill isn't left stuck at
     # status="paid" pointing at a transaction that no longer exists.
     await reopen_payments_for_deleted_transaction(session, transaction_id)
+    if transaction.receipt_image_key is not None:
+        await delete_receipt_image(transaction.receipt_image_key)
     await session.delete(transaction)
     await session.commit()
     await log_audit_event(

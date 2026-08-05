@@ -8,7 +8,7 @@ const ACCEPTED_TYPES = "image/jpeg,image/png,image/heic,image/heif,application/p
 // Matches the app's existing mobile/PC layout breakpoint (see usePlatformView.js).
 const MOBILE_BREAKPOINT_QUERY = "(max-width: 767px)"
 
-export default function ReceiptUploadPanel({ onExtracted, onCancel }) {
+export default function ReceiptUploadPanel({ onExtracted, onScanFailed, onCancel }) {
     const [selectedFile, setSelectedFile] = useState(null)
     const [isScanning, setIsScanning] = useState(false)
     const [error, setError] = useState(null)
@@ -45,7 +45,7 @@ export default function ReceiptUploadPanel({ onExtracted, onCancel }) {
         setError(null)
         try {
             const result = await ocrApi.scanReceipt(selectedFile)
-            onExtracted(result)
+            onExtracted(result, selectedFile)
         } catch (err) {
             setError(err.message || "Couldn't read this receipt.")
         } finally {
@@ -71,10 +71,14 @@ export default function ReceiptUploadPanel({ onExtracted, onCancel }) {
             {error && (
                 <div className="alert alert-danger mt-3" role="alert">
                     {error} Try a clearer photo, a different file, or{" "}
-                    <button type="button" className="btn btn-link p-0 align-baseline" onClick={onCancel}>
-                        enter this transaction manually
+                    <button
+                        type="button"
+                        className="btn btn-link p-0 align-baseline"
+                        onClick={() => onScanFailed(selectedFile)}
+                    >
+                        enter the amount and merchant manually
                     </button>
-                    .
+                    {" "}— we&apos;ll keep the photo attached.
                 </div>
             )}
             <div className="mt-3 d-flex gap-2">

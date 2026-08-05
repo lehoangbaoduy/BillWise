@@ -109,6 +109,10 @@ class TransactionPublic(BaseModel):
     reimbursement_paid_by: str | None = None
     reimbursement_paid_at: datetime | None = None
     shares: list[TransactionSharePublic] = Field(default_factory=list)
+    # PRD v2 §7.2: non-null only for a transaction saved via the OCR-fail
+    # fallback with a successfully uploaded receipt image. Never a URL --
+    # the image itself is only ever fetched via GET .../receipt-image.
+    receipt_image_key: str | None = None
 
 
 class MarkReimbursementPaidRequest(BaseModel):
