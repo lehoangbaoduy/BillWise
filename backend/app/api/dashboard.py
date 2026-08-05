@@ -53,7 +53,6 @@ from app.schemas.dashboard import (
     YearlyOverview,
 )
 from app.schemas.net_worth import NetWorthDashboard
-from app.services.budget_rollover import ensure_budget_rollover_as_owner
 from app.services.item_visibility import effective_creator_id, visibility_condition
 from app.services.partner_visibility import apply_partner_transaction_visibility, shared_category_ids_subquery
 
@@ -320,7 +319,6 @@ async def monthly_overview(
             pm_id, name, _type, _balance, amount, _count = max(payment_method_rows, key=lambda row: row[4])
             top_payment_method = TopPaymentMethod(payment_method_id=pm_id, name=name, amount=amount)
 
-    await ensure_budget_rollover_as_owner(session, user, month, year)
     budgets = list(
         (await _visible_budgets_by_category(session, owner_id, user, month, year, viewer_is_owner_or_co_owner)).values()
     )
@@ -520,7 +518,6 @@ async def category_breakdown(
     total_expenses = await sum_by_type(session, user, month, year, TransactionType.EXPENSE)
     spend_by_category = {row[0]: (row[1], row[2], row[3]) for row in category_rows}
 
-    await ensure_budget_rollover_as_owner(session, user, month, year)
     budget_by_category = await _visible_budgets_by_category(
         session, owner_id, user, month, year, viewer_is_owner_or_co_owner
     )

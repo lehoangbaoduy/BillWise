@@ -256,7 +256,11 @@ class TestCategoryBreakdown:
         assert items[0]["budget_amount"] == "80.00"
         assert items[0]["is_over_budget"] is False
 
-    async def test_rolls_over_budget_for_consistency_with_budgets_endpoint(self, client, session, unique_email):
+    async def test_no_longer_rolls_over_budget_from_an_earlier_month(self, client, session, unique_email):
+        # PRD v2 §8.2: the old lazy/reactive rollover-on-read is removed in
+        # favor of the scheduled renew_monthly_budgets job (see
+        # test_budget_renewal.py) -- a budget set in an earlier month must not
+        # appear in a later, unrenewed month's breakdown or budgets list.
         user = await _authed_client(client, session, unique_email)
         category = await _make_category(session, user)
         await client.post("/budgets", json={"category_id": str(category.id), "month": 6, "year": 2026, "budget_amount": "150.00"})
@@ -264,11 +268,10 @@ class TestCategoryBreakdown:
         response = await client.get("/dashboard/category-breakdown", params={"month": 7, "year": 2026})
         assert response.status_code == 200
         items = response.json()
-        assert len(items) == 1
-        assert items[0]["budget_amount"] == "150.00"
+        assert not any(item["budget_amount"] is not None for item in items)
 
         budgets_response = await client.get("/budgets", params={"month": 7, "year": 2026})
-        assert budgets_response.json()[0]["budget_amount"] == "150.00"
+        assert budgets_response.json() == []
 
 
 class TestPaymentMethodBreakdown:

@@ -64,7 +64,8 @@ def resolve_card_payment_due_date(payment_method: PaymentMethod, today: date) ->
 
 
 async def ensure_recurring_bill_state(session: AsyncSession, user_id: uuid.UUID, today: date | None = None) -> None:
-    """Lazy reconciliation, same pattern as ensure_budget_rollover: flips
+    """Lazy reconciliation, same shape as budgets' old rollover (now a
+    scheduled job instead, see budget_renewal_service.py): flips
     due-passed 'upcoming' periods to 'overdue', and generates the next period for
     any active, non-custom bill whose latest period has already been resolved
     (paid/skipped). Called at the top of GET /recurring-bills and again after

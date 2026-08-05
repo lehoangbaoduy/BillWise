@@ -26,7 +26,6 @@ from app.models.transaction import Transaction, TransactionType
 from app.models.transaction_share import TransactionShare, TransactionShareStatus
 from app.models.user import User, UserRole
 from app.schemas.notification import NotificationItem
-from app.services.budget_rollover import ensure_budget_rollover_as_owner
 from app.services.partner_visibility import apply_partner_transaction_visibility, shared_category_ids_subquery
 from app.services.recurring_bill_service import ensure_recurring_bill_state
 
@@ -39,7 +38,6 @@ _SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2}
 
 async def _budget_notifications(session: AsyncSession, user: User, owner_id, today: date) -> list[NotificationItem]:
     month, year = today.month, today.year
-    await ensure_budget_rollover_as_owner(session, user, month, year)
     spend_by_category = {row[0]: row[3] for row in await category_expense_spend(session, user, month, year)}
 
     budget_conditions = [Budget.user_id == owner_id, Budget.month == month, Budget.year == year]

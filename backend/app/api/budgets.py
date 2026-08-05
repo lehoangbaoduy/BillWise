@@ -12,7 +12,6 @@ from app.models.budget import Budget
 from app.models.category import Category, CategoryType
 from app.models.user import User
 from app.schemas.budget import BudgetCreate, BudgetPublic, BudgetSharingUpdate, BudgetUpdate
-from app.services.budget_rollover import ensure_budget_rollover_as_owner
 from app.services.item_visibility import user_can_access_item, visibility_condition
 
 router = APIRouter(prefix="/budgets", tags=["budgets"])
@@ -49,7 +48,6 @@ async def list_budgets(
     session: AsyncSession = Depends(get_session),
 ) -> list[Budget]:
     owner_id = household_owner_id(user)
-    await ensure_budget_rollover_as_owner(session, user, month, year)
     statement = select(Budget).where(
         Budget.user_id == owner_id,
         Budget.month == month,

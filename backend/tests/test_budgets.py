@@ -1,16 +1,9 @@
-import asyncio
-
-from sqlmodel import delete, select
-from sqlmodel.ext.asyncio.session import AsyncSession as RawAsyncSession
-
 from app.core.security import hash_password
 from app.models._common import utcnow
 from app.models.budget import Budget
 from app.models.category import Category, CategoryType
 from app.models.partner_permission import PartnerPermission
 from app.models.user import User, UserRole
-from app.services.budget_rollover import ensure_budget_rollover
-from tests.conftest import async_engine
 
 VALID_PASSWORD = "StrongPass123"
 
@@ -141,35 +134,21 @@ class TestListBudgets:
         amounts = {b["budget_amount"] for b in response.json()}
         assert amounts == {"300.00"}
 
-    async def test_rolls_over_from_most_recent_earlier_month(self, client, session, unique_email):
+    async def test_get_no_longer_auto_creates_rows_for_a_new_month(self, client, session, unique_email):
+        # PRD v2 §8.2: the old lazy/reactive rollover-on-GET is removed in
+        # favor of the scheduled renew_monthly_budgets job (see
+        # test_budget_renewal.py) -- viewing a new, unbudgeted month must not
+        # create any rows as a side effect of reading.
         user = await _authed_client(client, session, unique_email)
         category = await _make_category(session, user)
         await client.post("/budgets", json={"category_id": str(category.id), "month": 6, "year": 2026, "budget_amount": "250.00"})
 
         response = await client.get("/budgets", params={"month": 7, "year": 2026})
         assert response.status_code == 200
-        body = response.json()
-        assert len(body) == 1
-        assert body[0]["budget_amount"] == "250.00"
-        assert body[0]["month"] == 7
-
-    async def test_rollover_does_not_affect_source_month(self, client, session, unique_email):
-        user = await _authed_client(client, session, unique_email)
-        category = await _make_category(session, user)
-        await client.post("/budgets", json={"category_id": str(category.id), "month": 6, "year": 2026, "budget_amount": "250.00"})
-
-        rolled_over = await client.get("/budgets", params={"month": 7, "year": 2026})
-        budget_id = rolled_over.json()[0]["id"]
-        await client.patch(f"/budgets/{budget_id}", json={"budget_amount": "400.00"})
+        assert response.json() == []
 
         source = await client.get("/budgets", params={"month": 6, "year": 2026})
         assert source.json()[0]["budget_amount"] == "250.00"
-
-    async def test_no_rollover_when_no_earlier_month_exists(self, client, session, unique_email):
-        await _authed_client(client, session, unique_email)
-        response = await client.get("/budgets", params={"month": 1, "year": 2026})
-        assert response.status_code == 200
-        assert response.json() == []
 
     async def test_plain_partner_forbidden(self, client, session, unique_email):
         """Budgets are owner-or-co-owner only, same gate as Wallets/Recurring
@@ -233,27 +212,6 @@ class TestListBudgets:
         amounts = {b["budget_amount"] for b in response.json()}
         assert amounts == {"1500.00"}
 
-    async def test_partner_read_does_not_trigger_rollover_under_partner_id(self, client, session, unique_email):
-        """ensure_budget_rollover writes rows scoped to user_id — must never run
-        as the partner, or it would create owner-domain budget rows misattributed
-        to the partner's own id."""
-        owner = await _authed_client(client, session, unique_email)
-        category = await _make_category(session, owner, name="Shared")
-        await client.post(
-            "/budgets", json={"category_id": str(category.id), "month": 6, "year": 2026, "budget_amount": "150.00"}
-        )
-
-        co_owner = await _make_co_owner(session, owner, f"co-owner-{unique_email}")
-        await _login(client, co_owner.email)
-
-        response = await client.get("/budgets", params={"month": 7, "year": 2026})
-        assert response.status_code == 200
-        assert response.json() == []
-
-        co_owner_scoped_rows = (await session.exec(select(Budget).where(Budget.user_id == co_owner.id))).all()
-        assert co_owner_scoped_rows == []
-
-
 class TestUpdateBudget:
     async def test_updates_amount(self, client, session, unique_email):
         user = await _authed_client(client, session, unique_email)
@@ -310,86 +268,3 @@ class TestDeleteBudget:
 
         response = await client.delete(f"/budgets/{other_budget.id}")
         assert response.status_code == 404
-
-
-class TestBudgetRolloverEdgeCases:
-    async def test_rollover_copies_multiple_categories(self, client, session, unique_email):
-        user = await _authed_client(client, session, unique_email)
-        grocery = await _make_category(session, user, name="Grocery")
-        shopping = await _make_category(session, user, name="Shopping")
-        await client.post("/budgets", json={"category_id": str(grocery.id), "month": 6, "year": 2026, "budget_amount": "250.00"})
-        await client.post("/budgets", json={"category_id": str(shopping.id), "month": 6, "year": 2026, "budget_amount": "100.00"})
-
-        response = await client.get("/budgets", params={"month": 7, "year": 2026})
-        assert response.status_code == 200
-        amounts_by_category = {b["category_id"]: b["budget_amount"] for b in response.json()}
-        assert amounts_by_category == {str(grocery.id): "250.00", str(shopping.id): "100.00"}
-
-    async def test_rollover_across_year_boundary(self, client, session, unique_email):
-        user = await _authed_client(client, session, unique_email)
-        category = await _make_category(session, user)
-        await client.post("/budgets", json={"category_id": str(category.id), "month": 12, "year": 2026, "budget_amount": "275.00"})
-
-        response = await client.get("/budgets", params={"month": 1, "year": 2027})
-        assert response.status_code == 200
-        body = response.json()
-        assert len(body) == 1
-        assert body[0]["budget_amount"] == "275.00"
-        assert body[0]["month"] == 1
-        assert body[0]["year"] == 2027
-
-    async def test_rollover_is_safe_under_concurrent_callers(self, unique_email):
-        """Regression test for a real bug caught via Playwright: the Budgets frontend
-        fires GET /budgets and GET /dashboard/category-breakdown in parallel for the
-        same period, and both call ensure_budget_rollover. Each gets its own DB
-        connection/session in production (unlike this suite's other tests, which share
-        one connection via the `session` fixture and so can't reproduce a real
-        cross-connection race), so two callers can both pass the "no rows yet" check
-        before either commits, then race to INSERT the same rolled-over row and hit
-        the unique constraint. This test uses genuinely independent, really-committed
-        connections/sessions (bypassing the shared-session fixture entirely, with
-        manual cleanup) to reproduce that race and assert it no longer raises."""
-        setup_conn = await async_engine.connect()
-        setup_session = RawAsyncSession(bind=setup_conn, expire_on_commit=False)
-        user = User(
-            email=unique_email,
-            password_hash=hash_password(VALID_PASSWORD),
-            display_name="Concurrency Tester",
-            role=UserRole.OWNER,
-            email_verified_at=utcnow(),
-        )
-        setup_session.add(user)
-        await setup_session.flush()
-        category = Category(user_id=user.id, name="Concurrent Rollover", category_type=CategoryType.EXPENSE)
-        setup_session.add(category)
-        await setup_session.flush()
-        setup_session.add(Budget(user_id=user.id, category_id=category.id, month=6, year=2026, budget_amount="250.00"))
-        await setup_session.commit()
-
-        try:
-            async with async_engine.connect() as conn_a, async_engine.connect() as conn_b:
-                session_a = RawAsyncSession(bind=conn_a, expire_on_commit=False)
-                session_b = RawAsyncSession(bind=conn_b, expire_on_commit=False)
-                try:
-                    await asyncio.gather(
-                        ensure_budget_rollover(session_a, user, 7, 2026),
-                        ensure_budget_rollover(session_b, user, 7, 2026),
-                    )
-                finally:
-                    await session_a.close()
-                    await session_b.close()
-
-            rolled_over = (
-                await setup_session.exec(
-                    select(Budget).where(Budget.user_id == user.id, Budget.month == 7, Budget.year == 2026)
-                )
-            ).all()
-            assert len(rolled_over) == 1
-            assert rolled_over[0].budget_amount == 250
-        finally:
-            await setup_session.exec(delete(Budget).where(Budget.user_id == user.id))
-            await setup_session.exec(delete(Category).where(Category.user_id == user.id))
-            await setup_session.exec(delete(User).where(User.id == user.id))
-            await setup_session.commit()
-            await setup_session.close()
-            await setup_conn.close()
