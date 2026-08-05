@@ -36,6 +36,7 @@ def _rule_to_public(rule: CashbackRule, payment_method_is_shared: bool) -> Cashb
         payment_method_id=rule.payment_method_id,
         category_id=rule.category_id,
         merchant=rule.merchant,
+        merchant_type=rule.merchant_type,
         cashback_rate=rule.cashback_rate,
         start_date=rule.start_date,
         end_date=rule.end_date,
@@ -148,6 +149,11 @@ async def update_cashback_rule(
         await _validate_category_if_set(session, user, updates["category_id"])
     for field, value in updates.items():
         setattr(rule, field, value)
+    # The schema only rejects setting both fields in the same request -- this
+    # catches the partial-update case (e.g. PATCHing merchant_type onto a rule
+    # that already has merchant set from an earlier request).
+    if rule.merchant is not None and rule.merchant_type is not None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Set either merchant or merchant_type, not both")
     rule.updated_at = utcnow()
     session.add(rule)
     await session.commit()

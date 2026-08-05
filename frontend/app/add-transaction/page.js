@@ -326,7 +326,7 @@ function AddTransactionContent() {
         // PRD v2 §7.2: the fallback form only requires amount/merchant/payment
         // method -- line items are optional and fall back to a single
         // "Uncategorized" item at submit time when left incomplete.
-        if (!isFallback) {
+        if (!isFallback && lineItems.length > 0) {
             if (lineItems.some((item) => !item.categoryId || !item.itemName.trim() || item.amount === "")) {
                 setFormError("Every line item needs a category, name, and amount.")
                 return
@@ -596,12 +596,15 @@ function AddTransactionContent() {
                                 <fieldset className="mb-3">
                                     <legend className="col-form-label pt-0">
                                         Line items
-                                        {entryMode === "scan-fallback" && (
-                                            <span className="text-muted fw-normal fs-6 ms-2">
-                                                (optional — defaults to a single &quot;Uncategorized&quot; item if left blank)
-                                            </span>
-                                        )}
+                                        <span className="text-muted fw-normal fs-6 ms-2">
+                                            (optional — defaults to a single &quot;Uncategorized&quot; item if left blank)
+                                        </span>
                                     </legend>
+                                    {lineItems.length === 0 && (
+                                        <p className="text-muted small mb-2">
+                                            No line items — the full amount will be saved as Uncategorized.
+                                        </p>
+                                    )}
                                     {lineItems.map((item, index) => (
                                         <div className="row align-items-end mb-2" key={item.key}>
                                             <div className="col-md-4">
@@ -659,7 +662,6 @@ function AddTransactionContent() {
                                                         type="button"
                                                         className="btn btn-sm btn-outline-danger"
                                                         aria-label={`Remove line item ${index + 1}`}
-                                                        disabled={lineItems.length === 1}
                                                         onClick={() => removeLineItem(index)}
                                                     >
                                                         <i className="fi fi-rr-trash" />

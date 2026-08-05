@@ -1,11 +1,11 @@
 'use client'
-import { Fragment, useState } from "react"
+import { Fragment, useMemo, useState } from "react"
 import useSWR from "swr"
 import Layout from "@/components/layout/Layout"
 import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmptyState from "@/components/elements/EmptyState"
 import MerchantInput from "@/components/elements/MerchantInput"
-import { cashbackApi, categoriesApi, paymentMethodsApi } from "@/lib/api"
+import { cashbackApi, categoriesApi, merchantsApi, paymentMethodsApi } from "@/lib/api"
 
 const MONTH_NAMES = [
     "January", "February", "March", "April", "May", "June",
@@ -25,14 +25,33 @@ function formatDate(value) {
     return new Date(year, month - 1, day).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })
 }
 
-function RuleForm({ initial, paymentMethods, categories, onSubmit, isSubmitting, submitLabel }) {
+function RuleForm({ initial, paymentMethods, categories, merchants, onSubmit, isSubmitting, submitLabel }) {
     const [paymentMethodId, setPaymentMethodId] = useState(initial?.payment_method_id ?? "")
     const [categoryId, setCategoryId] = useState(initial?.category_id ?? "")
     const [merchant, setMerchant] = useState(initial?.merchant ?? "")
+    const [merchantType, setMerchantType] = useState(initial?.merchant_type ?? "")
     const [cashbackRate, setCashbackRate] = useState(initial?.cashback_rate ?? "")
     const [startDate, setStartDate] = useState(initial?.start_date ?? "")
     const [endDate, setEndDate] = useState(initial?.end_date ?? "")
     const [notes, setNotes] = useState(initial?.notes ?? "")
+
+    const merchantTypes = useMemo(
+        () => [...new Set((merchants ?? []).map((m) => m.type).filter(Boolean))].sort(),
+        [merchants]
+    )
+
+    // Mutually exclusive per the backend's validation -- picking one clears
+    // the other rather than letting both sit filled and submitting whichever
+    // wins, which would be confusing to recover from after a 422.
+    function handleMerchantChange(value) {
+        setMerchant(value)
+        if (value) setMerchantType("")
+    }
+
+    function handleMerchantTypeChange(value) {
+        setMerchantType(value)
+        if (value) setMerchant("")
+    }
 
     function handleSubmit(event) {
         event.preventDefault()
@@ -40,6 +59,7 @@ function RuleForm({ initial, paymentMethods, categories, onSubmit, isSubmitting,
             payment_method_id: paymentMethodId,
             category_id: categoryId || null,
             merchant: merchant.trim() || null,
+            merchant_type: merchantType || null,
             cashback_rate: Number(cashbackRate),
             start_date: startDate,
             end_date: endDate || null,
@@ -78,7 +98,23 @@ function RuleForm({ initial, paymentMethods, categories, onSubmit, isSubmitting,
                 </div>
                 <div className="col-md-6">
                     <label className="form-label" htmlFor="rule-merchant">Merchant (optional, overrides category)</label>
-                    <MerchantInput id="rule-merchant" value={merchant} onChange={setMerchant} placeholder="e.g. Costco" />
+                    <MerchantInput id="rule-merchant" value={merchant} onChange={handleMerchantChange} placeholder="e.g. Costco" />
+                </div>
+                <div className="col-md-6">
+                    <label className="form-label" htmlFor="rule-merchant-type">
+                        Merchant type (optional, alternative to a specific merchant)
+                    </label>
+                    <select
+                        id="rule-merchant-type"
+                        className="form-select"
+                        value={merchantType}
+                        onChange={(event) => handleMerchantTypeChange(event.target.value)}
+                    >
+                        <option value="">None</option>
+                        {merchantTypes.map((type) => (
+                            <option key={type} value={type}>{type}</option>
+                        ))}
+                    </select>
                 </div>
                 <div className="col-md-4">
                     <label className="form-label" htmlFor="rule-rate">Rate (%)</label>
@@ -201,6 +237,7 @@ export default function Cashback() {
     const { data: rules, mutate: mutateRules } = useSWR("/cashback-rules", () => cashbackApi.listRules())
     const { data: paymentMethods } = useSWR("/payment-methods", () => paymentMethodsApi.list())
     const { data: categories } = useSWR("/categories", () => categoriesApi.list())
+    const { data: merchants } = useSWR("/merchants", () => merchantsApi.list())
     const expenseCategories = (categories ?? []).filter((category) => category.category_type === "expense")
 
     const [isRuleFormOpen, setIsRuleFormOpen] = useState(false)
@@ -498,6 +535,7 @@ export default function Cashback() {
                                         <RuleForm
                                             paymentMethods={paymentMethods ?? []}
                                             categories={expenseCategories}
+                                            merchants={merchants ?? []}
                                             onSubmit={handleCreateRule}
                                             isSubmitting={isSubmitting}
                                             submitLabel="Add rule"
@@ -518,6 +556,7 @@ export default function Cashback() {
                                                             initial={rule}
                                                             paymentMethods={paymentMethods ?? []}
                                                             categories={expenseCategories}
+                                                            merchants={merchants ?? []}
                                                             isSubmitting={isSubmitting}
                                                             submitLabel="Save changes"
                                                             onSubmit={(payload) => handleUpdateRule(rule.id, payload)}
@@ -538,7 +577,7 @@ export default function Cashback() {
                                                         <div>
                                                             <strong>{paymentMethodName(rule.payment_method_id)}</strong>
                                                             {" — "}
-                                                            {rule.merchant || (rule.category_id ? categoryName(rule.category_id) : "Default")}
+                                                            {rule.merchant || (rule.merchant_type ? `Merchant type: ${rule.merchant_type}` : null) || (rule.category_id ? categoryName(rule.category_id) : "Default")}
                                                             {" · "}{rule.cashback_rate}%
                                                             {" · "}{formatDate(rule.start_date)} – {rule.end_date ? formatDate(rule.end_date) : "ongoing"}
                                                             {rule.notes && <div className="text-muted small">{rule.notes}</div>}

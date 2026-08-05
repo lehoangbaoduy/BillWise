@@ -13,7 +13,7 @@ from app.models.category import Category, CategoryType
 
 # (name, emoji, [(child_name, child_emoji, [grandchild_names...]), ...])
 _EXPENSE_TREE: list[tuple[str, str, list]] = [
-    ("Housing", "🏠", [("Rent", None, []), ("Utilities", None, ["Electric", "Water", "Gas", "Wifi"])]),
+    ("Housing", "🏠", [("Rent", None, []), ("Utilities", "🛠", ["Electric", "Water", "Gas", "Wifi"])]),
     ("Food", "🍔", [("Grocery", None, []), ("Restaurant", None, [])]),
     ("Car", "🚗", [("Insurance", None, []), ("Gas", None, [])]),
     ("Shopping", "🛍️", []),

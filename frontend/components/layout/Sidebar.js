@@ -11,6 +11,7 @@ const _TRANSACTIONS_SECTION_PATHS = new Set([
     "/analytics",
     "/analytics-income-vs-expenses",
     "/settings-categories",
+    "/merchants",
 ])
 
 export default function Sidebar() {

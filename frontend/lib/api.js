@@ -101,6 +101,15 @@ export const categoriesApi = {
   remove: (id) => request(`/categories/${id}`, { method: "DELETE" }),
 }
 
+export const merchantsApi = {
+  list: () => request("/merchants"),
+  create: (data) => request("/merchants", { method: "POST", body: JSON.stringify(data) }),
+  update: (id, data) => request(`/merchants/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  updateSharing: (id, isShared) =>
+    request(`/merchants/${id}/sharing`, { method: "PATCH", body: JSON.stringify({ is_shared: isShared }) }),
+  remove: (id) => request(`/merchants/${id}`, { method: "DELETE" }),
+}
+
 export const paymentMethodsApi = {
   list: () => request("/payment-methods"),
   create: (data) => request("/payment-methods", { method: "POST", body: JSON.stringify(data) }),

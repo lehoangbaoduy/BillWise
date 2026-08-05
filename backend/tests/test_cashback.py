@@ -7,6 +7,7 @@ from app.core.security import hash_password
 from app.models._common import utcnow
 from app.models.cashback import CashbackRecord, CashbackRecordStatus, CashbackRule
 from app.models.category import Category, CategoryType
+from app.models.merchant import Merchant
 from app.models.payment_method import PaymentMethod, PaymentMethodType
 from app.models.user import User, UserRole
 from app.services.cashback_service import resolve_cashback_rate
@@ -52,6 +53,14 @@ async def _make_category(session, user, category_type=CategoryType.EXPENSE, name
     await session.commit()
     await session.refresh(category)
     return category
+
+
+async def _make_merchant(session, user, name, type_=None):
+    merchant = Merchant(user_id=user.id, name=name, type=type_)
+    session.add(merchant)
+    await session.commit()
+    await session.refresh(merchant)
+    return merchant
 
 
 async def _make_rule(session, user, pm, category_id=None, **kwargs):
@@ -268,6 +277,60 @@ class TestResolveCashbackRate:
         rate = await resolve_cashback_rate(session, user.id, pm.id, category.id, date(2026, 6, 1), merchant="Target")
         assert rate == Decimal("0")
 
+    async def test_merchant_type_rule_matches_transaction_from_a_merchant_of_that_type(self, session, unique_email):
+        user = await _create_verified_owner(session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        await _make_merchant(session, user, "Costco", type_="Whole sale")
+        await _make_rule(session, user, pm, category_id=None, cashback_rate=Decimal("4.00"), merchant_type="Whole sale")
+
+        rate = await resolve_cashback_rate(session, user.id, pm.id, category.id, date(2026, 6, 1), merchant="Costco")
+        assert rate == Decimal("4.00")
+
+    async def test_merchant_type_rule_outranks_category_rule(self, session, unique_email):
+        user = await _create_verified_owner(session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        await _make_merchant(session, user, "Costco", type_="Whole sale")
+        await _make_rule(session, user, pm, category_id=category.id, cashback_rate=Decimal("2.00"))
+        await _make_rule(session, user, pm, category_id=None, cashback_rate=Decimal("4.00"), merchant_type="Whole sale")
+
+        rate = await resolve_cashback_rate(session, user.id, pm.id, category.id, date(2026, 6, 1), merchant="Costco")
+        assert rate == Decimal("4.00")
+
+    async def test_merchant_name_rule_outranks_merchant_type_rule(self, session, unique_email):
+        user = await _create_verified_owner(session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        await _make_merchant(session, user, "Costco", type_="Whole sale")
+        await _make_rule(session, user, pm, category_id=None, cashback_rate=Decimal("4.00"), merchant_type="Whole sale")
+        await _make_rule(session, user, pm, category_id=None, cashback_rate=Decimal("6.00"), merchant="Costco")
+
+        rate = await resolve_cashback_rate(session, user.id, pm.id, category.id, date(2026, 6, 1), merchant="Costco")
+        assert rate == Decimal("6.00")
+
+    async def test_merchant_type_rule_does_not_match_a_different_type(self, session, unique_email):
+        user = await _create_verified_owner(session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        await _make_merchant(session, user, "Costco", type_="Whole sale")
+        await _make_rule(session, user, pm, category_id=None, cashback_rate=Decimal("4.00"), merchant_type="Restaurant")
+
+        rate = await resolve_cashback_rate(session, user.id, pm.id, category.id, date(2026, 6, 1), merchant="Costco")
+        assert rate == Decimal("0")
+
+    async def test_merchant_type_rule_does_not_match_an_unknown_merchant(self, session, unique_email):
+        # A transaction merchant with no matching Merchant row (e.g. freeform
+        # text predating this feature) has no resolvable type -- must degrade
+        # gracefully rather than error.
+        user = await _create_verified_owner(session, unique_email)
+        pm = await _make_payment_method(session, user)
+        category = await _make_category(session, user)
+        await _make_rule(session, user, pm, category_id=None, cashback_rate=Decimal("4.00"), merchant_type="Whole sale")
+
+        rate = await resolve_cashback_rate(session, user.id, pm.id, category.id, date(2026, 6, 1), merchant="Some Unknown Shop")
+        assert rate == Decimal("0")
+
 
 class TestCashbackRuleMerchantValidation:
     async def test_rejects_single_character_merchant(self, client, session, unique_email):
@@ -300,6 +363,55 @@ class TestCashbackRuleMerchantValidation:
             },
         )
         assert response.status_code == 201
+
+
+class TestCashbackRuleMerchantTypeValidation:
+    async def test_rejects_both_merchant_and_merchant_type_set(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        response = await client.post(
+            "/cashback-rules",
+            json={
+                "payment_method_id": str(pm.id),
+                "merchant": "Costco",
+                "merchant_type": "Whole sale",
+                "cashback_rate": "5.00",
+                "start_date": "2026-01-01",
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_accepts_merchant_type_alone(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        response = await client.post(
+            "/cashback-rules",
+            json={
+                "payment_method_id": str(pm.id),
+                "merchant_type": "Whole sale",
+                "cashback_rate": "5.00",
+                "start_date": "2026-01-01",
+            },
+        )
+        assert response.status_code == 201
+        assert response.json()["merchant_type"] == "Whole sale"
+
+    async def test_update_rejects_setting_merchant_type_when_merchant_already_set(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+        create_response = await client.post(
+            "/cashback-rules",
+            json={
+                "payment_method_id": str(pm.id),
+                "merchant": "Costco",
+                "cashback_rate": "5.00",
+                "start_date": "2026-01-01",
+            },
+        )
+        rule_id = create_response.json()["id"]
+
+        response = await client.patch(f"/cashback-rules/{rule_id}", json={"merchant_type": "Whole sale"})
+        assert response.status_code == 422
 
 
 class TestAutoComputationOnTransactionCreate:

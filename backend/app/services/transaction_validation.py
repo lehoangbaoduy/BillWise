@@ -15,6 +15,7 @@ from app.models.transaction_share import TransactionShare
 from app.models.user import User, UserRole
 from app.schemas.transaction import (
     TransactionCreate,
+    TransactionLineItemCreate,
     TransactionLineItemPublic,
     TransactionPublic,
     TransactionShareCreate,
@@ -158,6 +159,45 @@ async def validate_line_items(
             )
 
 
+def _default_category_type_for_synthesis(transaction_type: TransactionType) -> CategoryType:
+    return CategoryType.INCOME if transaction_type == TransactionType.INCOME else CategoryType.EXPENSE
+
+
+async def get_or_create_uncategorized_category(
+    session: AsyncSession, owner_id: UUID, transaction_type: TransactionType
+) -> Category:
+    """Backs the empty-line_items fallback in create_transaction_record: a quick
+    transaction with no line items still needs a real category row for
+    downstream category-breakdown/budget aggregation (which joins on
+    TransactionLineItem) to see it, so an "Uncategorized" category is created
+    on first use per household/type and reused afterward -- the same
+    on-demand pattern already proven by the frontend's OCR-fail fallback
+    (ensureUncategorizedCategoryId in add-transaction/page.js), just
+    centralized here so every client (not just this frontend) gets it.
+    is_shared=True on creation (unlike most user-created categories, which
+    default private) so a permitted partner's own empty-line-item transaction
+    doesn't immediately fail validate_line_items's shared-category check."""
+    category_type = _default_category_type_for_synthesis(transaction_type)
+    statement = select(Category).where(
+        Category.user_id == owner_id,
+        Category.name == "Uncategorized",
+        Category.category_type == category_type,
+    )
+    category = (await session.exec(statement)).first()
+    if category is not None:
+        return category
+    category = Category(
+        user_id=owner_id,
+        name="Uncategorized",
+        category_type=category_type,
+        is_shared=True,
+        is_active=True,
+    )
+    session.add(category)
+    await session.flush()
+    return category
+
+
 async def load_line_items(session: AsyncSession, transaction_id: UUID) -> list[TransactionLineItem]:
     """Shared by the Transactions router and the OCR confirm-transaction endpoint."""
     statement = select(TransactionLineItem).where(TransactionLineItem.transaction_id == transaction_id)
@@ -240,12 +280,19 @@ async def create_transaction_record(
     and now a permitted partner's manual entry — the only difference between call sites is
     which `source` value gets recorded. `Transaction.user_id` is always the household owner's
     id (see household_owner_id); `created_by_user_id` separately records a partner creator."""
+    owner_id = household_owner_id(user)
+    line_items = body.line_items
+    if not line_items:
+        category = await get_or_create_uncategorized_category(session, owner_id, body.transaction_type)
+        line_items = [
+            TransactionLineItemCreate(category_id=category.id, item_name="Uncategorized", amount=body.total_amount)
+        ]
+
     await validate_payment_method(session, user, body.payment_method_id)
-    await validate_line_items(session, user, body.transaction_type, body.total_amount, body.line_items)
+    await validate_line_items(session, user, body.transaction_type, body.total_amount, line_items)
     await validate_goal(session, user, body.transaction_type, body.goal_id)
     await validate_shares(session, user, body.total_amount, body.shares)
 
-    owner_id = household_owner_id(user)
     possible_duplicate = await detect_duplicate(
         session, user, body.merchant, body.date, body.total_amount, body.payment_method_id
     )
@@ -266,7 +313,7 @@ async def create_transaction_record(
     session.add(transaction)
     await session.flush()
 
-    for item in body.line_items:
+    for item in line_items:
         session.add(
             TransactionLineItem(
                 transaction_id=transaction.id,

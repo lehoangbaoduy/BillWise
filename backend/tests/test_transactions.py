@@ -113,6 +113,88 @@ class TestCreateTransaction:
         assert body["possible_duplicate"] is False
         assert body["source"] == "Manual"
 
+    async def test_omitted_line_items_synthesizes_uncategorized_expense(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+
+        response = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Costco",
+                "total_amount": "45.50",
+                "transaction_type": "Expense",
+                "line_items": [],
+            },
+        )
+        assert response.status_code == 201, response.text
+        body = response.json()
+        assert len(body["line_items"]) == 1
+        item = body["line_items"][0]
+        assert item["amount"] == "45.50"
+
+        categories = await client.get("/categories")
+        category = next(c for c in categories.json() if c["id"] == item["category_id"])
+        assert category["name"] == "Uncategorized"
+        assert category["category_type"] == "expense"
+
+    async def test_omitted_line_items_synthesizes_uncategorized_income(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+
+        response = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Employer",
+                "total_amount": "1000.00",
+                "transaction_type": "Income",
+                "line_items": [],
+            },
+        )
+        assert response.status_code == 201, response.text
+        body = response.json()
+        item = body["line_items"][0]
+
+        categories = await client.get("/categories")
+        category = next(c for c in categories.json() if c["id"] == item["category_id"])
+        assert category["name"] == "Uncategorized"
+        assert category["category_type"] == "income"
+
+    async def test_reuses_existing_uncategorized_category_across_transactions(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user)
+
+        first = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-01",
+                "merchant": "Costco",
+                "total_amount": "10.00",
+                "transaction_type": "Expense",
+                "line_items": [],
+            },
+        )
+        second = await client.post(
+            "/transactions",
+            json={
+                "payment_method_id": str(pm.id),
+                "date": "2026-07-02",
+                "merchant": "Target",
+                "total_amount": "20.00",
+                "transaction_type": "Expense",
+                "line_items": [],
+            },
+        )
+        assert first.json()["line_items"][0]["category_id"] == second.json()["line_items"][0]["category_id"]
+
+        categories = (await client.get("/categories")).json()
+        uncategorized = [c for c in categories if c["name"] == "Uncategorized" and c["category_type"] == "expense"]
+        assert len(uncategorized) == 1
+
     async def test_creates_multi_category_split_receipt(self, client, session, unique_email):
         user = await _authed_client(client, session, unique_email)
         pm = await _make_payment_method(session, user)

@@ -15,6 +15,7 @@ from app.api.dashboard import router as dashboard_router
 from app.api.exports import router as exports_router
 from app.api.goals import router as goals_router
 from app.api.household import router as household_router
+from app.api.merchants import router as merchants_router
 from app.api.net_worth import router as net_worth_router
 from app.api.notifications import router as notifications_router
 from app.api.ocr import router as ocr_router
@@ -45,6 +46,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(payment_methods_router)
 app.include_router(categories_router)
+app.include_router(merchants_router)
 app.include_router(transactions_router)
 app.include_router(budgets_router)
 app.include_router(goals_router)

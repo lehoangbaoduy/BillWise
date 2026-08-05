@@ -64,7 +64,10 @@ class TransactionCreate(BaseModel):
     total_amount: Decimal
     transaction_type: TransactionType
     notes: str | None = Field(default=None, max_length=1000)
-    line_items: list[TransactionLineItemCreate] = Field(min_length=1)
+    # Empty is allowed -- create_transaction_record synthesizes a single
+    # "Uncategorized" line item for total_amount when this is empty, so quick
+    # entry doesn't force picking a category up front.
+    line_items: list[TransactionLineItemCreate] = Field(default_factory=list)
     # PRD v2 §7.5: optional cost-split -- shares' amounts must sum to
     # total_amount, validated the same way line items are.
     shares: list[TransactionShareCreate] | None = None

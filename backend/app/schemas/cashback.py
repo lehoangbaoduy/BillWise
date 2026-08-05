@@ -2,7 +2,7 @@ import uuid
 from datetime import date as date_type
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.cashback import CashbackRecordStatus
 
@@ -17,10 +17,18 @@ class CashbackRuleCreate(BaseModel):
     # match (so "Costco" matches "COSTCO WHSE #1234") -- a 1-character merchant
     # would then match almost any transaction, silently misapplying its rate.
     merchant: str | None = Field(default=None, min_length=2, max_length=200)
+    # Alternative to `merchant` -- see CashbackRule.merchant_type's docstring.
+    merchant_type: str | None = Field(default=None, min_length=1, max_length=100)
     cashback_rate: Decimal = Field(ge=0, le=100)
     start_date: date_type
     end_date: date_type | None = None
     notes: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def _reject_both_merchant_fields(self) -> "CashbackRuleCreate":
+        if self.merchant is not None and self.merchant_type is not None:
+            raise ValueError("Set either merchant or merchant_type, not both")
+        return self
 
 
 class CashbackRuleUpdate(BaseModel):
@@ -32,10 +40,21 @@ class CashbackRuleUpdate(BaseModel):
     # match (so "Costco" matches "COSTCO WHSE #1234") -- a 1-character merchant
     # would then match almost any transaction, silently misapplying its rate.
     merchant: str | None = Field(default=None, min_length=2, max_length=200)
+    merchant_type: str | None = Field(default=None, min_length=1, max_length=100)
     cashback_rate: Decimal | None = Field(default=None, ge=0, le=100)
     start_date: date_type | None = None
     end_date: date_type | None = None
     notes: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def _reject_both_merchant_fields(self) -> "CashbackRuleUpdate":
+        # A partial update that only sets one of the two fields is fine on its
+        # own -- whether it collides with the *other* field's existing value on
+        # the persisted row is checked in the update endpoint, which has that
+        # row available and this schema deliberately doesn't.
+        if self.merchant is not None and self.merchant_type is not None:
+            raise ValueError("Set either merchant or merchant_type, not both")
+        return self
 
 
 class CashbackRulePublic(BaseModel):
@@ -45,6 +64,7 @@ class CashbackRulePublic(BaseModel):
     payment_method_id: uuid.UUID
     category_id: uuid.UUID | None
     merchant: str | None
+    merchant_type: str | None
     cashback_rate: Decimal
     start_date: date_type
     end_date: date_type | None

@@ -29,6 +29,14 @@ class CashbackRule(SQLModel, table=True):
     # merchant-specific rule outranks a category-specific one when resolving a
     # rate, since "this exact merchant" is more specific than "this category."
     merchant: str | None = Field(default=None, max_length=200, index=True)
+    # Alternative to `merchant`, mutually exclusive with it (enforced in the
+    # schema + update endpoint): targets every merchant of a given Merchant.type
+    # (backend/app/models/merchant.py) rather than one specific merchant name.
+    # Resolved at match time via a case-insensitive Merchant.name lookup against
+    # the transaction's merchant string -- no FK, since Transaction.merchant
+    # stays a plain string. Outranks a category rule but not a merchant-name
+    # rule, on the same "more specific wins" principle.
+    merchant_type: str | None = Field(default=None, max_length=100, index=True)
     cashback_rate: Decimal
     start_date: date_type
     end_date: date_type | None = None

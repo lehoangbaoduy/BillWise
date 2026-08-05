@@ -17023,6 +17023,25 @@ figure > img:hover {
   border-radius: 100px;
   font-size: 16px;
 }
+/* Merchants list reuses .category-type but renders each name as a
+   <button class="btn-link"> (clickable, to open it for editing) instead of
+   the plain <span> Categories uses -- that trips the blanket
+   `button, .btn { color: #fff }` rule further up, making the name invisible
+   against this card's white light-theme background. Restore the readable
+   body-text color explicitly rather than fighting the blanket rule. */
+.category-type .left-category .btn-link,
+.category-type .left-category .btn-link:hover,
+.category-type .left-category .btn-link:focus,
+.category-type .left-category .btn-link:active {
+  color: #3d2b33;
+  font-weight: 500;
+}
+.dark-theme .category-type .left-category .btn-link,
+.dark-theme .category-type .left-category .btn-link:hover,
+.dark-theme .category-type .left-category .btn-link:focus,
+.dark-theme .category-type .left-category .btn-link:active {
+  color: rgb(209, 213, 219);
+}
 .category-type .right-category button {
   display: inline-block;
   padding: 7px 10px;
@@ -17661,6 +17680,25 @@ figure > img:hover {
   max-height: 220px;
   overflow-y: auto;
 }
+.merchant-select-group + .merchant-select-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgb(229, 234, 239);
+}
+.merchant-select-group-label {
+  display: block;
+  padding: 4px 10px 2px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--bs-secondary-color);
+}
+.merchant-select-group > ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
 .merchant-select-row {
   display: flex;
   align-items: center;
@@ -17738,6 +17776,10 @@ figure > img:hover {
 }
 .merchant-select-add:hover {
   background: #F1E8FE;
+  /* The blanket `button:hover { color: #fff }` rule further up stomps this
+     element's own resting color (#7C3AED) on hover, forcing white text onto
+     this near-white background -- effectively invisible in light theme. */
+  color: #7C3AED;
 }
 .merchant-select-empty {
   padding: 8px 10px;
@@ -17763,8 +17805,14 @@ figure > img:hover {
   color: #C4A6FA;
   border-top-color: rgba(255, 255, 255, 0.08);
 }
+.dark-theme .merchant-select-group + .merchant-select-group {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
 .dark-theme .merchant-select-add:hover {
   background: rgba(196, 166, 250, 0.16);
+  /* Was accidentally relying on the blanket button:hover white -- make the
+     dark-theme hover color explicit and consistent with its resting color. */
+  color: #C4A6FA;
 }
 .dark-theme .merchant-select-hide:hover,
 .dark-theme .merchant-select-hide:focus-visible {

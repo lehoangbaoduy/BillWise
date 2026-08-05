@@ -2,14 +2,25 @@ import uuid
 from datetime import date as date_type
 from decimal import ROUND_HALF_UP, Decimal
 
+from sqlalchemy import func
 from sqlmodel import and_, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.models.cashback import CashbackRecord, CashbackRecordStatus, CashbackRule
+from app.models.merchant import Merchant
 from app.models.transaction import Transaction, TransactionLineItem
 from app.services.transaction_validation import EXPENSE_LIKE_TYPES, quantize
 
 _CENTS = Decimal("0.01")
+# Specificity scoring gaps: a merchant-name match must always outrank a
+# merchant-type match regardless of category, and a merchant-type match must
+# always outrank a category-only match regardless of category -- a naive
+# 2/1/1 point scheme would let "merchant-type + matching category" (2+1=3)
+# collide with "merchant-name, no category" (3+0=3). Spacing the tiers well
+# past the +1 a matching category ever contributes avoids that collision.
+_MERCHANT_NAME_SPECIFICITY = 10
+_MERCHANT_TYPE_SPECIFICITY = 5
+_CATEGORY_SPECIFICITY = 1
 
 
 async def resolve_cashback_rate(
@@ -40,12 +51,15 @@ async def _resolve_best_rule(
     both are in effect for the same date. A merchant-specific rule (merchant
     set) outranks a category-specific one, on the same "more specific wins"
     principle -- "5% at Costco" should win over "2% on Shopping" even though
-    both match. Among rules tied on specificity, the one with the latest
-    start_date wins (§27.5: 'Rule changes mid-month → new rate applies going
-    forward only'). No matching rule → None (§27.5: 'No rule → $0 estimated').
-    Deliberately does NOT fall back to the payment method's own
-    default_cashback_rate column -- that field is display-only (Wallets card
-    visual); §27.5 is explicit that estimation looks at rules alone."""
+    both match. A merchant_type rule (targets every merchant of a given
+    Merchant.type) sits between the two: more specific than a bare category
+    rule, less specific than an exact merchant-name rule. Among rules tied on
+    specificity, the one with the latest start_date wins (§27.5: 'Rule changes
+    mid-month → new rate applies going forward only'). No matching rule → None
+    (§27.5: 'No rule → $0 estimated'). Deliberately does NOT fall back to the
+    payment method's own default_cashback_rate column -- that field is
+    display-only (Wallets card visual); §27.5 is explicit that estimation
+    looks at rules alone."""
     statement = select(CashbackRule).where(
         CashbackRule.user_id == user_id,
         CashbackRule.payment_method_id == payment_method_id,
@@ -61,20 +75,47 @@ async def _resolve_best_rule(
     # a rule) still matches "COSTCO WHSE #1234" (what an OCR-extracted or
     # manually-typed transaction merchant often looks like in practice).
     normalized_merchant = merchant.strip().lower() if merchant else ""
-    candidates = [
-        rule
-        for rule in all_candidates
-        if rule.merchant is None or (normalized_merchant and rule.merchant.strip().lower() in normalized_merchant)
-    ]
+    # Merchant.name lookup, not a substring match -- MerchantInput.js only ever
+    # writes an exact, previously-selected Merchant.name onto a transaction, so
+    # exact (case-insensitive) is the correct comparison here, unlike `merchant`
+    # above which has to tolerate OCR/manually-typed suffixes.
+    merchant_type = await _resolve_merchant_type(session, user_id, merchant)
+    normalized_merchant_type = merchant_type.strip().lower() if merchant_type else None
+
+    def rule_matches(rule: CashbackRule) -> bool:
+        if rule.merchant is not None:
+            return bool(normalized_merchant) and rule.merchant.strip().lower() in normalized_merchant
+        if rule.merchant_type is not None:
+            return normalized_merchant_type is not None and rule.merchant_type.strip().lower() == normalized_merchant_type
+        return True
+
+    candidates = [rule for rule in all_candidates if rule_matches(rule)]
     if not candidates:
         return None
 
     def specificity(rule: CashbackRule) -> int:
-        return (2 if rule.merchant else 0) + (1 if rule.category_id == category_id else 0)
+        if rule.merchant:
+            merchant_score = _MERCHANT_NAME_SPECIFICITY
+        elif rule.merchant_type:
+            merchant_score = _MERCHANT_TYPE_SPECIFICITY
+        else:
+            merchant_score = 0
+        return merchant_score + (_CATEGORY_SPECIFICITY if rule.category_id == category_id else 0)
 
     best_specificity = max(specificity(r) for r in candidates)
     pool = [r for r in candidates if specificity(r) == best_specificity]
     return max(pool, key=lambda r: r.start_date)
+
+
+async def _resolve_merchant_type(session: AsyncSession, user_id: uuid.UUID, merchant: str | None) -> str | None:
+    if not merchant:
+        return None
+    statement = select(Merchant.type).where(
+        Merchant.user_id == user_id,
+        Merchant.is_active == True,  # noqa: E712
+        func.lower(Merchant.name) == merchant.strip().lower(),
+    )
+    return (await session.exec(statement)).first()
 
 
 async def record_cashback_for_line_items(
