@@ -1,8 +1,8 @@
 """Default category tree seeded for every new owner account (PRD §10).
 
-Every category has category_type expense|income and is_shared defaults to private
-(False) per PRD §10 — the owner opts categories into sharing explicitly later via
-PATCH /categories/{id}/sharing.
+Every category has category_type expense|income. Categories are always shared
+across the household -- unlike Wallets/Budgets/Goals/RecurringBills, there is
+no private/shared distinction for categories, so is_shared is always True.
 """
 
 import uuid
@@ -36,7 +36,7 @@ async def _create(session: AsyncSession, user_id: uuid.UUID, name: str, emoji: s
         emoji=emoji,
         parent_category_id=parent_id,
         category_type=category_type,
-        is_shared=False,
+        is_shared=True,
         is_default=True,
         is_active=True,
     )

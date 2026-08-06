@@ -331,16 +331,11 @@ async def _make_partner(session, owner, unique_email):
     return partner
 
 
-async def _mark_shared(session, category):
-    category.is_shared = True
-    session.add(category)
-    await session.commit()
-
-
 class TestPartnerDashboardVisibility:
     """PRD §21.4 / §30: partner dashboards/budgets are filtered to shared
-    categories only; a partner dashboard must never surface a private
-    category or a payment-method-identifying figure."""
+    payment methods -- a partner dashboard must never surface a
+    payment-method-identifying figure. Categories are always shared/visible
+    to every household member, so category spend is never filtered here."""
 
     async def test_owner_only_endpoints_forbidden_for_partner(self, client, session, unique_email):
         owner = await _authed_client(client, session, unique_email)
@@ -351,17 +346,14 @@ class TestPartnerDashboardVisibility:
             response = await client.get(path, params={"month": 7, "year": 2026})
             assert response.status_code == 403, path
 
-    async def test_monthly_overview_excludes_private_category_spend_and_payment_method(
+    async def test_monthly_overview_includes_all_category_spend_but_excludes_payment_method(
         self, client, session, unique_email
     ):
         owner = await _authed_client(client, session, unique_email)
         pm = await _make_payment_method(session, owner, name="Owner Card")
-        shared_category = await _make_category(session, owner, name="Shared Grocery")
-        await _mark_shared(session, shared_category)
-        private_category = await _make_category(session, owner, name="Private Gambling")
+        category = await _make_category(session, owner, name="Grocery")
 
-        await _create_transaction(client, pm.id, shared_category.id, "50.00", "2026-07-05")
-        await _create_transaction(client, pm.id, private_category.id, "200.00", "2026-07-06")
+        await _create_transaction(client, pm.id, category.id, "50.00", "2026-07-05")
 
         partner = await _make_partner(session, owner, unique_email)
         await _login(client, partner.email)
@@ -370,18 +362,17 @@ class TestPartnerDashboardVisibility:
         assert response.status_code == 200
         body = response.json()
         assert body["total_expenses"] == "50.00"
-        assert body["top_category"]["name"] == "Shared Grocery"
+        assert body["top_category"]["name"] == "Grocery"
         assert body["top_payment_method"] is None
 
-    async def test_category_breakdown_never_includes_private_category(self, client, session, unique_email):
+    async def test_category_breakdown_includes_all_categories_for_partner(self, client, session, unique_email):
         owner = await _authed_client(client, session, unique_email)
         pm = await _make_payment_method(session, owner)
-        shared_category = await _make_category(session, owner, name="Shared")
-        await _mark_shared(session, shared_category)
-        private_category = await _make_category(session, owner, name="Private")
+        first_category = await _make_category(session, owner, name="Groceries")
+        second_category = await _make_category(session, owner, name="Entertainment")
 
-        await _create_transaction(client, pm.id, shared_category.id, "25.00", "2026-07-05")
-        await _create_transaction(client, pm.id, private_category.id, "999.00", "2026-07-06")
+        await _create_transaction(client, pm.id, first_category.id, "25.00", "2026-07-05")
+        await _create_transaction(client, pm.id, second_category.id, "999.00", "2026-07-06")
 
         partner = await _make_partner(session, owner, unique_email)
         await _login(client, partner.email)
@@ -389,14 +380,13 @@ class TestPartnerDashboardVisibility:
         response = await client.get("/dashboard/category-breakdown", params={"month": 7, "year": 2026})
         assert response.status_code == 200
         names = {item["name"] for item in response.json()}
-        assert names == {"Shared"}
+        assert names == {"Groceries", "Entertainment"}
 
     async def test_yearly_overview_omits_payment_method_breakdown_for_partner(self, client, session, unique_email):
         owner = await _authed_client(client, session, unique_email)
         pm = await _make_payment_method(session, owner)
-        shared_category = await _make_category(session, owner, name="Shared")
-        await _mark_shared(session, shared_category)
-        await _create_transaction(client, pm.id, shared_category.id, "10.00", "2026-07-05")
+        category = await _make_category(session, owner, name="Grocery")
+        await _create_transaction(client, pm.id, category.id, "10.00", "2026-07-05")
 
         partner = await _make_partner(session, owner, unique_email)
         await _login(client, partner.email)
@@ -405,15 +395,15 @@ class TestPartnerDashboardVisibility:
         assert response.status_code == 200
         assert response.json()["spend_by_payment_method"] == []
 
-    async def test_cash_flow_excludes_private_category_transactions(self, client, session, unique_email):
+    async def test_cash_flow_includes_category_transactions_for_partner(self, client, session, unique_email):
         owner = await _authed_client(client, session, unique_email)
         pm = await _make_payment_method(session, owner)
-        private_category = await _make_category(session, owner, name="Private")
-        await _create_transaction(client, pm.id, private_category.id, "300.00", "2026-07-05")
+        category = await _make_category(session, owner, name="Grocery")
+        await _create_transaction(client, pm.id, category.id, "300.00", "2026-07-05")
 
         partner = await _make_partner(session, owner, unique_email)
         await _login(client, partner.email)
 
         response = await client.get("/dashboard/cash-flow", params={"month": 7, "year": 2026})
         assert response.status_code == 200
-        assert response.json()["expenses"] == "0"
+        assert response.json()["expenses"] == "300.00"

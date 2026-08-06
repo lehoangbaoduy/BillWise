@@ -116,12 +116,10 @@ class TestWalletPrivacy:
         wallet would just be a functional regression from PRD §21.4."""
         owner = await _authed_client(client, session, unique_email)
         partner = await _make_plain_partner(session, owner, f"partner-{unique_email}")
-        # A plain partner may only touch a shared category (PRD §21.4,
-        # unrelated to this feature) -- the wallet itself stays private here,
-        # which is exactly the case this test is guarding.
-        category_response = await client.post(
-            "/categories", json={"name": "Grocery", "category_type": "expense", "is_shared": True}
-        )
+        # Categories are always shared/visible to every household member --
+        # the wallet itself stays private here, which is exactly the case
+        # this test is guarding.
+        category_response = await client.post("/categories", json={"name": "Grocery", "category_type": "expense"})
         category_id = category_response.json()["id"]
         pm = await _make_payment_method(session, owner, is_shared=False)
 

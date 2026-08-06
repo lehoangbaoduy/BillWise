@@ -9,7 +9,7 @@ import EmptyState from "@/components/elements/EmptyState"
 import { useAuth } from "@/hooks/useAuth"
 import { categoriesApi } from "@/lib/api"
 
-function CategoryList({ title, categories, canManage, onDelete, deletingId }) {
+function CategoryList({ title, categories, onEdit, onDelete, editingId }) {
     return (
         <div className="card">
             <div className="card-header">
@@ -24,23 +24,24 @@ function CategoryList({ title, categories, canManage, onDelete, deletingId }) {
                             {categories.map((category) => (
                                 <li key={category.id}>
                                     <div className="left-category">
-                                        <span className="category-icon">
+                                        <button
+                                            type="button"
+                                            className={`btn btn-link p-0 text-start text-decoration-none${category.id === editingId ? " fw-bold" : ""}`}
+                                            onClick={() => onEdit(category)}
+                                        >
                                             {category.emoji ? `${category.emoji} ` : ""}{category.name}
-                                        </span>
+                                        </button>
                                     </div>
-                                    {canManage && (
-                                        <div className="right-category">
-                                            <ConfirmButton
-                                                className="btn btn-sm btn-outline-danger"
-                                                aria-label={`Delete ${category.name}`}
-                                                disabled={deletingId === category.id}
-                                                message={`Delete category "${category.name}"?`}
-                                                onConfirm={() => onDelete(category)}
-                                            >
-                                                <i className="fi fi-rr-trash" />
-                                            </ConfirmButton>
-                                        </div>
-                                    )}
+                                    <div className="right-category">
+                                        <ConfirmButton
+                                            className="btn btn-sm btn-outline-danger"
+                                            aria-label={`Delete ${category.name}`}
+                                            message={`Delete category "${category.name}"?`}
+                                            onConfirm={() => onDelete(category)}
+                                        >
+                                            <i className="fi fi-rr-trash" />
+                                        </ConfirmButton>
+                                    </div>
                                 </li>
                             ))}
                         </ul>
@@ -51,38 +52,58 @@ function CategoryList({ title, categories, canManage, onDelete, deletingId }) {
     )
 }
 
+const _EMPTY_FORM = { name: "", categoryType: "expense", emoji: "" }
+
 export default function SettingsCategories() {
     const { user } = useAuth()
-    const canManage = user?.role === "owner"
     const { data: categories, mutate } = useSWR(user ? "/categories" : null, () => categoriesApi.list())
 
-    const [name, setName] = useState("")
-    const [categoryType, setCategoryType] = useState("expense")
-    const [emoji, setEmoji] = useState("")
+    const [form, setForm] = useState(_EMPTY_FORM)
+    const [editingId, setEditingId] = useState(null)
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [formError, setFormError] = useState(null)
-    const [deletingId, setDeletingId] = useState(null)
 
     const incomeCategories = (categories ?? []).filter((c) => c.category_type === "income")
     const expenseCategories = (categories ?? []).filter((c) => c.category_type === "expense")
 
-    async function handleCreate(event) {
+    function updateField(field, value) {
+        setForm((current) => ({ ...current, [field]: value }))
+    }
+
+    function startEditing(category) {
+        setEditingId(category.id)
+        setForm({ name: category.name, categoryType: category.category_type, emoji: category.emoji ?? "" })
+        setFormError(null)
+    }
+
+    function cancelEditing() {
+        setEditingId(null)
+        setForm(_EMPTY_FORM)
+        setFormError(null)
+    }
+
+    async function handleSubmit(event) {
         event.preventDefault()
-        if (!name.trim()) {
+        if (!form.name.trim()) {
             setFormError("Name is required.")
             return
         }
         setIsSubmitting(true)
         setFormError(null)
         try {
-            await categoriesApi.create({
-                name: name.trim(),
-                category_type: categoryType,
-                emoji: emoji.trim() || null,
-            })
+            if (editingId) {
+                // category_type is immutable after creation (CategoryUpdate doesn't
+                // accept it) -- only name/emoji are ever sent for an edit.
+                await categoriesApi.update(editingId, { name: form.name.trim(), emoji: form.emoji.trim() || null })
+            } else {
+                await categoriesApi.create({
+                    name: form.name.trim(),
+                    category_type: form.categoryType,
+                    emoji: form.emoji.trim() || null,
+                })
+            }
             await mutate()
-            setName("")
-            setEmoji("")
+            cancelEditing()
         } catch (error) {
             setFormError(error.message)
         } finally {
@@ -91,15 +112,12 @@ export default function SettingsCategories() {
     }
 
     async function handleDelete(category) {
-        setDeletingId(category.id)
         try {
             await categoriesApi.remove(category.id)
             await mutate()
-            setFormError(null)
+            if (editingId === category.id) cancelEditing()
         } catch (error) {
             setFormError(error.message)
-        } finally {
-            setDeletingId(null)
         }
     }
 
@@ -109,57 +127,62 @@ export default function SettingsCategories() {
                 <div className="col-xxl-12 col-xl-12">
                     <AnalyticsMenu />
                     <div className="row">
-                        {canManage && (
-                            <div className="col-xxl-4 col-xl-4 col-lg-6">
-                                <div className="card">
-                                    <div className="card-header">
-                                        <h4 className="card-title">Create a new category</h4>
-                                    </div>
-                                    <div className="card-body">
-                                        <div className="create-new-category">
-                                            <form className="row" onSubmit={handleCreate}>
-                                                <div className="mb-3 col-12">
-                                                    <label className="form-label" htmlFor="category-name">Name</label>
-                                                    <input
-                                                        id="category-name"
-                                                        type="text"
-                                                        className="form-control"
-                                                        placeholder="category name"
-                                                        value={name}
-                                                        onChange={(event) => setName(event.target.value)}
-                                                    />
-                                                </div>
-                                                <div className="mb-3 col-12">
-                                                    <label className="form-label" htmlFor="category-type">Type</label>
-                                                    <select
-                                                        id="category-type"
-                                                        className="form-select"
-                                                        value={categoryType}
-                                                        onChange={(event) => setCategoryType(event.target.value)}
-                                                    >
-                                                        <option value="expense">Expense</option>
-                                                        <option value="income">Income</option>
-                                                    </select>
-                                                </div>
-                                                <div className="mb-3 col-12">
-                                                    <label className="form-label" htmlFor="category-emoji">Icon (optional)</label>
-                                                    <EmojiPicker value={emoji} onChange={setEmoji} name="category-emoji" />
-                                                </div>
-                                                {formError && <div className="col-12 text-danger mb-3" role="alert">{formError}</div>}
-                                                <div className="col-12">
-                                                    <button type="submit" className="btn btn-success w-100" disabled={isSubmitting}>
-                                                        {isSubmitting ? "Creating…" : "Create new category"}
-                                                    </button>
-                                                </div>
-                                            </form>
-                                        </div>
+                        <div className="col-xxl-4 col-xl-4 col-lg-6">
+                            <div className="card">
+                                <div className="card-header d-flex justify-content-between align-items-center">
+                                    <h4 className="card-title">{editingId ? "Edit category" : "Create a new category"}</h4>
+                                    {editingId && (
+                                        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={cancelEditing}>
+                                            Cancel
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="card-body">
+                                    <div className="create-new-category">
+                                        <form className="row" onSubmit={handleSubmit}>
+                                            <div className="mb-3 col-12">
+                                                <label className="form-label" htmlFor="category-name">Name</label>
+                                                <input
+                                                    id="category-name"
+                                                    type="text"
+                                                    className="form-control"
+                                                    placeholder="category name"
+                                                    value={form.name}
+                                                    onChange={(event) => updateField("name", event.target.value)}
+                                                />
+                                            </div>
+                                            <div className="mb-3 col-12">
+                                                <label className="form-label" htmlFor="category-type">Type</label>
+                                                <select
+                                                    id="category-type"
+                                                    className="form-select"
+                                                    value={form.categoryType}
+                                                    onChange={(event) => updateField("categoryType", event.target.value)}
+                                                    disabled={Boolean(editingId)}
+                                                >
+                                                    <option value="expense">Expense</option>
+                                                    <option value="income">Income</option>
+                                                </select>
+                                                {editingId && <div className="form-text">Type can&apos;t be changed after creation.</div>}
+                                            </div>
+                                            <div className="mb-3 col-12">
+                                                <label className="form-label" htmlFor="category-emoji">Icon (optional)</label>
+                                                <EmojiPicker value={form.emoji} onChange={(value) => updateField("emoji", value)} name="category-emoji" />
+                                            </div>
+                                            {formError && <div className="col-12 text-danger mb-3" role="alert">{formError}</div>}
+                                            <div className="col-12">
+                                                <button type="submit" className="btn btn-success w-100" disabled={isSubmitting}>
+                                                    {isSubmitting ? "Saving…" : editingId ? "Save changes" : "Create new category"}
+                                                </button>
+                                            </div>
+                                        </form>
                                     </div>
                                 </div>
                             </div>
-                        )}
-                        <div className={canManage ? "col-xxl-8 col-xl-8 col-lg-6" : "col-xxl-12 col-xl-12"}>
-                            <CategoryList title="Income Categories" categories={incomeCategories} canManage={canManage} onDelete={handleDelete} deletingId={deletingId} />
-                            <CategoryList title="Expense Categories" categories={expenseCategories} canManage={canManage} onDelete={handleDelete} deletingId={deletingId} />
+                        </div>
+                        <div className="col-xxl-8 col-xl-8 col-lg-6">
+                            <CategoryList title="Income Categories" categories={incomeCategories} onEdit={startEditing} onDelete={handleDelete} editingId={editingId} />
+                            <CategoryList title="Expense Categories" categories={expenseCategories} onEdit={startEditing} onDelete={handleDelete} editingId={editingId} />
                         </div>
                     </div>
                 </div>

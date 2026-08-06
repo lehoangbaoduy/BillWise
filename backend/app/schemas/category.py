@@ -12,7 +12,6 @@ class CategoryCreate(BaseModel):
     emoji: str | None = Field(default=None, max_length=20)
     parent_category_id: uuid.UUID | None = None
     category_type: CategoryType
-    is_shared: bool = False
 
 
 class CategoryUpdate(BaseModel):
@@ -21,13 +20,6 @@ class CategoryUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     emoji: str | None = Field(default=None, max_length=20)
     parent_category_id: uuid.UUID | None = None
-    is_shared: bool | None = None
-
-
-class CategorySharingUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    is_shared: bool
 
 
 class CategoryPublic(BaseModel):

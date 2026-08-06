@@ -57,7 +57,7 @@ class TestRegister:
         assert "Housing" in names
         assert "Income" in names
         assert all(c.is_default for c in categories)
-        assert all(c.is_shared is False for c in categories)
+        assert all(c.is_shared is True for c in categories)
 
     async def test_duplicate_email_rejected(self, client, unique_email):
         first = await _register(client, unique_email)

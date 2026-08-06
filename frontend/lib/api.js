@@ -96,8 +96,6 @@ export const categoriesApi = {
   list: () => request("/categories"),
   create: (data) => request("/categories", { method: "POST", body: JSON.stringify(data) }),
   update: (id, data) => request(`/categories/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-  updateSharing: (id, isShared) =>
-    request(`/categories/${id}/sharing`, { method: "PATCH", body: JSON.stringify({ is_shared: isShared }) }),
   remove: (id) => request(`/categories/${id}`, { method: "DELETE" }),
 }
 
