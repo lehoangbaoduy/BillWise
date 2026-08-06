@@ -12,7 +12,7 @@ from app.models.budget import Budget
 from app.models.category import Category, CategoryType
 from app.models.user import User
 from app.schemas.budget import BudgetCreate, BudgetPublic, BudgetSharingUpdate, BudgetUpdate
-from app.services.item_visibility import user_can_access_item, visibility_condition
+from app.services.item_visibility import effective_creator_id, user_can_access_item, visibility_condition
 
 router = APIRouter(prefix="/budgets", tags=["budgets"])
 
@@ -132,6 +132,11 @@ async def update_budget_sharing(
     session: AsyncSession = Depends(get_session),
 ) -> Budget:
     budget = await _get_owned_or_404(session, user, budget_id)
+    owner_id = household_owner_id(user)
+    if user.id != effective_creator_id(budget.created_by_user_id, owner_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Only the creator can change this budget's sharing"
+        )
     budget.is_shared = body.is_shared
     budget.updated_at = utcnow()
     session.add(budget)

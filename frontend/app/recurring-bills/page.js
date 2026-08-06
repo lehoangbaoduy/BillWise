@@ -6,7 +6,9 @@ import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmptyState from "@/components/elements/EmptyState"
 import SharingBadge from "@/components/elements/SharingBadge"
 import SharingToggle from "@/components/elements/SharingToggle"
+import { useAuth } from "@/hooks/useAuth"
 import { categoriesApi, paymentMethodsApi, recurringBillsApi } from "@/lib/api"
+import { isItemCreator } from "@/lib/sharing"
 
 const FREQUENCIES = ["weekly", "biweekly", "monthly", "quarterly", "yearly", "custom"]
 
@@ -246,6 +248,7 @@ function BillForm({ initial, categories, paymentMethods, onSubmit, isSubmitting,
 }
 
 export default function RecurringBills() {
+    const { user } = useAuth()
     const { data: bills, mutate: mutateBills } = useSWR("/recurring-bills", () => recurringBillsApi.list())
     const { data: paymentMethods } = useSWR("/payment-methods", () => paymentMethodsApi.list())
     const { data: categories } = useSWR("/categories", () => categoriesApi.list())
@@ -430,11 +433,16 @@ export default function RecurringBills() {
                                                 id="bill-title-shared"
                                                 isShared={activeBill.is_shared}
                                                 onChange={(checked) => handleToggleSharing(activeBill, checked)}
-                                                disabled={Boolean(activeBillPaymentMethod && !activeBillPaymentMethod.is_shared)}
+                                                disabled={
+                                                    !isItemCreator(user, activeBill) ||
+                                                    Boolean(activeBillPaymentMethod && !activeBillPaymentMethod.is_shared)
+                                                }
                                                 hint={
-                                                    activeBillPaymentMethod && !activeBillPaymentMethod.is_shared
-                                                        ? "This bill's wallet is private, so the bill can't be shared — share the wallet first, or choose a shared wallet."
-                                                        : undefined
+                                                    !isItemCreator(user, activeBill)
+                                                        ? "Only the creator can change this bill's sharing"
+                                                        : activeBillPaymentMethod && !activeBillPaymentMethod.is_shared
+                                                            ? "This bill's wallet is private, so the bill can't be shared — share the wallet first, or choose a shared wallet."
+                                                            : undefined
                                                 }
                                                 compact
                                             />

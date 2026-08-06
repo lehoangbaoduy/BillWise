@@ -8,7 +8,9 @@ import EmptyState from "@/components/elements/EmptyState"
 import EmojiPicker, { EMOJI_PRESETS } from "@/components/elements/EmojiPicker"
 import SharingBadge from "@/components/elements/SharingBadge"
 import SharingToggle from "@/components/elements/SharingToggle"
+import { useAuth } from "@/hooks/useAuth"
 import { budgetsApi, categoriesApi, dashboardApi } from "@/lib/api"
+import { isItemCreator } from "@/lib/sharing"
 
 // Deterministic per-category fallback so a category without its own emoji
 // still gets a real icon (never the generic tag glyph) and keeps the same
@@ -100,6 +102,7 @@ function BudgetNavItem({ item, emoji, isShared, isActive, onSelect, onDelete }) 
 }
 
 export default function Budgets() {
+    const { user } = useAuth()
     const today = new Date()
     const [month, setMonth] = useState(today.getMonth() + 1)
     const [year, setYear] = useState(today.getFullYear())
@@ -408,6 +411,8 @@ export default function Budgets() {
                                                 id="budget-title-shared"
                                                 isShared={activeBudget.is_shared}
                                                 onChange={(checked) => handleToggleSharing(activeBudget, checked)}
+                                                disabled={!isItemCreator(user, activeBudget)}
+                                                hint={isItemCreator(user, activeBudget) ? undefined : "Only the creator can change this budget's sharing"}
                                                 compact
                                             />
                                         )}

@@ -15,7 +15,7 @@ from app.models.transaction import Transaction, TransactionLineItem, Transaction
 from app.models.user import User
 from app.schemas.goal import AddFundsRequest, GoalContributionPublic, GoalCreate, GoalDetail, GoalPublic, GoalSharingUpdate, GoalUpdate
 from app.schemas.transaction import TransactionLineItemCreate
-from app.services.item_visibility import user_can_access_item, visibility_condition
+from app.services.item_visibility import effective_creator_id, user_can_access_item, visibility_condition
 from app.services.transaction_validation import validate_line_items, validate_payment_method
 
 router = APIRouter(prefix="/goals", tags=["goals"])
@@ -82,6 +82,7 @@ def _to_public(goal: SavingsGoal, current_amount: Decimal) -> GoalPublic:
         color=goal.color,
         is_shared=goal.is_shared,
         is_active=goal.is_active,
+        created_by_user_id=goal.created_by_user_id,
     )
 
 
@@ -182,6 +183,11 @@ async def update_goal_sharing(
     session: AsyncSession = Depends(get_session),
 ) -> GoalPublic:
     goal = await _get_owned_active_or_404(session, user, goal_id)
+    owner_id = household_owner_id(user)
+    if user.id != effective_creator_id(goal.created_by_user_id, owner_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Only the creator can change this goal's sharing"
+        )
     goal.is_shared = body.is_shared
     goal.updated_at = utcnow()
     session.add(goal)
@@ -191,7 +197,6 @@ async def update_goal_sharing(
         session, "goal.updated", user_id=user.id, entity_type="goal", entity_id=goal.id,
         metadata={"fields": ["is_shared"], "is_shared": body.is_shared}, request=request,
     )
-    owner_id = household_owner_id(user)
     return _to_public(goal, await _current_amount(session, owner_id, user, goal.id))
 
 

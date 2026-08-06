@@ -9,7 +9,9 @@ import EmptyState from "@/components/elements/EmptyState"
 import SharingBadge from "@/components/elements/SharingBadge"
 import SharingToggle from "@/components/elements/SharingToggle"
 import StatementUploadPanel from "@/components/statement/StatementUploadPanel"
+import { useAuth } from "@/hooks/useAuth"
 import { paymentMethodsApi, transactionsApi } from "@/lib/api"
+import { isItemCreator } from "@/lib/sharing"
 
 const MONTH_ABBREVIATIONS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
@@ -203,6 +205,7 @@ function WalletEditForm({ method, onSubmit, onCancel, isSubmitting }) {
 }
 
 export default function Wallets() {
+    const { user } = useAuth()
     const { data: methods, mutate } = useSWR("/payment-methods", () => paymentMethodsApi.list())
 
     const [selectedId, setSelectedId] = useState(null)
@@ -492,6 +495,8 @@ export default function Wallets() {
                                                 id="wallet-title-shared"
                                                 isShared={activeMethod.is_shared}
                                                 onChange={(checked) => handleToggleSharing(activeMethod, checked)}
+                                                disabled={!isItemCreator(user, activeMethod)}
+                                                hint={isItemCreator(user, activeMethod) ? undefined : "Only the creator can change this wallet's sharing"}
                                                 compact
                                             />
                                             {!isImportingStatement && (

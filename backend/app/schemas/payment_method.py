@@ -57,3 +57,4 @@ class PaymentMethodPublic(BaseModel):
     color: str | None
     is_shared: bool
     is_active: bool
+    created_by_user_id: uuid.UUID | None

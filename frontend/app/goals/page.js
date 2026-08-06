@@ -9,7 +9,9 @@ import EmojiPicker from "@/components/elements/EmojiPicker"
 import EmptyState from "@/components/elements/EmptyState"
 import SharingBadge from "@/components/elements/SharingBadge"
 import SharingToggle from "@/components/elements/SharingToggle"
+import { useAuth } from "@/hooks/useAuth"
 import { categoriesApi, goalsApi, paymentMethodsApi } from "@/lib/api"
+import { isItemCreator } from "@/lib/sharing"
 
 function todayISO() {
     // toISOString() reports the UTC date, which can be a day ahead of/behind
@@ -160,6 +162,7 @@ function GoalEditForm({ goal, onSubmit, onCancel, isSubmitting }) {
 }
 
 export default function Goals() {
+    const { user } = useAuth()
     const { data: goals, mutate: mutateGoals } = useSWR("/goals", () => goalsApi.list())
     const { data: paymentMethods } = useSWR("/payment-methods", () => paymentMethodsApi.list())
     const { data: categories } = useSWR("/categories", () => categoriesApi.list())
@@ -446,6 +449,8 @@ export default function Goals() {
                                                 id="goal-title-shared"
                                                 isShared={activeGoal.is_shared}
                                                 onChange={(checked) => handleToggleSharing(activeGoal, checked)}
+                                                disabled={!isItemCreator(user, activeGoal)}
+                                                hint={isItemCreator(user, activeGoal) ? undefined : "Only the creator can change this goal's sharing"}
                                                 compact
                                             />
                                             <button

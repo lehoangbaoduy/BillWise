@@ -21,7 +21,7 @@ from app.schemas.recurring_bill import (
     RecurringBillSharingUpdate,
     RecurringBillUpdate,
 )
-from app.services.item_visibility import user_can_access_item, visibility_condition
+from app.services.item_visibility import effective_creator_id, user_can_access_item, visibility_condition
 from app.services.recurring_bill_service import ensure_recurring_bill_state, mark_bill_paid, resolve_card_payment_due_date
 from app.services.transaction_validation import validate_payment_method
 
@@ -78,6 +78,7 @@ def _to_public(bill: RecurringBill, payments: list[RecurringBillPayment]) -> Rec
         is_shared=bill.is_shared,
         is_active=bill.is_active,
         notes=bill.notes,
+        created_by_user_id=bill.created_by_user_id,
         current_period=RecurringBillPaymentPublic.model_validate(current) if current else None,
         payments=[RecurringBillPaymentPublic.model_validate(p) for p in payments],
     )
@@ -237,6 +238,11 @@ async def update_recurring_bill_sharing(
     session: AsyncSession = Depends(get_session),
 ) -> RecurringBillPublic:
     bill = await _get_owned_active_or_404(session, user, bill_id)
+    owner_id = household_owner_id(user)
+    if user.id != effective_creator_id(bill.created_by_user_id, owner_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Only the creator can change this bill's sharing"
+        )
     if body.is_shared and not await _payment_method_is_shared(session, bill.payment_method_id):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

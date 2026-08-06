@@ -313,6 +313,41 @@ class TestGoalSharing:
         response = await client.patch(f"/goals/{other_goal.id}/sharing", json={"is_shared": True})
         assert response.status_code == 404
 
+    async def test_co_owner_can_toggle_own_created_goal(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        co_owner = await _make_co_owner(session, owner, f"co-owner-{unique_email}")
+        await _login(client, co_owner.email)
+        goal_response = await client.post("/goals", json={"name": "Emergency Fund", "target_amount": "1000.00"})
+        goal_id = goal_response.json()["id"]
+
+        response = await client.patch(f"/goals/{goal_id}/sharing", json={"is_shared": True})
+        assert response.status_code == 200
+
+    async def test_co_owner_cannot_toggle_owner_created_goal(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        goal_response = await client.post(
+            "/goals", json={"name": "Emergency Fund", "target_amount": "1000.00", "is_shared": True}
+        )
+        goal_id = goal_response.json()["id"]
+        co_owner = await _make_co_owner(session, owner, f"co-owner-{unique_email}")
+        await _login(client, co_owner.email)
+
+        response = await client.patch(f"/goals/{goal_id}/sharing", json={"is_shared": False})
+        assert response.status_code == 403
+
+    async def test_owner_cannot_toggle_co_owner_created_goal(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        co_owner = await _make_co_owner(session, owner, f"co-owner-{unique_email}")
+        await _login(client, co_owner.email)
+        goal_response = await client.post(
+            "/goals", json={"name": "Emergency Fund", "target_amount": "1000.00", "is_shared": True}
+        )
+        goal_id = goal_response.json()["id"]
+        await _login(client, owner.email)
+
+        response = await client.patch(f"/goals/{goal_id}/sharing", json={"is_shared": False})
+        assert response.status_code == 403
+
 
 class TestDeleteGoal:
     async def test_deactivates_and_unlinks_transactions(self, client, session, unique_email):

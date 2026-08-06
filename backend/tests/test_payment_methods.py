@@ -1,5 +1,6 @@
 from app.core.security import hash_password
 from app.models._common import utcnow
+from app.models.partner_permission import PartnerPermission
 from app.models.user import User, UserRole
 
 VALID_PASSWORD = "StrongPass123"
@@ -27,6 +28,23 @@ async def _authed_client(client, session, unique_email):
     await _create_verified_owner(session, unique_email)
     await _login(client, unique_email)
     return client
+
+
+async def _make_co_owner(session, owner, email):
+    co_owner = User(
+        email=email,
+        password_hash=hash_password(VALID_PASSWORD),
+        display_name="Co-Owner User",
+        role=UserRole.PARTNER,
+        invited_by_user_id=owner.id,
+        email_verified_at=utcnow(),
+    )
+    session.add(co_owner)
+    await session.flush()
+    session.add(PartnerPermission(partner_user_id=co_owner.id, is_co_owner=True))
+    await session.commit()
+    await session.refresh(co_owner)
+    return co_owner
 
 
 class TestCreatePaymentMethod:
@@ -162,6 +180,53 @@ class TestDeletePaymentMethod:
         get_response = await client.get(f"/payment-methods/{pm_id}")
         assert get_response.status_code == 200
         assert get_response.json()["is_active"] is False
+
+
+class TestUpdatePaymentMethodSharing:
+    async def test_owner_can_toggle_own_created_method(self, client, session, unique_email):
+        await _authed_client(client, session, unique_email)
+        create_response = await client.post("/payment-methods", json={"name": "Chase Sapphire", "type": "Credit Card"})
+        pm_id = create_response.json()["id"]
+
+        response = await client.patch(f"/payment-methods/{pm_id}/sharing", json={"is_shared": True})
+        assert response.status_code == 200
+        assert response.json()["is_shared"] is True
+
+    async def test_co_owner_can_toggle_own_created_method(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        co_owner = await _make_co_owner(session, owner, f"co-owner-{unique_email}")
+        await _login(client, co_owner.email)
+        create_response = await client.post("/payment-methods", json={"name": "Co-owner Card", "type": "Credit Card"})
+        pm_id = create_response.json()["id"]
+
+        response = await client.patch(f"/payment-methods/{pm_id}/sharing", json={"is_shared": True})
+        assert response.status_code == 200
+
+    async def test_co_owner_cannot_toggle_owner_created_shared_method(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        await _login(client, owner.email)
+        create_response = await client.post(
+            "/payment-methods", json={"name": "Chase Sapphire", "type": "Credit Card", "is_shared": True}
+        )
+        pm_id = create_response.json()["id"]
+        co_owner = await _make_co_owner(session, owner, f"co-owner-{unique_email}")
+        await _login(client, co_owner.email)
+
+        response = await client.patch(f"/payment-methods/{pm_id}/sharing", json={"is_shared": False})
+        assert response.status_code == 403
+
+    async def test_owner_cannot_toggle_co_owner_created_shared_method(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        co_owner = await _make_co_owner(session, owner, f"co-owner-{unique_email}")
+        await _login(client, co_owner.email)
+        create_response = await client.post(
+            "/payment-methods", json={"name": "Co-owner Card", "type": "Credit Card", "is_shared": True}
+        )
+        pm_id = create_response.json()["id"]
+        await _login(client, owner.email)
+
+        response = await client.patch(f"/payment-methods/{pm_id}/sharing", json={"is_shared": False})
+        assert response.status_code == 403
 
 
 class TestPartnerForbidden:

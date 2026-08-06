@@ -75,5 +75,6 @@ class RecurringBillPublic(BaseModel):
     is_shared: bool
     is_active: bool
     notes: str | None
+    created_by_user_id: uuid.UUID | None
     current_period: RecurringBillPaymentPublic | None
     payments: list[RecurringBillPaymentPublic]

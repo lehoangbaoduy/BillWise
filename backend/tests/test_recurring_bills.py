@@ -6,6 +6,7 @@ from sqlmodel import select
 from app.core.security import hash_password
 from app.models._common import utcnow
 from app.models.category import Category, CategoryType
+from app.models.partner_permission import PartnerPermission
 from app.models.payment_method import PaymentMethod, PaymentMethodType
 from app.models.recurring_bill import RecurringBill, RecurringBillPayment, RecurringBillPaymentStatus, RecurringFrequency
 from app.models.user import User, UserRole
@@ -36,6 +37,23 @@ async def _authed_client(client, session, unique_email):
     user = await _create_verified_owner(session, unique_email)
     await _login(client, unique_email)
     return user
+
+
+async def _make_co_owner(session, owner, email):
+    co_owner = User(
+        email=email,
+        password_hash=hash_password(VALID_PASSWORD),
+        display_name="Co-Owner User",
+        role=UserRole.PARTNER,
+        invited_by_user_id=owner.id,
+        email_verified_at=utcnow(),
+    )
+    session.add(co_owner)
+    await session.flush()
+    session.add(PartnerPermission(partner_user_id=co_owner.id, is_co_owner=True))
+    await session.commit()
+    await session.refresh(co_owner)
+    return co_owner
 
 
 async def _make_payment_method(session, user, **kwargs):
@@ -417,6 +435,98 @@ class TestResolveCardPaymentDueDate:
         pm = await _make_payment_method(session, user, due_day_optional=20, statement_day_optional=1)
         result = resolve_card_payment_due_date(pm, date(2026, 7, 10))
         assert result == date(2026, 7, 20)
+
+
+class TestUpdateRecurringBillSharing:
+    async def test_owner_can_toggle_own_created_bill(self, client, session, unique_email):
+        user = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, user, is_shared=True)
+        category = await _make_category(session, user)
+        create_response = await client.post(
+            "/recurring-bills",
+            json={
+                "payment_method_id": str(pm.id),
+                "category_id": str(category.id),
+                "name": "Netflix",
+                "amount": "15.00",
+                "frequency": "monthly",
+                "due_date": "2026-08-15",
+            },
+        )
+        bill_id = create_response.json()["id"]
+
+        response = await client.patch(f"/recurring-bills/{bill_id}/sharing", json={"is_shared": True})
+        assert response.status_code == 200
+        assert response.json()["is_shared"] is True
+
+    async def test_co_owner_can_toggle_own_created_bill(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        co_owner = await _make_co_owner(session, owner, f"co-owner-{unique_email}")
+        pm = await _make_payment_method(session, owner, is_shared=True)
+        category = await _make_category(session, owner)
+        await _login(client, co_owner.email)
+        create_response = await client.post(
+            "/recurring-bills",
+            json={
+                "payment_method_id": str(pm.id),
+                "category_id": str(category.id),
+                "name": "Netflix",
+                "amount": "15.00",
+                "frequency": "monthly",
+                "due_date": "2026-08-15",
+            },
+        )
+        bill_id = create_response.json()["id"]
+
+        response = await client.patch(f"/recurring-bills/{bill_id}/sharing", json={"is_shared": True})
+        assert response.status_code == 200
+
+    async def test_co_owner_cannot_toggle_owner_created_shared_bill(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        pm = await _make_payment_method(session, owner, is_shared=True)
+        category = await _make_category(session, owner)
+        create_response = await client.post(
+            "/recurring-bills",
+            json={
+                "payment_method_id": str(pm.id),
+                "category_id": str(category.id),
+                "name": "Netflix",
+                "amount": "15.00",
+                "frequency": "monthly",
+                "due_date": "2026-08-15",
+                "is_shared": True,
+            },
+        )
+        bill_id = create_response.json()["id"]
+        co_owner = await _make_co_owner(session, owner, f"co-owner-{unique_email}")
+        await _login(client, co_owner.email)
+
+        response = await client.patch(f"/recurring-bills/{bill_id}/sharing", json={"is_shared": False})
+        assert response.status_code == 403
+
+    async def test_owner_cannot_toggle_co_owner_created_shared_bill(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        co_owner = await _make_co_owner(session, owner, f"co-owner-{unique_email}")
+        pm = await _make_payment_method(session, owner, is_shared=True)
+        category = await _make_category(session, owner)
+        await _login(client, co_owner.email)
+        create_response = await client.post(
+            "/recurring-bills",
+            json={
+                "payment_method_id": str(pm.id),
+                "category_id": str(category.id),
+                "name": "Netflix",
+                "amount": "15.00",
+                "frequency": "monthly",
+                "due_date": "2026-08-15",
+                "is_shared": True,
+            },
+        )
+        bill_id = create_response.json()["id"]
+        await _login(client, owner.email)
+
+        response = await client.patch(f"/recurring-bills/{bill_id}/sharing", json={"is_shared": False})
+        assert response.status_code == 403
 
 
 class TestPartnerForbidden:

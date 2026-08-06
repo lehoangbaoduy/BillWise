@@ -35,3 +35,4 @@ class BudgetPublic(BaseModel):
     year: int
     budget_amount: Decimal
     is_shared: bool
+    created_by_user_id: uuid.UUID | None

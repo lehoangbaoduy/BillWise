@@ -16,7 +16,7 @@ from app.schemas.payment_method import (
     PaymentMethodSharingUpdate,
     PaymentMethodUpdate,
 )
-from app.services.item_visibility import user_can_access_item, visibility_condition
+from app.services.item_visibility import effective_creator_id, user_can_access_item, visibility_condition
 
 router = APIRouter(prefix="/payment-methods", tags=["payment-methods"])
 
@@ -112,6 +112,11 @@ async def update_payment_method_sharing(
     session: AsyncSession = Depends(get_session),
 ) -> PaymentMethod:
     payment_method = await _get_owned_or_404(session, user, payment_method_id)
+    owner_id = household_owner_id(user)
+    if user.id != effective_creator_id(payment_method.created_by_user_id, owner_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Only the creator can change this wallet's sharing"
+        )
     payment_method.is_shared = body.is_shared
     payment_method.updated_at = utcnow()
     session.add(payment_method)

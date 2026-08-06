@@ -57,6 +57,22 @@ async def _make_co_owner(session, owner, email):
     return co_owner
 
 
+async def _make_budget(session, owner, category, created_by_user_id=None, is_shared=False, month=7, year=2026):
+    budget = Budget(
+        user_id=owner.id,
+        created_by_user_id=created_by_user_id,
+        category_id=category.id,
+        month=month,
+        year=year,
+        budget_amount="100.00",
+        is_shared=is_shared,
+    )
+    session.add(budget)
+    await session.commit()
+    await session.refresh(budget)
+    return budget
+
+
 class TestCreateBudget:
     async def test_requires_authentication(self, client):
         response = await client.post(
@@ -265,6 +281,52 @@ class TestDeleteBudget:
         session.add(other_budget)
         await session.commit()
         await session.refresh(other_budget)
-
         response = await client.delete(f"/budgets/{other_budget.id}")
         assert response.status_code == 404
+
+
+class TestUpdateBudgetSharing:
+    """Only the creator can toggle a budget's own sharing state -- a co-owner
+    flipping something they didn't create from Shared to Private silently
+    disappears it for whoever relied on seeing it, with no warning to either
+    side. Restricting the action to the creator means the only person who can
+    ever cause that surprise is the person who made the choice to hide their
+    own item."""
+
+    async def test_owner_can_toggle_own_created_budget(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        category = await _make_category(session, owner)
+        budget = await _make_budget(session, owner, category, created_by_user_id=None, is_shared=True)
+
+        response = await client.patch(f"/budgets/{budget.id}/sharing", json={"is_shared": False})
+        assert response.status_code == 200
+        assert response.json()["is_shared"] is False
+
+    async def test_co_owner_can_toggle_own_created_budget(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        co_owner = await _make_co_owner(session, owner, f"co-{unique_email}")
+        category = await _make_category(session, owner)
+        budget = await _make_budget(session, owner, category, created_by_user_id=co_owner.id, is_shared=True)
+        await _login(client, co_owner.email)
+
+        response = await client.patch(f"/budgets/{budget.id}/sharing", json={"is_shared": False})
+        assert response.status_code == 200
+
+    async def test_co_owner_cannot_toggle_owner_created_budget(self, client, session, unique_email):
+        owner = await _create_verified_owner(session, unique_email)
+        co_owner = await _make_co_owner(session, owner, f"co-{unique_email}")
+        category = await _make_category(session, owner)
+        budget = await _make_budget(session, owner, category, created_by_user_id=None, is_shared=True)
+        await _login(client, co_owner.email)
+
+        response = await client.patch(f"/budgets/{budget.id}/sharing", json={"is_shared": False})
+        assert response.status_code == 403
+
+    async def test_owner_cannot_toggle_co_owner_created_budget(self, client, session, unique_email):
+        owner = await _authed_client(client, session, unique_email)
+        co_owner = await _make_co_owner(session, owner, f"co-{unique_email}")
+        category = await _make_category(session, owner)
+        budget = await _make_budget(session, owner, category, created_by_user_id=co_owner.id, is_shared=True)
+
+        response = await client.patch(f"/budgets/{budget.id}/sharing", json={"is_shared": False})
+        assert response.status_code == 403
