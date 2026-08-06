@@ -306,15 +306,12 @@ export default function Wallets() {
         setIsEditFormOpen(false)
     }
 
-    async function handleEdit(payload, isShared) {
+    async function handleEdit(payload) {
         if (!activeMethod) return
         setIsSubmitting(true)
         setFormError(null)
         try {
             await paymentMethodsApi.update(activeMethod.id, payload)
-            if (isShared !== activeMethod.is_shared) {
-                await paymentMethodsApi.updateSharing(activeMethod.id, isShared)
-            }
             await mutate()
             setIsEditFormOpen(false)
         } catch (error) {
