@@ -6,11 +6,12 @@ import CircularProgress from "@/components/elements/CircularProgress"
 import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmptyState from "@/components/elements/EmptyState"
 import EmojiPicker, { EMOJI_PRESETS } from "@/components/elements/EmojiPicker"
+import FilterTabs from "@/components/elements/FilterTabs"
 import SharingBadge from "@/components/elements/SharingBadge"
 import SharingToggle from "@/components/elements/SharingToggle"
 import { useAuth } from "@/hooks/useAuth"
 import { budgetsApi, categoriesApi, dashboardApi } from "@/lib/api"
-import { isItemCreator } from "@/lib/sharing"
+import { VISIBILITY_TABS, filterByVisibility, isItemCreator } from "@/lib/sharing"
 
 // Deterministic per-category fallback so a category without its own emoji
 // still gets a real icon (never the generic tag glyph) and keeps the same
@@ -116,6 +117,7 @@ export default function Budgets() {
     const [newIsShared, setNewIsShared] = useState(false)
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [formError, setFormError] = useState(null)
+    const [visibilityFilter, setVisibilityFilter] = useState("all")
 
     const periodKey = `${year}-${String(month).padStart(2, "0")}`
     const { data: items, mutate: mutateBreakdown } = useSWR(
@@ -141,7 +143,11 @@ export default function Budgets() {
         [categories]
     )
     const budgetedItems = (items ?? []).filter((item) => item.budget_amount !== null)
-    const activeItem = budgetedItems.find((item) => item.category_id === selectedCategoryId) ?? budgetedItems[0] ?? null
+    const visibleBudgetedItems = filterByVisibility(
+        budgetedItems.map((item) => ({ ...item, is_shared: budgetByCategory.get(item.category_id)?.is_shared ?? false })),
+        visibilityFilter
+    )
+    const activeItem = visibleBudgetedItems.find((item) => item.category_id === selectedCategoryId) ?? visibleBudgetedItems[0] ?? null
     const activeBudget = activeItem ? budgetByCategory.get(activeItem.category_id) : null
     const expenseCategories = (categories ?? []).filter((category) => category.category_type === "expense")
     const budgetedCategoryIds = new Set(budgetedItems.map((item) => item.category_id))
@@ -264,9 +270,12 @@ export default function Budgets() {
                 </div>
                 <div className="row g-0">
                     <div className="col-xl-4">
+                        {budgetedItems.length > 0 && (
+                            <FilterTabs options={VISIBILITY_TABS} value={visibilityFilter} onChange={setVisibilityFilter} className="mb-3" />
+                        )}
                         <div className="nav d-block">
                             <div className="row">
-                                {budgetedItems.map((item) => (
+                                {visibleBudgetedItems.map((item) => (
                                     <BudgetNavItem
                                         key={item.category_id}
                                         item={item}
@@ -399,7 +408,14 @@ export default function Budgets() {
                             {!activeItem ? (
                                 <div className="card">
                                     <div className="card-body">
-                                        <EmptyState icon="fi fi-rr-wallet" message="No budgets set for this month yet." />
+                                        <EmptyState
+                                            icon="fi fi-rr-wallet"
+                                            message={
+                                                budgetedItems.length === 0
+                                                    ? "No budgets set for this month yet."
+                                                    : `No ${visibilityFilter} budgets.`
+                                            }
+                                        />
                                     </div>
                                 </div>
                             ) : (

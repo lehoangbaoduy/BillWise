@@ -6,8 +6,15 @@ import AnalyticsMenu from "@/components/layout/AnalyticsMenu"
 import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmojiPicker from "@/components/elements/EmojiPicker"
 import EmptyState from "@/components/elements/EmptyState"
+import FilterTabs from "@/components/elements/FilterTabs"
 import { useAuth } from "@/hooks/useAuth"
 import { categoriesApi } from "@/lib/api"
+
+const TYPE_TABS = [
+    { value: "all", label: "All" },
+    { value: "expense", label: "Expense" },
+    { value: "income", label: "Income" },
+]
 
 function CategoryList({ title, categories, onEdit, onDelete, editingId }) {
     return (
@@ -62,6 +69,7 @@ export default function SettingsCategories() {
     const [editingId, setEditingId] = useState(null)
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [formError, setFormError] = useState(null)
+    const [typeFilter, setTypeFilter] = useState("all")
 
     const incomeCategories = (categories ?? []).filter((c) => c.category_type === "income")
     const expenseCategories = (categories ?? []).filter((c) => c.category_type === "expense")
@@ -181,8 +189,13 @@ export default function SettingsCategories() {
                             </div>
                         </div>
                         <div className="col-xxl-8 col-xl-8 col-lg-6">
-                            <CategoryList title="Income Categories" categories={incomeCategories} onEdit={startEditing} onDelete={handleDelete} editingId={editingId} />
-                            <CategoryList title="Expense Categories" categories={expenseCategories} onEdit={startEditing} onDelete={handleDelete} editingId={editingId} />
+                            <FilterTabs options={TYPE_TABS} value={typeFilter} onChange={setTypeFilter} className="mb-3" />
+                            {(typeFilter === "all" || typeFilter === "income") && (
+                                <CategoryList title="Income Categories" categories={incomeCategories} onEdit={startEditing} onDelete={handleDelete} editingId={editingId} />
+                            )}
+                            {(typeFilter === "all" || typeFilter === "expense") && (
+                                <CategoryList title="Expense Categories" categories={expenseCategories} onEdit={startEditing} onDelete={handleDelete} editingId={editingId} />
+                            )}
                         </div>
                     </div>
                 </div>

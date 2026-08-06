@@ -6,12 +6,13 @@ import DashboardSpendTrendChart from "@/components/chart/DashboardSpendTrendChar
 import ColorPicker, { COLOR_PRESETS } from "@/components/elements/ColorPicker"
 import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmptyState from "@/components/elements/EmptyState"
+import FilterTabs from "@/components/elements/FilterTabs"
 import SharingBadge from "@/components/elements/SharingBadge"
 import SharingToggle from "@/components/elements/SharingToggle"
 import StatementUploadPanel from "@/components/statement/StatementUploadPanel"
 import { useAuth } from "@/hooks/useAuth"
 import { paymentMethodsApi, transactionsApi } from "@/lib/api"
-import { isItemCreator } from "@/lib/sharing"
+import { VISIBILITY_TABS, filterByVisibility, isItemCreator } from "@/lib/sharing"
 
 const MONTH_ABBREVIATIONS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
@@ -223,8 +224,10 @@ export default function Wallets() {
     const [deletingId, setDeletingId] = useState(null)
     const [isImportingStatement, setIsImportingStatement] = useState(false)
     const [importSuccess, setImportSuccess] = useState(null)
+    const [visibilityFilter, setVisibilityFilter] = useState("all")
 
-    const activeMethod = (methods ?? []).find((method) => method.id === selectedId) ?? (methods ?? [])[0] ?? null
+    const filteredMethods = filterByVisibility(methods ?? [], visibilityFilter)
+    const activeMethod = filteredMethods.find((method) => method.id === selectedId) ?? filteredMethods[0] ?? null
 
     const currentYear = new Date().getFullYear()
     const currentMonthKey = new Date().toISOString().slice(0, 7)
@@ -365,9 +368,12 @@ export default function Wallets() {
                                 </div>
                             </div>
                         )}
+                        {(methods ?? []).length > 0 && (
+                            <FilterTabs options={VISIBILITY_TABS} value={visibilityFilter} onChange={setVisibilityFilter} className="mb-3" />
+                        )}
                         <div className="nav d-block">
                             <div className="row">
-                                {(methods ?? []).map((method) => (
+                                {filteredMethods.map((method) => (
                                     <WalletNavItem
                                         key={method.id}
                                         method={method}
@@ -480,7 +486,14 @@ export default function Wallets() {
                             {!activeMethod ? (
                                 <div className="card">
                                     <div className="card-body">
-                                        <EmptyState icon="fi fi-rr-wallet" message="No payment methods added yet." />
+                                        <EmptyState
+                                            icon="fi fi-rr-wallet"
+                                            message={
+                                                (methods ?? []).length === 0
+                                                    ? "No payment methods added yet."
+                                                    : `No ${visibilityFilter} wallets.`
+                                            }
+                                        />
                                     </div>
                                 </div>
                             ) : (

@@ -4,11 +4,12 @@ import useSWR from "swr"
 import Layout from "@/components/layout/Layout"
 import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmptyState from "@/components/elements/EmptyState"
+import FilterTabs from "@/components/elements/FilterTabs"
 import SharingBadge from "@/components/elements/SharingBadge"
 import SharingToggle from "@/components/elements/SharingToggle"
 import { useAuth } from "@/hooks/useAuth"
 import { categoriesApi, paymentMethodsApi, recurringBillsApi } from "@/lib/api"
-import { isItemCreator } from "@/lib/sharing"
+import { VISIBILITY_TABS, filterByVisibility, isItemCreator } from "@/lib/sharing"
 
 const FREQUENCIES = ["weekly", "biweekly", "monthly", "quarterly", "yearly", "custom"]
 
@@ -266,9 +267,10 @@ export default function RecurringBills() {
 
     const [paidDate, setPaidDate] = useState(todayISO)
     const [amountPaid, setAmountPaid] = useState("")
+    const [visibilityFilter, setVisibilityFilter] = useState("all")
 
-    const activeBillId = selectedId ?? (bills ?? [])[0]?.id ?? null
-    const activeBill = (bills ?? []).find((bill) => bill.id === activeBillId) ?? null
+    const filteredBills = filterByVisibility(bills ?? [], visibilityFilter)
+    const activeBill = filteredBills.find((bill) => bill.id === selectedId) ?? filteredBills[0] ?? null
     const activeBillPaymentMethod = activeBill
         ? (paymentMethods ?? []).find((pm) => pm.id === activeBill.payment_method_id) ?? null
         : null
@@ -344,7 +346,7 @@ export default function RecurringBills() {
             // Only clear the selection if the deactivated bill was the one
             // currently showing -- deactivating a different row from the list
             // shouldn't knock the user's current view back to the first bill.
-            if (bill.id === activeBillId) setSelectedId(null)
+            if (bill.id === activeBill?.id) setSelectedId(null)
             await mutateBills()
         } catch (error) {
             setDetailError(error.message)
@@ -366,10 +368,13 @@ export default function RecurringBills() {
             <div className="goals-tab">
                 <div className="row g-0">
                     <div className="col-xl-4">
+                        {(bills ?? []).length > 0 && (
+                            <FilterTabs options={VISIBILITY_TABS} value={visibilityFilter} onChange={setVisibilityFilter} className="mb-3" />
+                        )}
                         <div className="nav d-block">
                             <div className="row">
-                                {(bills ?? []).map((bill) => (
-                                    <BillNavItem key={bill.id} bill={bill} isActive={activeBillId === bill.id} onSelect={selectBill} onDelete={handleDeactivate} />
+                                {filteredBills.map((bill) => (
+                                    <BillNavItem key={bill.id} bill={bill} isActive={activeBill?.id === bill.id} onSelect={selectBill} onDelete={handleDeactivate} />
                                 ))}
                             </div>
                         </div>
@@ -421,7 +426,14 @@ export default function RecurringBills() {
                             {!activeBill ? (
                                 <div className="card">
                                     <div className="card-body">
-                                        <EmptyState icon="fi fi-rr-calendar-clock" message="No recurring bills yet." />
+                                        <EmptyState
+                                            icon="fi fi-rr-calendar-clock"
+                                            message={
+                                                (bills ?? []).length === 0
+                                                    ? "No recurring bills yet."
+                                                    : `No ${visibilityFilter} recurring bills.`
+                                            }
+                                        />
                                     </div>
                                 </div>
                             ) : (

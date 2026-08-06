@@ -2,10 +2,11 @@ from datetime import timedelta
 
 from sqlmodel import select
 
-from app.core.security import generate_token, hash_token
+from app.core.security import generate_token, hash_password, hash_token
 from app.models._common import utcnow
 from app.models.category import Category
-from app.models.user import EmailVerificationToken, PasswordResetToken, User
+from app.models.partner_permission import PartnerPermission
+from app.models.user import EmailVerificationToken, PasswordResetToken, User, UserRole
 
 VALID_PASSWORD = "StrongPass123"
 
@@ -34,6 +35,23 @@ async def _verify(session, client, email):
 async def _register_and_verify(client, session, email, password=VALID_PASSWORD):
     await _register(client, email, password=password)
     await _verify(session, client, email)
+
+
+async def _make_partner(session, owner, email, is_co_owner=False):
+    partner = User(
+        email=email,
+        password_hash=hash_password(VALID_PASSWORD),
+        display_name="Partner User",
+        role=UserRole.PARTNER,
+        invited_by_user_id=owner.id,
+        email_verified_at=utcnow(),
+    )
+    session.add(partner)
+    await session.flush()
+    session.add(PartnerPermission(partner_user_id=partner.id, is_co_owner=is_co_owner))
+    await session.commit()
+    await session.refresh(partner)
+    return partner
 
 
 class TestRegister:
@@ -143,6 +161,30 @@ class TestMe:
         response = await client.get("/auth/me")
         assert response.status_code == 200
         assert response.json()["email"] == unique_email
+
+    async def test_owner_can_manage_finances(self, client, session, unique_email):
+        await _register_and_verify(client, session, unique_email)
+        await client.post("/auth/login", json={"email": unique_email, "password": VALID_PASSWORD})
+        response = await client.get("/auth/me")
+        assert response.json()["can_manage_finances"] is True
+
+    async def test_co_owner_can_manage_finances(self, client, session, unique_email):
+        await _register_and_verify(client, session, unique_email)
+        owner = (await session.exec(select(User).where(User.email == unique_email))).one()
+        co_owner = await _make_partner(session, owner, f"co-owner-{unique_email}", is_co_owner=True)
+        await client.post("/auth/login", json={"email": co_owner.email, "password": VALID_PASSWORD})
+
+        response = await client.get("/auth/me")
+        assert response.json()["can_manage_finances"] is True
+
+    async def test_plain_partner_cannot_manage_finances(self, client, session, unique_email):
+        await _register_and_verify(client, session, unique_email)
+        owner = (await session.exec(select(User).where(User.email == unique_email))).one()
+        partner = await _make_partner(session, owner, f"partner-{unique_email}", is_co_owner=False)
+        await client.post("/auth/login", json={"email": partner.email, "password": VALID_PASSWORD})
+
+        response = await client.get("/auth/me")
+        assert response.json()["can_manage_finances"] is False
 
 
 class TestLogout:

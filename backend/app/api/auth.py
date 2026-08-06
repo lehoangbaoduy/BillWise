@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, is_owner_or_co_owner
 from app.core.audit import log_audit_event
 from app.core.config import settings
 from app.core.db import get_session
@@ -35,13 +35,14 @@ from app.seed.default_categories import seed_default_categories
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def to_user_public(user: User) -> UserPublic:
+async def to_user_public(user: User, session: AsyncSession) -> UserPublic:
     return UserPublic(
         id=user.id,
         email=user.email,
         role=user.role,
         display_name=user.display_name,
         email_verified=user.email_verified_at is not None,
+        can_manage_finances=await is_owner_or_co_owner(user, session),
     )
 
 
@@ -109,7 +110,7 @@ async def register(request: Request, body: RegisterRequest, session: AsyncSessio
         session, "user.registered", user_id=user.id, entity_type="user", entity_id=user.id,
         metadata={"email": user.email}, request=request,
     )
-    return to_user_public(user)
+    return await to_user_public(user, session)
 
 
 @router.post("/verify-email")
@@ -171,7 +172,7 @@ async def login(
 
     _set_session_cookie(response, user)
     await log_audit_event(session, "user.login_succeeded", user_id=user.id, entity_type="user", entity_id=user.id, request=request)
-    return to_user_public(user)
+    return await to_user_public(user, session)
 
 
 @router.post("/logout")
@@ -193,8 +194,10 @@ async def logout(
 
 
 @router.get("/me", response_model=UserPublic)
-async def me(current_user: User = Depends(get_current_user)) -> UserPublic:
-    return to_user_public(current_user)
+async def me(
+    current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)
+) -> UserPublic:
+    return await to_user_public(current_user, session)
 
 
 @router.patch("/me", response_model=UserPublic)
@@ -213,7 +216,7 @@ async def update_me(
     await log_audit_event(
         session, "user.profile_updated", user_id=current_user.id, entity_type="user", entity_id=current_user.id, request=request,
     )
-    return to_user_public(current_user)
+    return await to_user_public(current_user, session)
 
 
 @router.post("/change-password")

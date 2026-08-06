@@ -7,11 +7,12 @@ import ColorPicker, { COLOR_PRESETS } from "@/components/elements/ColorPicker"
 import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmojiPicker from "@/components/elements/EmojiPicker"
 import EmptyState from "@/components/elements/EmptyState"
+import FilterTabs from "@/components/elements/FilterTabs"
 import SharingBadge from "@/components/elements/SharingBadge"
 import SharingToggle from "@/components/elements/SharingToggle"
 import { useAuth } from "@/hooks/useAuth"
 import { categoriesApi, goalsApi, paymentMethodsApi } from "@/lib/api"
-import { isItemCreator } from "@/lib/sharing"
+import { VISIBILITY_TABS, filterByVisibility, isItemCreator } from "@/lib/sharing"
 
 function todayISO() {
     // toISOString() reports the UTC date, which can be a day ahead of/behind
@@ -187,9 +188,14 @@ export default function Goals() {
     const [fundsCategoryId, setFundsCategoryId] = useState("")
     const [fundsDate, setFundsDate] = useState(todayISO)
     const [fundsNotes, setFundsNotes] = useState("")
+    const [visibilityFilter, setVisibilityFilter] = useState("all")
 
-    const activeGoalId = selectedId ?? (goals ?? [])[0]?.id ?? null
-    const activeGoal = detail?.id === activeGoalId ? detail : (goals ?? []).find((goal) => goal.id === activeGoalId) ?? null
+    const filteredGoals = filterByVisibility(goals ?? [], visibilityFilter)
+    // Falls back to the filtered list's first goal both when nothing is
+    // selected yet AND when the previously-selected goal just got filtered
+    // out by switching tabs -- not only the "nothing selected" case.
+    const activeGoalId = filteredGoals.find((goal) => goal.id === selectedId)?.id ?? filteredGoals[0]?.id ?? null
+    const activeGoal = detail?.id === activeGoalId ? detail : filteredGoals.find((goal) => goal.id === activeGoalId) ?? null
 
     async function loadDetail(goalId) {
         setSelectedId(goalId)
@@ -317,9 +323,12 @@ export default function Goals() {
             <div className="goals-tab">
                 <div className="row g-0">
                     <div className="col-xl-4">
+                        {(goals ?? []).length > 0 && (
+                            <FilterTabs options={VISIBILITY_TABS} value={visibilityFilter} onChange={setVisibilityFilter} className="mb-3" />
+                        )}
                         <div className="nav d-block">
                             <div className="row">
-                                {(goals ?? []).map((goal) => (
+                                {filteredGoals.map((goal) => (
                                     <GoalNavItem
                                         key={goal.id}
                                         goal={goal}
@@ -437,7 +446,14 @@ export default function Goals() {
                             {!activeGoal ? (
                                 <div className="card">
                                     <div className="card-body">
-                                        <EmptyState icon="fi fi-rr-piggy-bank" message="No savings goals yet." />
+                                        <EmptyState
+                                            icon="fi fi-rr-piggy-bank"
+                                            message={
+                                                (goals ?? []).length === 0
+                                                    ? "No savings goals yet."
+                                                    : `No ${visibilityFilter} goals.`
+                                            }
+                                        />
                                     </div>
                                 </div>
                             ) : (

@@ -195,7 +195,7 @@ async def accept_invite(
         session, "partner.invite_accepted", user_id=partner.id, entity_type="user", entity_id=partner.id,
         metadata={"invited_by": str(invite.invited_by_user_id)}, request=request,
     )
-    return to_user_public(partner)
+    return await to_user_public(partner, session)
 
 
 @router.delete("/household/partner/{partner_id}", status_code=status.HTTP_204_NO_CONTENT)

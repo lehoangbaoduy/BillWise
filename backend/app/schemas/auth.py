@@ -67,3 +67,9 @@ class UserPublic(BaseModel):
     role: UserRole
     display_name: str
     email_verified: bool
+    # True for an owner, or a partner explicitly promoted to co-owner -- lets
+    # the frontend gate finance-management UI (e.g. the Merchants page) the
+    # same way require_owner_or_co_owner gates the backend, without a partner
+    # needing owner-only access to GET /household just to learn their own
+    # permission level.
+    can_manage_finances: bool

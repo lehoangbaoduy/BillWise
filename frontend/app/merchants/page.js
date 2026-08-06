@@ -5,6 +5,7 @@ import Layout from "@/components/layout/Layout"
 import AnalyticsMenu from "@/components/layout/AnalyticsMenu"
 import ConfirmButton from "@/components/elements/ConfirmButton"
 import EmptyState from "@/components/elements/EmptyState"
+import FilterTabs from "@/components/elements/FilterTabs"
 import { useAuth } from "@/hooks/useAuth"
 import { merchantsApi } from "@/lib/api"
 
@@ -24,12 +25,19 @@ function groupByType(merchants) {
     })
 }
 
-function MerchantList({ merchants, canManage, onEdit, onDelete, editingId }) {
+function typeTabsFor(merchants) {
+    const distinctTypes = [...new Set(merchants.map((m) => m.type).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+    const tabs = [{ value: "all", label: "All" }, ...distinctTypes.map((type) => ({ value: type, label: type }))]
+    if (merchants.some((m) => !m.type)) tabs.push({ value: _OTHER_GROUP, label: _OTHER_GROUP })
+    return tabs
+}
+
+function MerchantList({ merchants, canManage, onEdit, onDelete, editingId, emptyMessage }) {
     if (merchants.length === 0) {
         return (
             <div className="card">
                 <div className="card-body">
-                    <EmptyState icon="fi fi-rr-shop" message="No merchants yet." />
+                    <EmptyState icon="fi fi-rr-shop" message={emptyMessage} />
                 </div>
             </div>
         )
@@ -84,13 +92,23 @@ const _EMPTY_FORM = { name: "", type: "", city: "", state: "", notes: "" }
 
 export default function Merchants() {
     const { user } = useAuth()
-    const canManage = user?.role === "owner"
+    const canManage = Boolean(user?.can_manage_finances)
     const { data: merchants, mutate } = useSWR(user ? "/merchants" : null, () => merchantsApi.list())
 
     const [form, setForm] = useState(_EMPTY_FORM)
     const [editingId, setEditingId] = useState(null)
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [formError, setFormError] = useState(null)
+    const [typeFilter, setTypeFilter] = useState("all")
+
+    const typeTabs = typeTabsFor(merchants ?? [])
+    // Falls back to "all" if the selected type's last merchant was just
+    // deleted, so the filter never points at a tab that no longer exists.
+    const effectiveTypeFilter = typeTabs.some((tab) => tab.value === typeFilter) ? typeFilter : "all"
+    const visibleMerchants =
+        effectiveTypeFilter === "all"
+            ? merchants ?? []
+            : (merchants ?? []).filter((merchant) => (merchant.type || _OTHER_GROUP) === effectiveTypeFilter)
 
     function updateField(field, value) {
         setForm((current) => ({ ...current, [field]: value }))
@@ -237,12 +255,16 @@ export default function Merchants() {
                             </div>
                         )}
                         <div className={canManage ? "col-xxl-8 col-xl-8 col-lg-6" : "col-xxl-12 col-xl-12"}>
+                            {(merchants ?? []).length > 0 && (
+                                <FilterTabs options={typeTabs} value={effectiveTypeFilter} onChange={setTypeFilter} className="mb-3" />
+                            )}
                             <MerchantList
-                                merchants={merchants ?? []}
+                                merchants={visibleMerchants}
                                 canManage={canManage}
                                 onEdit={startEditing}
                                 onDelete={handleDelete}
                                 editingId={editingId}
+                                emptyMessage={(merchants ?? []).length === 0 ? "No merchants yet." : `No merchants of type "${effectiveTypeFilter}".`}
                             />
                         </div>
                     </div>
