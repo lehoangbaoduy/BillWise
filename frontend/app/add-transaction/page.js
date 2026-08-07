@@ -5,6 +5,7 @@ import { Suspense, useEffect, useState } from "react"
 import useSWR from "swr"
 import Layout from "@/components/layout/Layout"
 import MerchantInput from "@/components/elements/MerchantInput"
+import ReceiptFilePreview from "@/components/receipt/ReceiptFilePreview"
 import ReceiptUploadPanel from "@/components/receipt/ReceiptUploadPanel"
 import { categoriesApi, householdApi, ocrApi, paymentMethodsApi, transactionsApi } from "@/lib/api"
 import { revalidateDashboard } from "@/lib/dashboardCache"
@@ -509,9 +510,12 @@ function AddTransactionContent() {
                                                 other details are optional and can be filled in later.
                                             </p>
                                         </div>
-                                        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={startNewScan}>
-                                            Scan a different receipt
-                                        </button>
+                                        <div className="d-flex flex-column gap-2 align-items-end flex-shrink-0">
+                                            <ReceiptFilePreview file={retainedReceiptFile} />
+                                            <button type="button" className="btn btn-sm btn-outline-secondary" onClick={startNewScan}>
+                                                Scan a different receipt
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
                                 <div className="row">
