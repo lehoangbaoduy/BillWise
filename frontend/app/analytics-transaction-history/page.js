@@ -108,8 +108,6 @@ function TransactionHistoryContent() {
     const [categoryId, setCategoryId] = useState("")
     const [paymentMethodId, setPaymentMethodId] = useState("")
     const [merchant, setMerchant] = useState("")
-    const [amountMin, setAmountMin] = useState("")
-    const [amountMax, setAmountMax] = useState("")
     const [transactionTypes, setTransactionTypes] = useState([])
     const [page, setPage] = useState(1)
     const [deletingId, setDeletingId] = useState(null)
@@ -119,8 +117,6 @@ function TransactionHistoryContent() {
         month: month || undefined,
         category_id: categoryId || undefined,
         payment_method_id: paymentMethodId || undefined,
-        amount_min: amountMin || undefined,
-        amount_max: amountMax || undefined,
         merchant: merchant || undefined,
         transaction_type: transactionTypes.length > 0 ? transactionTypes : undefined,
     }
@@ -185,8 +181,6 @@ function TransactionHistoryContent() {
         setCategoryId("")
         setPaymentMethodId("")
         setMerchant("")
-        setAmountMin("")
-        setAmountMax("")
         setTransactionTypes([])
     }
 
@@ -273,28 +267,6 @@ function TransactionHistoryContent() {
                                                 options={TRANSACTION_TYPES}
                                                 value={transactionTypes}
                                                 onChange={setTransactionTypes}
-                                            />
-                                        </div>
-                                        <div className="col-md-2">
-                                            <label className="form-label" htmlFor="filter-amount-min">Min amount</label>
-                                            <input
-                                                id="filter-amount-min"
-                                                type="number"
-                                                step="0.01"
-                                                className="form-control"
-                                                value={amountMin}
-                                                onChange={(event) => setAmountMin(event.target.value)}
-                                            />
-                                        </div>
-                                        <div className="col-md-2">
-                                            <label className="form-label" htmlFor="filter-amount-max">Max amount</label>
-                                            <input
-                                                id="filter-amount-max"
-                                                type="number"
-                                                step="0.01"
-                                                className="form-control"
-                                                value={amountMax}
-                                                onChange={(event) => setAmountMax(event.target.value)}
                                             />
                                         </div>
                                     </div>
