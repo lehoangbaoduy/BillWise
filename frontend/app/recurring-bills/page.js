@@ -274,6 +274,13 @@ export default function RecurringBills() {
     const activeBillPaymentMethod = activeBill
         ? (paymentMethods ?? []).find((pm) => pm.id === activeBill.payment_method_id) ?? null
         : null
+    const isActiveBillCreator = isItemCreator(user, activeBill)
+    const activeBillWalletIsPrivate = Boolean(activeBillPaymentMethod && !activeBillPaymentMethod.is_shared)
+    const sharingDisabledHint = !isActiveBillCreator
+        ? "Only the creator can change this bill's sharing"
+        : activeBillWalletIsPrivate
+            ? "This bill's wallet is private, so the bill can't be shared — share the wallet first, or choose a shared wallet."
+            : undefined
 
     function selectBill(billId) {
         setSelectedId(billId)
@@ -445,17 +452,8 @@ export default function RecurringBills() {
                                                 id="bill-title-shared"
                                                 isShared={activeBill.is_shared}
                                                 onChange={(checked) => handleToggleSharing(activeBill, checked)}
-                                                disabled={
-                                                    !isItemCreator(user, activeBill) ||
-                                                    Boolean(activeBillPaymentMethod && !activeBillPaymentMethod.is_shared)
-                                                }
-                                                hint={
-                                                    !isItemCreator(user, activeBill)
-                                                        ? "Only the creator can change this bill's sharing"
-                                                        : activeBillPaymentMethod && !activeBillPaymentMethod.is_shared
-                                                            ? "This bill's wallet is private, so the bill can't be shared — share the wallet first, or choose a shared wallet."
-                                                            : undefined
-                                                }
+                                                disabled={!isActiveBillCreator || activeBillWalletIsPrivate}
+                                                hint={sharingDisabledHint}
                                                 compact
                                             />
                                             <button
@@ -472,6 +470,13 @@ export default function RecurringBills() {
                                             </button>
                                         </div>
                                     </div>
+                                    {/* The toggle's disabled reason also sits in a hover-only title
+                                        tooltip, which is too easy to miss -- creators saw a
+                                        permanently-disabled-looking switch with no visible
+                                        explanation. Surface it as always-visible text instead. */}
+                                    {isActiveBillCreator && activeBillWalletIsPrivate && (
+                                        <p className="text-muted small mb-2">{sharingDisabledHint}</p>
+                                    )}
                                     {detailError && <div className="text-danger mb-3" role="alert">{detailError}</div>}
 
                                     {isEditFormOpen && (
