@@ -61,7 +61,12 @@ export default function AnalyticsIncomeExpenses() {
     const income = (yearly?.income_by_month ?? []).map((entry) => Number(entry.total))
     const expenses = (yearly?.spend_by_month ?? []).map((entry) => Number(entry.total))
 
-    const expenseSorted = [...(categoryBreakdown ?? [])].sort((a, b) => Number(b.amount) - Number(a.amount))
+    // category-breakdown also injects zero-spend *budgeted* categories (budgets/page.js
+    // needs those to show "$0 of $100 budgeted" rows) -- drop them here so a $0.00 slice
+    // doesn't show up in a chart that's meant to reflect actual spending.
+    const expenseSorted = [...(categoryBreakdown ?? [])]
+        .filter((category) => Number(category.amount) > 0)
+        .sort((a, b) => Number(b.amount) - Number(a.amount))
     const expenseLabels = expenseSorted.map((category) => category.name)
     const expenseAmounts = expenseSorted.map((category) => Number(category.amount))
 

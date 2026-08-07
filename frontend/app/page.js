@@ -73,7 +73,13 @@ export default function Home() {
     // always account for the full month's spending.
     const CATEGORY_DONUT_SLOT_COUNT = 7
     const topCategories = useMemo(() => {
-        const sorted = [...(categoryBreakdown ?? [])].sort((a, b) => Number(b.amount) - Number(a.amount))
+        // category-breakdown also injects zero-spend *budgeted* categories
+        // (budgets/page.js needs those to show "$0 of $100 budgeted" rows) --
+        // drop them here so a $0.00 slice doesn't show up in a chart that's
+        // meant to reflect actual spending, not budget coverage.
+        const sorted = [...(categoryBreakdown ?? [])]
+            .filter((category) => Number(category.amount) > 0)
+            .sort((a, b) => Number(b.amount) - Number(a.amount))
         if (sorted.length <= CATEGORY_DONUT_SLOT_COUNT + 1) return sorted
         const top = sorted.slice(0, CATEGORY_DONUT_SLOT_COUNT)
         const otherAmount = sorted.slice(CATEGORY_DONUT_SLOT_COUNT).reduce((sum, c) => sum + Number(c.amount), 0)
